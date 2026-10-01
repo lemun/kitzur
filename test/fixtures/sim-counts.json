@@ -1,0 +1,488 @@
+{
+"note": "scenario.count_tokens(body): len(Qwen3.6 encode(render(body), add_special_tokens=False))",
+"variants": {
+"uncapped": {
+"cap": null,
+"chatty": false,
+"rows": [
+{
+"steps": 0,
+"messages": 2,
+"render_sha256": "95a84b95778a7c265331c61291e19fc7f87e818333fb1f86cdbdc673cd2fdceb",
+"tokens": 9376
+},
+{
+"steps": 1,
+"messages": 4,
+"render_sha256": "f086ed7596d1de4543091c9ba95355e3c409c3e70af59e359090cb2eb9c58b66",
+"tokens": 10636
+},
+{
+"steps": 2,
+"messages": 6,
+"render_sha256": "001698da095772c5ebb040b26dbd1856d6e2a06d483984f3451f422d49f52ddf",
+"tokens": 12261
+},
+{
+"steps": 5,
+"messages": 12,
+"render_sha256": "9dc57e0625dfc2a51ad0e1afa7316a6a848231295a004674348f2efa83b113bb",
+"tokens": 46999
+},
+{
+"steps": 10,
+"messages": 23,
+"render_sha256": "1e51fd011d69712685e8899bcf71dcf58fc2a54e0fd902f3f8ab28df6eef9fce",
+"tokens": 84851
+},
+{
+"steps": 20,
+"messages": 43,
+"render_sha256": "3f28c0cb27d04c7f30d7f17b6dd3c94e01507dfec989a84b28f29ba6b577ea68",
+"tokens": 149656
+},
+{
+"steps": 30,
+"messages": 63,
+"render_sha256": "14b9e9def77c06b1bd4d5ed3139218be443532bdae9a2342072cbef912774884",
+"tokens": 234625
+},
+{
+"steps": 46,
+"messages": 95,
+"render_sha256": "b39cdc46f6751cc836c66a62f9f366bd68597368d1907df0cd41f3652c281500",
+"tokens": 356361
+}
+]
+},
+"cap51200": {
+"cap": 51200,
+"chatty": false,
+"rows": [
+{
+"steps": 0,
+"messages": 2,
+"render_sha256": "95a84b95778a7c265331c61291e19fc7f87e818333fb1f86cdbdc673cd2fdceb",
+"tokens": 9376
+},
+{
+"steps": 1,
+"messages": 4,
+"render_sha256": "f086ed7596d1de4543091c9ba95355e3c409c3e70af59e359090cb2eb9c58b66",
+"tokens": 10636
+},
+{
+"steps": 2,
+"messages": 6,
+"render_sha256": "001698da095772c5ebb040b26dbd1856d6e2a06d483984f3451f422d49f52ddf",
+"tokens": 12261
+},
+{
+"steps": 3,
+"messages": 8,
+"render_sha256": "0bcf8ab40505285bbb8d8d14198de15dc5f4330d775a584cd589e1c002e79ca1",
+"tokens": 29468
+},
+{
+"steps": 4,
+"messages": 10,
+"render_sha256": "f5bdbf8bc06bd91d00256794f9eb3cb946f7db3b1c49b4e785e1b5140e2dc274",
+"tokens": 29725
+},
+{
+"steps": 5,
+"messages": 12,
+"render_sha256": "9dc57e0625dfc2a51ad0e1afa7316a6a848231295a004674348f2efa83b113bb",
+"tokens": 46999
+},
+{
+"steps": 6,
+"messages": 14,
+"render_sha256": "fd848e1c90d717d5307b6c742b41272d688dbf3444bca22fa93f68b72048b2d7",
+"tokens": 48332
+},
+{
+"steps": 7,
+"messages": 16,
+"render_sha256": "bd2bdaa39d1e203039c52710f37fb295434abd7f9b6a89e9f22a5765815bd236",
+"tokens": 55442
+},
+{
+"steps": 8,
+"messages": 18,
+"render_sha256": "7d907a6976a7187403937bb662fa0f5c4372873d6094f261ab7edcea2e39f577",
+"tokens": 56554
+},
+{
+"steps": 9,
+"messages": 20,
+"render_sha256": "076ce5b7d4c1d4e62a89a2e573c9a745d64297ba9fb0ad990cd1c2b45867e327",
+"tokens": 56643
+},
+{
+"steps": 10,
+"messages": 23,
+"render_sha256": "c6de4098d0299d6d1afec717b6c3261d34431d43439756afb250a90bc07855b8",
+"tokens": 74445
+},
+{
+"steps": 11,
+"messages": 25,
+"render_sha256": "29cbaa9bbb24a3efd19c42cf7224cbb9fd503b3f2fbbe48744b04a856f3a8a0e",
+"tokens": 76246
+},
+{
+"steps": 12,
+"messages": 27,
+"render_sha256": "d8e17f3fcbf013072429347562af163ee8f08f1540a5ceb8837d9674db93f22c",
+"tokens": 90134
+},
+{
+"steps": 13,
+"messages": 29,
+"render_sha256": "4ff1f80ae8cd30f37b98588ca6944ad2145451e75e4f5653b7307de0519ae9ab",
+"tokens": 91173
+},
+{
+"steps": 14,
+"messages": 31,
+"render_sha256": "b7139fd5ba20e04ce35f68ab2479c459b4c679891d8010b58bfa794bfad4eaa4",
+"tokens": 91263
+},
+{
+"steps": 15,
+"messages": 33,
+"render_sha256": "d445104771447d620ae8c21a59f92e22f24c10fd4231caee2f17bfe26566a6d2",
+"tokens": 104887
+},
+{
+"steps": 16,
+"messages": 35,
+"render_sha256": "04d13c16f555f763724a8a485f947fde080a725d52967d61de62447f683c07bf",
+"tokens": 106609
+},
+{
+"steps": 17,
+"messages": 37,
+"render_sha256": "8fd803257a4a82cb8a9397512cdc4db1cadbdaee57102bb66dc715919c5f4ba9",
+"tokens": 122631
+},
+{
+"steps": 18,
+"messages": 39,
+"render_sha256": "f4dfdbea626a216c3c1131632a639dc7b98d2e50f62a61916a987b86dd6b44b7",
+"tokens": 125237
+},
+{
+"steps": 19,
+"messages": 41,
+"render_sha256": "1c39a3249b68375eecdcf615ffce040363d662a11465726db0acb2943b23e96e",
+"tokens": 125327
+},
+{
+"steps": 20,
+"messages": 43,
+"render_sha256": "1b806e46d79365e86778ac5e4a205ea41eef30add572d25aa03e7e53d84a77c3",
+"tokens": 139250
+},
+{
+"steps": 21,
+"messages": 45,
+"render_sha256": "d8651529d964af0b99226626be1b9ee67290955ea296b1a55074dfad48792c1f",
+"tokens": 141003
+},
+{
+"steps": 22,
+"messages": 47,
+"render_sha256": "0408cfb3ff2707d55a104b87705777a8bbb581d352d6ba27ebd74d87330bda25",
+"tokens": 159161
+},
+{
+"steps": 23,
+"messages": 49,
+"render_sha256": "b5525ed002cd1737ef8017663b15b0755e183e7cf60fc4d222a2136b759065fc",
+"tokens": 160190
+},
+{
+"steps": 24,
+"messages": 51,
+"render_sha256": "0b48c7b2598e181e341985647f89e566bb130f329036546decf445d2049ac066",
+"tokens": 160280
+},
+{
+"steps": 25,
+"messages": 53,
+"render_sha256": "a6018a0472bc37a3c804744b2adb30e77e2e2e8fdcd1a430e6b56e5296127e16",
+"tokens": 178045
+},
+{
+"steps": 26,
+"messages": 55,
+"render_sha256": "ee2a66ee07145fa3fd055753df5b7ce53d64106bc26ad2ad06f346c030d50266",
+"tokens": 179837
+},
+{
+"steps": 27,
+"messages": 57,
+"render_sha256": "50ac3ea8dfd0c54dda2ebbe88a7d0f27721e636d2bd69b757c21693c3b3fd947",
+"tokens": 195734
+},
+{
+"steps": 28,
+"messages": 59,
+"render_sha256": "3d89c70b240fae8d8594e4983bcec348b90dd2f449ab76469938d222c76de19a",
+"tokens": 196827
+},
+{
+"steps": 29,
+"messages": 61,
+"render_sha256": "ea97a5dde8dca7816bf76afe6756eb04ca5b7dd4675e8b25abcce94d0f75bbc5",
+"tokens": 196917
+},
+{
+"steps": 30,
+"messages": 63,
+"render_sha256": "1bea29779b06b4d06e08da4ace6fb77853eed2e1bbcf2690456a99634aaaaac3",
+"tokens": 211005
+},
+{
+"steps": 31,
+"messages": 65,
+"render_sha256": "1f967c09ec38579091e85f02b554019ab0721ca4d2df55beb9d7f2eb7dbfa788",
+"tokens": 212774
+},
+{
+"steps": 32,
+"messages": 67,
+"render_sha256": "412dc742cf4a576c0d9dc2267cc7237e5af4936328edc0d7fe1fc9795351e58c",
+"tokens": 230649
+},
+{
+"steps": 33,
+"messages": 69,
+"render_sha256": "4fc37c543df757c45be376621be09a306a857959892b8e010907969df82a0f6f",
+"tokens": 231693
+},
+{
+"steps": 34,
+"messages": 71,
+"render_sha256": "47eabd634862184a6fe40ebfcdad435a226039ef4a0f2d948e67fcea6f171fa5",
+"tokens": 231783
+},
+{
+"steps": 35,
+"messages": 73,
+"render_sha256": "065d8d5d81a317bff00e29b3002dcbffbe9b999cd82ab75462b6a973adb855e6",
+"tokens": 249949
+},
+{
+"steps": 36,
+"messages": 75,
+"render_sha256": "d2d1b846fcece4807d0abab4664d45bf40c7136b1cd4b97f7fbd3629caf425df",
+"tokens": 251104
+},
+{
+"steps": 37,
+"messages": 77,
+"render_sha256": "fb0a6c78d472db63603a6ccb8104d0015b2c9a3182164bc30d16f91c3207e67c",
+"tokens": 266670
+},
+{
+"steps": 38,
+"messages": 79,
+"render_sha256": "fc6566cf3773bf48ec7d9a14cb5c3286c687794f990daf950c2f47a6569c9bf0",
+"tokens": 269261
+},
+{
+"steps": 39,
+"messages": 81,
+"render_sha256": "8ecb6963080d33cc729cc50fa59dc4e3838fcc0209f7cf3883401d4c6bfeafb3",
+"tokens": 269334
+},
+{
+"steps": 40,
+"messages": 83,
+"render_sha256": "5545b2fb8290f92f1a3eb0b04e4463dcce47165001a468c845a34cbccd5c754e",
+"tokens": 279742
+},
+{
+"steps": 41,
+"messages": 85,
+"render_sha256": "3f0ccb9f522e2af461c126fe31780295d7e8d73c46155dcb73e6c03a9dc7af15",
+"tokens": 282274
+},
+{
+"steps": 42,
+"messages": 87,
+"render_sha256": "3f81ab12ab226a360ecda9070d71b3ee602662a471b13d057a29c73b664907f2",
+"tokens": 300355
+},
+{
+"steps": 43,
+"messages": 89,
+"render_sha256": "57e188e74ecefd10a02883248756883f0fb7cb914961d42c9838e64c612b60de",
+"tokens": 301385
+},
+{
+"steps": 44,
+"messages": 91,
+"render_sha256": "cc1f0d574e3767c3ad985dc3caba0af76ffd8642c702606e5b5869067fe34e2a",
+"tokens": 301475
+},
+{
+"steps": 45,
+"messages": 93,
+"render_sha256": "112330888094d7be3efc72c20ac99d009f51ef3d1b5ecc511577b501b908afb5",
+"tokens": 315423
+},
+{
+"steps": 46,
+"messages": 95,
+"render_sha256": "a4ca2f169f76f9f822bbc3817e0ee0b668c9f20d5d1901461a37029647afda79",
+"tokens": 316614
+}
+]
+},
+"chatty_cap51200": {
+"cap": 51200,
+"chatty": true,
+"rows": [
+{
+"steps": 3,
+"messages": 8,
+"render_sha256": "30bf6ec8ef6020dad86b102a85ee708c9d3fb0d7fd2af4b2b05ec4395ec32bf4",
+"tokens": 29842
+},
+{
+"steps": 15,
+"messages": 33,
+"render_sha256": "aa51c76c120ca74385340845846d57e96a75a3cfb70d2fa291dac1dfa33b4dd8",
+"tokens": 107322
+},
+{
+"steps": 46,
+"messages": 95,
+"render_sha256": "0dfc311f3f7da7a6524ec2b0a0cee3b20ffc50e69d55a6742f067bb9bded0c81",
+"tokens": 324886
+}
+]
+}
+},
+"edge": [
+{
+"body": {
+"messages": []
+},
+"render": "<|im_start|>system\n<|im_end|>\n<|im_start|>assistant\n",
+"tokens": 8
+},
+{
+"body": {
+"messages": [
+{
+"role": "user",
+"content": "hi"
+}
+]
+},
+"render": "<|im_start|>system\n<|im_end|>\n<|im_start|>user\nhi<|im_end|>\n<|im_start|>assistant\n",
+"tokens": 14
+},
+{
+"body": {
+"messages": [
+{
+"role": "system",
+"content": [
+{
+"type": "text",
+"text": "A"
+},
+{
+"type": "image_url",
+"image_url": {
+"url": "x"
+}
+},
+{
+"type": "text",
+"text": "B"
+}
+]
+},
+{
+"role": "user",
+"content": [
+{
+"type": "text",
+"text": "u1"
+},
+"not-a-dict",
+{
+"type": "text"
+}
+]
+},
+{
+"role": "assistant",
+"content": "",
+"tool_calls": []
+},
+{
+"role": "assistant",
+"content": "two calls",
+"reasoning_content": "IGNORED",
+"tool_calls": [
+{
+"id": "a",
+"type": "function",
+"function": {
+"name": "n1",
+"arguments": "{\"k\": \"שלום 😀\"}"
+}
+},
+{
+"id": "b",
+"type": "function",
+"function": {
+"name": "n2",
+"arguments": ""
+}
+}
+]
+},
+{
+"role": "tool",
+"tool_call_id": "a",
+"content": null
+},
+{
+"role": "tool",
+"tool_call_id": "b",
+"content": "r b"
+},
+{
+"role": "developer",
+"content": "dev"
+},
+{
+"role": "system",
+"content": "second system"
+}
+],
+"tools": [
+{
+"type": "function",
+"function": {
+"name": "t",
+"description": "שלום 😀 \"q\"",
+"parameters": {}
+}
+}
+]
+},
+"render": "<|im_start|>system\nA\n\nB\n\n# Tools\n\n<tools>\n{\"type\": \"function\", \"function\": {\"name\": \"t\", \"description\": \"שלום 😀 \\\"q\\\"\", \"parameters\": {}}}\n</tools><|im_end|>\n<|im_start|>user\nu1\n<|im_end|>\n<|im_start|>assistant\n<|im_end|>\n<|im_start|>assistant\ntwo calls\n<tool_call>\n{\"name\": \"n1\", \"arguments\": \"{\\\"k\\\": \\\"שלום 😀\\\"}\"}\n</tool_call>\n<tool_call>\n{\"name\": \"n2\", \"arguments\": \"\"}\n</tool_call><|im_end|>\n<|im_start|>user\n<tool_response>\n\n</tool_response><|im_end|>\n<|im_start|>user\n<tool_response>\nr b\n</tool_response><|im_end|>\n<|im_start|>developer\ndev<|im_end|>\n<|im_start|>system\nsecond system<|im_end|>\n<|im_start|>assistant\n",
+"tokens": 149
+}
+]
+}

@@ -1,0 +1,499 @@
+{
+ "_comment": "Copied from reference implementation and upstream reference (32 sample bodies rebuilt from the servers' format strings: L=100000, P=95000, M=32000). Used by test/bench/mock-styles.test.ts.",
+ "map": {
+  "_comment": "Default upstream error map for kitzur (draft from reference implementation). Regexes are JavaScript syntax (named groups), matched case-sensitively against the raw response body text (and against every SSE event payload for in-stream errors). Named groups: window, prompt, completion, total, maxInput, chars, atLeast. 'lowerBound' means the prompt number is only a lower bound (tokenization was truncated at maxInput+1). Order matters: first match wins. 'status' null = any status (incl. in-stream after HTTP 200). Use the optional 'flags' field (e.g. 'i') instead of inline modifiers: Node 20 RegExp has no (?i:...) support.",
+  "version": 1,
+  "entries": [
+   {
+    "id": "vllm.v018.total",
+    "server": "vllm>=0.18",
+    "status": [
+     400,
+     null
+    ],
+    "kind": "overflow_total",
+    "match": "This model's maximum context length is (?<window>\\d+) tokens\\. However, you requested (?<completion>\\d+) output tokens and your prompt contains (?<atLeast>at least )?(?<prompt>\\d+) input tokens",
+    "lowerBoundIf": "atLeast"
+   },
+   {
+    "id": "vllm.v018.chars",
+    "server": "vllm>=0.18",
+    "status": [
+     400,
+     null
+    ],
+    "kind": "overflow_total",
+    "match": "This model's maximum context length is (?<window>\\d+) tokens\\. However, you requested (?<completion>\\d+) output tokens and your prompt contains (?<chars>\\d+) characters \\(more than \\d+ characters, which is the upper bound for (?<maxInput>\\d+) input tokens\\)"
+   },
+   {
+    "id": "vllm.v016.tokens",
+    "server": "vllm 0.16-0.17",
+    "status": [
+     400,
+     null
+    ],
+    "kind": "overflow_total",
+    "match": "You passed (?<prompt>\\d+) input tokens and requested (?<completion>\\d+) output tokens\\. However, the model's context length is only (?<window>\\d+) tokens, resulting in a maximum input length of (?<maxInput>\\d+) tokens",
+    "lowerBound": true
+   },
+   {
+    "id": "vllm.v016.chars",
+    "server": "vllm 0.16-0.17",
+    "status": [
+     400,
+     null
+    ],
+    "kind": "overflow_total",
+    "match": "You passed (?<chars>\\d+) input characters and requested (?<completion>\\d+) output tokens\\. However, the model's context length is only (?<window>\\d+) tokens"
+   },
+   {
+    "id": "vllm.v011.total",
+    "server": "vllm 0.11-0.15",
+    "status": [
+     400,
+     null
+    ],
+    "kind": "overflow_total",
+    "match": "'max_tokens' or 'max_completion_tokens' is too large: (?<completion>\\d+)\\. This model's maximum context length is (?<window>\\d+) tokens and your request has (?<prompt>\\d+) input tokens"
+   },
+   {
+    "id": "vllm.v011.prompt",
+    "server": "vllm 0.11-0.15",
+    "status": [
+     400,
+     null
+    ],
+    "kind": "overflow_prompt",
+    "match": "This model's maximum context length is (?<window>\\d+) tokens\\. However, your request has (?<prompt>\\d+) input tokens"
+   },
+   {
+    "id": "vllm.legacy.total",
+    "server": "vllm<=0.10",
+    "status": [
+     400,
+     null
+    ],
+    "kind": "overflow_total",
+    "match": "This model's maximum context length is (?<window>\\d+) tokens\\. However, you requested (?<total>\\d+) tokens \\((?<prompt>\\d+) in the messages, (?<completion>\\d+) in the completion\\)"
+   },
+   {
+    "id": "vllm.legacy.prompt",
+    "server": "vllm<=0.10",
+    "status": [
+     400,
+     null
+    ],
+    "kind": "overflow_prompt",
+    "match": "This model's maximum context length is (?<window>\\d+) tokens\\. However, you requested (?<prompt>\\d+) tokens in the (?:messages|input)"
+   },
+   {
+    "id": "vllm.max_tokens_gt_window",
+    "server": "vllm>=0.16",
+    "status": [
+     400,
+     null
+    ],
+    "kind": "max_tokens_too_large",
+    "match": "(?:max_tokens|max_completion_tokens)=(?<completion>\\d+) cannot be greater than max_model_len=(?<window>\\d+)"
+   },
+   {
+    "id": "vllm.engine.prompt",
+    "server": "vllm (engine)",
+    "status": [
+     400,
+     null
+    ],
+    "kind": "overflow_prompt",
+    "match": "The (?:decoder )?prompt \\(length (?<prompt>\\d+)\\) (?:plus the number of requested output tokens \\(at least 1\\) )?is longer than the maximum model length of (?<window>\\d+)"
+   },
+   {
+    "id": "vllm.any",
+    "server": "vllm (any, fallback)",
+    "status": [
+     400,
+     null
+    ],
+    "kind": "overflow_total",
+    "match": "This model's maximum context length is (?<window>\\d+) tokens"
+   },
+   {
+    "id": "sglang.total",
+    "server": "sglang",
+    "status": [
+     400,
+     null
+    ],
+    "kind": "overflow_total",
+    "match": "Requested token count exceeds the model's maximum context length of (?<window>\\d+) tokens\\. You requested a total of (?<total>\\d+) tokens: (?<prompt>\\d+) tokens from the input messages and (?<completion>\\d+) tokens for the completion"
+   },
+   {
+    "id": "sglang.prompt",
+    "server": "sglang",
+    "status": [
+     400,
+     null
+    ],
+    "kind": "overflow_prompt",
+    "match": "The input \\((?<prompt>\\d+) tokens\\) is longer than the model's context length \\((?<window>\\d+) tokens\\)"
+   },
+   {
+    "id": "sglang.sched",
+    "server": "sglang (scheduler)",
+    "status": [
+     400,
+     null
+    ],
+    "kind": "overflow_prompt",
+    "match": "Input length \\((?<prompt>\\d+) tokens\\) exceeds the maximum allowed length \\((?<maxInput>\\d+) tokens\\)"
+   },
+   {
+    "id": "sglang.kv",
+    "server": "sglang (scheduler)",
+    "status": [
+     400,
+     null
+    ],
+    "kind": "overflow_prompt",
+    "match": "Request prompt exceeds the KV memory budget: input_len=(?<prompt>\\d+)"
+   },
+   {
+    "id": "llamacpp.new",
+    "server": "llama.cpp: present in b7498 (2025-12-21) through main; absent in b6936",
+    "status": [
+     400,
+     null
+    ],
+    "kind": "overflow_prompt",
+    "match": "request \\((?<prompt>\\d+) tokens\\) exceeds the available context size \\((?<window>\\d+) tokens\\)",
+    "json": {
+     "prompt": "error.n_prompt_tokens",
+     "window": "error.n_ctx"
+    }
+   },
+   {
+    "id": "llamacpp.new.nosplit",
+    "server": "llama.cpp: present in b7498 through main",
+    "status": [
+     400,
+     null
+    ],
+    "kind": "overflow_prompt",
+    "match": "input \\((?<prompt>\\d+) tokens\\) is larger than the max context size \\((?<window>\\d+) tokens\\)",
+    "json": {
+     "prompt": "error.n_prompt_tokens",
+     "window": "error.n_ctx"
+    }
+   },
+   {
+    "id": "llamacpp.old",
+    "server": "llama.cpp <= b6936 (<= Nov 2025)",
+    "status": [
+     400,
+     500,
+     null
+    ],
+    "kind": "overflow_prompt",
+    "match": "(?:the request exceeds the available context size|input is larger than the max context size)",
+    "json": {
+     "prompt": "error.n_prompt_tokens",
+     "window": "error.n_ctx"
+    }
+   },
+   {
+    "id": "llamacpp.type",
+    "server": "llama.cpp",
+    "status": [
+     400,
+     null
+    ],
+    "kind": "overflow_prompt",
+    "match": "\"type\"\\s*:\\s*\"exceed_context_size_error\"",
+    "json": {
+     "prompt": "error.n_prompt_tokens",
+     "window": "error.n_ctx"
+    }
+   },
+   {
+    "id": "tgi.total",
+    "server": "tgi",
+    "status": [
+     422,
+     424,
+     null
+    ],
+    "kind": "overflow_total",
+    "match": "`inputs` tokens \\+ `max_new_tokens` must be <= (?<window>\\d+)\\. Given: (?<prompt>\\d+) `inputs` tokens and (?<completion>\\d+) `max_new_tokens`",
+    "note": "completion is min(max_tokens, 1024) (TGI DEFAULT_GENERATION_LENGTH), not the requested max_tokens"
+   },
+   {
+    "id": "tgi.prompt",
+    "server": "tgi",
+    "status": [
+     422,
+     null
+    ],
+    "kind": "overflow_prompt",
+    "match": "`inputs` must have less than (?<maxInput>\\d+) tokens\\. Given: (?<prompt>\\d+)"
+   },
+   {
+    "id": "lmstudio.keep",
+    "server": "lmstudio (llama.cpp engine)",
+    "status": [
+     400,
+     null
+    ],
+    "kind": "overflow_prompt",
+    "match": "Trying to keep the first (?<prompt>\\d+) tokens when context the overflows\\. However, the model is loaded with context length of only (?<window>\\d+) tokens",
+    "note": "prompt = tokens LM Studio must keep (system + first user message), a lower bound of the real prompt"
+   },
+   {
+    "id": "llamacpp.nkeep.legacy",
+    "server": "lmstudio / old llama.cpp",
+    "status": [
+     400,
+     500,
+     null
+    ],
+    "kind": "overflow_prompt",
+    "match": "(?:The number of tokens to keep from the initial prompt is greater than the context length|n_keep: (?<prompt>\\d+)\\s*>= n_ctx: (?<window>\\d+))"
+   },
+   {
+    "id": "ollama.prompt",
+    "server": "ollama",
+    "status": [
+     400,
+     500,
+     null
+    ],
+    "kind": "overflow_prompt",
+    "match": "(?:the prompt is longer than the context length currently available to the model|input (?:after truncation )?exceeds (?:the )?maximum context length|the input length exceeds the context length)"
+   },
+   {
+    "id": "litellm.cwe",
+    "server": "litellm proxy",
+    "status": [
+     400,
+     null
+    ],
+    "kind": "overflow_unknown",
+    "match": "(?:ContextWindowExceededError|litellm\\._pre_call_checks: Context Window exceeded)",
+    "note": "inner upstream text is embedded; run the other entries on the same text first to extract numbers"
+   },
+   {
+    "id": "openai.code",
+    "server": "generic OpenAI-style",
+    "status": [
+     400,
+     null
+    ],
+    "kind": "overflow_unknown",
+    "match": "context_length_exceeded"
+   },
+   {
+    "id": "http.413",
+    "server": "gateway (nginx/envoy/any)",
+    "status": [
+     413
+    ],
+    "kind": "payload_too_large",
+    "match": ""
+   },
+   {
+    "id": "gateway.5xx",
+    "server": "gateway (nginx/envoy/any)",
+    "status": [
+     502,
+     503,
+     504
+    ],
+    "kind": "gateway_error",
+    "match": ""
+   },
+   {
+    "id": "generic.suspect",
+    "server": "unknown",
+    "status": [
+     400,
+     413,
+     422
+    ],
+    "kind": "overflow_suspect",
+    "match": "context (?:length|window|size)|maximum context|too many tokens|prompt is too long|reduce the length|token limit",
+    "flags": "i"
+   }
+  ],
+  "exclusions": [
+   {
+    "id": "rate_limit",
+    "match": "rate limit|too many requests|throttl",
+    "flags": "i"
+   },
+   {
+    "id": "stream_options",
+    "match": "Stream options can only be defined when `stream=True`"
+   }
+  ]
+ },
+ "samples": [
+  [
+   "vllm.v018.total",
+   400,
+   "{\"error\":{\"message\":\"This model's maximum context length is 100000 tokens. However, you requested 32000 output tokens and your prompt contains at least 68001 input tokens, for a total of at least 100001 tokens. Please reduce the length of the input prompt or the number of requested output tokens.\",\"type\":\"BadRequestError\",\"param\":\"input_tokens\",\"code\":400}}"
+  ],
+  [
+   "vllm.v018.total",
+   400,
+   "{\"error\":{\"message\":\"This model's maximum context length is 100000 tokens. However, you requested 32000 output tokens and your prompt contains 95000 input tokens, for a total of 127000 tokens (95000 + 32000 = 127000 > 100000). Please reduce the length of the input prompt or the number of requested output tokens.\",\"type\":\"BadRequestError\",\"param\":\"max_tokens\",\"code\":400}}"
+  ],
+  [
+   "vllm.v018.chars",
+   400,
+   "{\"error\":{\"message\":\"This model's maximum context length is 100000 tokens. However, you requested 32000 output tokens and your prompt contains 99999999 characters (more than 12345678 characters, which is the upper bound for 68000 input tokens). Please reduce the length of the input prompt or the number of requested output tokens.\",\"type\":\"BadRequestError\",\"param\":\"input_text\",\"code\":400}}"
+  ],
+  [
+   "vllm.v016.tokens",
+   400,
+   "{\"error\":{\"message\":\"You passed 68001 input tokens and requested 32000 output tokens. However, the model's context length is only 100000 tokens, resulting in a maximum input length of 68000 tokens. Please reduce the length of the input prompt.\",\"type\":\"BadRequestError\",\"param\":\"input_tokens\",\"code\":400}}"
+  ],
+  [
+   "vllm.v016.chars",
+   400,
+   "{\"error\":{\"message\":\"You passed 99999999 input characters and requested 32000 output tokens. However, the model's context length is only 100000 tokens, resulting in a maximum input length of 68000 tokens (at most 12345678 characters). Please reduce the length of the input prompt.\",\"type\":\"BadRequestError\",\"param\":\"input_text\",\"code\":400}}"
+  ],
+  [
+   "vllm.v011.total",
+   400,
+   "{\"error\":{\"message\":\"'max_tokens' or 'max_completion_tokens' is too large: 32000. This model's maximum context length is 100000 tokens and your request has 95000 input tokens (32000 > 100000 - 95000).\",\"type\":\"BadRequestError\",\"param\":null,\"code\":400}}"
+  ],
+  [
+   "vllm.v011.prompt",
+   400,
+   "{\"error\":{\"message\":\"This model's maximum context length is 100000 tokens. However, your request has 100500 input tokens. Please reduce the length of the input messages.\",\"type\":\"BadRequestError\",\"param\":null,\"code\":400}}"
+  ],
+  [
+   "vllm.legacy.total",
+   400,
+   "{\"object\":\"error\",\"message\":\"This model's maximum context length is 100000 tokens. However, you requested 127000 tokens (95000 in the messages, 32000 in the completion). Please reduce the length of the messages or completion.\",\"type\":\"BadRequestError\",\"param\":null,\"code\":400}"
+  ],
+  [
+   "vllm.legacy.prompt",
+   400,
+   "{\"object\":\"error\",\"message\":\"This model's maximum context length is 100000 tokens. However, you requested 100500 tokens in the messages, Please reduce the length of the messages.\",\"type\":\"BadRequestError\",\"param\":null,\"code\":400}"
+  ],
+  [
+   "vllm.max_tokens_gt_window",
+   400,
+   "{\"error\":{\"message\":\"max_tokens=200000 cannot be greater than max_model_len=100000. Please request fewer output tokens.\",\"type\":\"BadRequestError\",\"param\":\"max_tokens\",\"code\":400}}"
+  ],
+  [
+   "vllm.engine.prompt",
+   400,
+   "{\"error\":{\"message\":\"The decoder prompt (length 100001) is longer than the maximum model length of 100000. Make sure that `max_model_len` is no smaller than the number of text tokens.\",\"type\":\"BadRequestError\",\"param\":null,\"code\":400}}"
+  ],
+  [
+   "sglang.total",
+   400,
+   "{\"object\":\"error\",\"message\":\"Requested token count exceeds the model's maximum context length of 100000 tokens. You requested a total of 127000 tokens: 95000 tokens from the input messages and 32000 tokens for the completion. Please reduce the number of tokens in the input messages or the completion to fit within the limit.\",\"type\":\"BadRequestError\",\"param\":null,\"code\":400}"
+  ],
+  [
+   "sglang.prompt",
+   400,
+   "{\"object\":\"error\",\"message\":\"The input (100500 tokens) is longer than the model's context length (100000 tokens).\",\"type\":\"BadRequestError\",\"param\":null,\"code\":400}"
+  ],
+  [
+   "sglang.prompt",
+   200,
+   "data: {\"error\": {\"object\": \"error\", \"message\": \"The input (8391 tokens) is longer than the model's context length (8192 tokens).\", \"type\": \"BadRequestError\", \"param\": null, \"code\": 400}}"
+  ],
+  [
+   "sglang.sched",
+   400,
+   "{\"object\":\"error\",\"message\":\"Input length (100500 tokens) exceeds the maximum allowed length (99999 tokens). Use a shorter input or enable --allow-auto-truncate.\",\"type\":\"BadRequestError\",\"param\":null,\"code\":400}"
+  ],
+  [
+   "llamacpp.new",
+   400,
+   "{\"error\":{\"code\":400,\"message\":\"request (100500 tokens) exceeds the available context size (100000 tokens), try increasing it\",\"type\":\"exceed_context_size_error\",\"n_prompt_tokens\":100500,\"n_ctx\":100000}}"
+  ],
+  [
+   "llamacpp.new.nosplit",
+   400,
+   "{\"error\":{\"code\":400,\"message\":\"input (100500 tokens) is larger than the max context size (100000 tokens). skipping\",\"type\":\"exceed_context_size_error\",\"n_prompt_tokens\":100500,\"n_ctx\":100000}}"
+  ],
+  [
+   "llamacpp.old",
+   400,
+   "{\"error\":{\"code\":400,\"type\":\"exceed_context_size_error\",\"message\":\"the request exceeds the available context size, try increasing it\",\"n_prompt_tokens\":100500,\"n_ctx\":100000}}"
+  ],
+  [
+   "llamacpp.old",
+   200,
+   "error: {\"code\":400,\"message\":\"the request exceeds the available context size. try increasing the context size or enable context shift\",\"type\":\"invalid_request_error\"}"
+  ],
+  [
+   "tgi.total",
+   422,
+   "{\"error\":\"Input validation error: `inputs` tokens + `max_new_tokens` must be <= 100000. Given: 99500 `inputs` tokens and 1024 `max_new_tokens`\",\"error_type\":\"validation\"}"
+  ],
+  [
+   "tgi.total",
+   200,
+   "data: {\"error\":{\"message\":\"Input validation error: `inputs` tokens + `max_new_tokens` must be <= 100000. Given: 99500 `inputs` tokens and 1024 `max_new_tokens`\",\"http_status_code\":422}}"
+  ],
+  [
+   "tgi.prompt",
+   422,
+   "{\"error\":\"Input validation error: `inputs` must have less than 99999 tokens. Given: 100500\",\"error_type\":\"validation\"}"
+  ],
+  [
+   "lmstudio.keep",
+   400,
+   "{\"error\":\"Trying to keep the first 50785 tokens when context the overflows. However, the model is loaded with context length of only 45217 tokens, which is not enough. Try to load the model with a larger context length, or provide a shorter input\"}"
+  ],
+  [
+   "ollama.prompt",
+   400,
+   "{\"error\":{\"message\":\"the prompt is longer than the context length currently available to the model; shorten the prompt, adjust the context length in settings, or use a model with a longer context length\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":null}}"
+  ],
+  [
+   "vllm.v018.total",
+   400,
+   "{\"error\":{\"message\":\"litellm.ContextWindowExceededError: litellm.BadRequestError: ContextWindowExceededError: Hosted_vllmException - This model's maximum context length is 100000 tokens. However, you requested 32000 output tokens and your prompt contains 95000 input tokens, for a total of 127000 tokens. Please reduce the length of the input prompt or the number of requested output tokens.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"400\"}}"
+  ],
+  [
+   "litellm.cwe",
+   400,
+   "{\"error\":{\"message\":\"litellm.ContextWindowExceededError: litellm._pre_call_checks: Context Window exceeded for given call. No models have context window large enough for this call.\",\"type\":\"invalid_request_error\",\"param\":null,\"code\":\"400\"}}"
+  ],
+  [
+   "http.413",
+   413,
+   "<html>\r\n<head><title>413 Request Entity Too Large</title></head>\r\n<body>\r\n<center><h1>413 Request Entity Too Large</h1></center>\r\n<hr><center>nginx</center>\r\n</body>\r\n</html>\r\n"
+  ],
+  [
+   "gateway.5xx",
+   502,
+   "<html>\r\n<head><title>502 Bad Gateway</title></head>\r\n<body>\r\n<center><h1>502 Bad Gateway</h1></center>\r\n<hr><center>nginx</center>\r\n</body>\r\n</html>\r\n"
+  ],
+  [
+   "gateway.5xx",
+   504,
+   "<html>\r\n<head><title>504 Gateway Time-out</title></head>\r\n<body>\r\n<center><h1>504 Gateway Time-out</h1></center>\r\n<hr><center>nginx</center>\r\n</body>\r\n</html>\r\n"
+  ],
+  [
+   null,
+   400,
+   "{\"error\":{\"message\":\"Stream options can only be defined when `stream=True`.\",\"type\":\"BadRequestError\",\"param\":\"stream_options\",\"code\":400}}"
+  ],
+  [
+   null,
+   429,
+   "{\"error\":{\"message\":\"Rate limit exceeded\",\"type\":\"rate_limit_error\",\"param\":null,\"code\":\"429\"}}"
+  ],
+  [
+   null,
+   400,
+   "{\"error\":{\"message\":\"max_tokens must be at least 1, got 0.\",\"type\":\"BadRequestError\",\"param\":\"max_tokens\",\"code\":400}}"
+  ]
+ ]
+}

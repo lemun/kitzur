@@ -1,0 +1,13 @@
+{
+  "$comment": [
+    "kitzur preset 32k: a 32000-token window with 8000 tokens reserved for the reply (T_plan).",
+    "Everything else comes from the built-in defaults (triggerFraction 1.0, targetFraction 0.35, summaryFraction 0.04,",
+    "keepRecent 1, snapshot stubs at compaction boundaries). Derived: budget 23,488, clientPoint 24,000, allowance 4,000,",
+    "hard = trigger 20,000, target 7,000 ('kitzur config show --preset 32k' prints them).",
+    "Defaults can be evaluated with the optional benchmark sweep; see bench/README.md."
+  ],
+  "budget": {
+    "window": 32000,
+    "defaultMaxTokens": 8000
+  }
+}

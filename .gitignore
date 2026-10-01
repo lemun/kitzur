@@ -1,0 +1,25 @@
+node_modules/
+dist/
+*.tgz
+*.tar.gz
+bench/results/
+bench/.cache/
+BENCHMARKS.md
+.kitzur-state/
+.env
+.env.*
+!.env.example
+# Tokenizers and model artifacts are local inputs, never release files.
+*tokenizer.json
+*-tokenizer.json
+*.safetensors
+*.gguf
+*.lctk
+.venv/
+venv/
+bench/reference/tok/
+bench/reference/runs/
+__pycache__/
+*.pyc
+
+bench/reference/venv

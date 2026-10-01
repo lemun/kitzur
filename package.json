@@ -1,0 +1,46 @@
+{
+  "name": "kitzur",
+  "version": "0.1.0",
+  "description": "Request-time context compactor proxy for local LLMs with small windows (OpenAI Chat Completions).",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "kitzur": "dist/src/cli.js"
+  },
+  "main": "dist/src/index.js",
+  "files": [
+    "dist/src",
+    "presets",
+    "deploy",
+    "README.md",
+    "CONFIG.md",
+    "DESIGN.md",
+    "SECURITY.md",
+    "THIRD_PARTY_NOTICES.md",
+    "LICENSE",
+    "LICENSES"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "test": "npm run build && node scripts/run-tests.mjs --test-reporter=dot",
+    "bench": "npm run build && node dist/bench/run-all.js",
+    "crosscheck": "npm run build && node dist/bench/crosscheck.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "typescript": "^5.9.3"
+  },
+  "author": "Shai Sinai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lemun/kitzur.git"
+  },
+  "homepage": "https://github.com/lemun/kitzur#readme",
+  "bugs": {
+    "url": "https://github.com/lemun/kitzur/issues"
+  }
+}

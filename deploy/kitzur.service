@@ -1,0 +1,54 @@
+# kitzur as a systemd *user* service. Installation: deploy/README.md.
+#
+#   cp kitzur.service ~/.config/systemd/user/ && systemctl --user daemon-reload
+#   systemctl --user enable --now kitzur
+#   journalctl --user -u kitzur -f            # logs (sizes and decisions only, never content)
+#   loginctl enable-linger "$USER"             # keep it running without a login session
+#
+# Paths assume the offline tarball was unpacked to ~/.local/lib/kitzur (deploy/README.md step 1).
+
+[Unit]
+Description=kitzur: request-time context compactor proxy for local LLMs
+Documentation=file://%h/.local/lib/kitzur/CONFIG.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# Config file (create it with: kitzur config init --out ~/.config/kitzur/kitzur.jsonc).
+# Precedence: defaults < preset < this file < KITZUR_* below < command line.
+Environment=KITZUR_CONFIG=%h/.config/kitzur/kitzur.jsonc
+
+# State (learned windows and limits, calibration, the optional plan store, the tokenizer cache) lives in
+# $XDG_STATE_HOME/kitzur, else ~/.local/state/kitzur. Every write is atomic. To move it:
+#Environment=KITZUR_STATE_DIR=%h/.local/state/kitzur
+
+# TLS to an https gateway signed by an custom CA: set upstream.caFile in the config, or let Node add the
+# CA to its trust store for the whole process:
+#Environment=NODE_EXTRA_CA_CERTS=/etc/ssl/certs/custom-ca.pem
+# A certificate that does not verify makes the startup probe (GET <origin>/v1/models) fail and the service
+# exit 1 with the cause in the journal (systemd retries every RestartSec until the CA is fixed).
+#
+# HTTP_PROXY / HTTPS_PROXY / NO_PROXY are NOT honoured: kitzur connects to upstream.origin directly.
+
+# Node >= 20. If node is not on the user manager's PATH (nvm, mise, a tarball install), put its absolute
+# path here, e.g. %h/.local/share/mise/installs/node/20/bin/node
+ExecStart=/usr/bin/env node %h/.local/lib/kitzur/dist/src/cli.js serve
+
+# SIGTERM: stop accepting, drain in-flight streams (up to 30 s), flush learned state and stats, exit 0.
+# Plans are a pure function of the history, so a restart does not change what the agent sees.
+KillSignal=SIGTERM
+TimeoutStopSec=45
+Restart=on-failure
+RestartSec=3
+# Exit 2 is a config error (the journal names it): restarting cannot fix it, so do not loop on it.
+RestartPreventExitStatus=2
+
+# Hardening that does not get in the way of a loopback proxy.
+NoNewPrivileges=yes
+PrivateTmp=yes
+UMask=0077
+
+[Install]
+WantedBy=default.target
