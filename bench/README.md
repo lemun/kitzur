@@ -21,10 +21,59 @@ npm run bench -- --snapshot --resume
 ```
 
 Results go to ignored `bench/results/`; the generated report is the ignored root
-`BENCHMARKS.md`. Neither previous results nor archives ship. The `qa46`/`qa46-ref`
+`BENCHMARKS.md`. Full generated results and archives do not ship; the small README demonstration
+excerpt is committed under `bench/examples/`. The `qa46`/`qa46-ref`
 scenario IDs identify synthetic 46-step browser sessions, not captured user sessions.
-Historical measurements in the main README predate marker and scenario sanitation;
-current counts and hashes are generated from the public inputs.
+The main README uses measurements from the public inputs. Historical comparison
+figures below predate marker and scenario sanitation.
+
+## README demonstration
+
+The main README shows a fresh `qa46-ref` run at 100k/32k, measured October 2, 2026.
+[The committed evidence](examples/readme-qa46.json) contains the three systems'
+configuration, source and tokenizer hashes, metrics, fact checks and per-request
+counts. It excludes request bodies and machine-dependent timings. This is a
+synthetic scenario, not a recording of a real user or a real-model evaluation.
+
+After installing dependencies and fetching the development tokenizer:
+
+```sh
+npm run build
+node dist/bench/pool.js --systems kitzur,opencode-sim-compat,direct \
+  --scenarios qa46-ref --windows 100k --workers 1 --keep-bodies
+```
+
+The harness starts isolated local mock servers and proxy processes. It needs
+permission to listen on loopback. No model server or Gobstopper installation is
+needed. Generated results remain under ignored `bench/results/`.
+
+The session table uses main-request prompt counts at zero-based steps 0, 10, 22
+and 45, displayed as steps 1, 11, 23 and 46. The direct arm stops after its first
+rejection; later entries are deliberately absent. The full-session reduction is
+`1 - 1,710,787 / 2,492,849 = 31.4%`, comparing Kitzur with the completed offline
+OpenCode simulation. It includes all upstream attempts and auxiliary requests.
+The direct arm's smaller total covers an incomplete session and is not a savings
+baseline. The seven Kitzur fact checks all pass; the offline comparator does not
+evaluate facts. Passing those checks establishes marker retention, not comprehension.
+
+## Historical Gobstopper comparison
+
+These older `qa46-ref` 100k/32k figures were transcribed from the pre-release
+benchmark report. They use inputs from before marker renaming and scenario text
+sanitation, so they must not be mixed with the fresh README measurements.
+
+| System | Prompt tokens, all attempts | Compactions | Planted facts retained |
+|---|---:|---:|---:|
+| OpenCode compaction mechanics (offline simulation) | 2,492,784 | 6 | Not evaluated |
+| gobstopper v0.7.2, tuned | 1,734,118 | 7 | 4/7 |
+| kitzur predecessor, defaults | 1,710,746 | 7 | 7/7 |
+
+Gobstopper used `--threshold 58000 --keep-recent 2 --carry-max-chars 40000`;
+tool outputs were capped at 51,200 bytes. These are historical measurements of
+simulated sessions with a mock server, not a comparison against current Gobstopper
+or a real-model quality evaluation. At 32k, the historical Kitzur run used fewer
+total tokens but had worse prefix reuse than the OpenCode comparator; no universal
+cache-performance advantage is claimed.
 
 ## Optional comparisons
 
