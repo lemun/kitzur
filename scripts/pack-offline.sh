@@ -30,7 +30,10 @@ stage="$tmp/$name"
 mkdir -p "$stage/dist"
 cp -R "$tmp/build/src" "$stage/dist/src"
 chmod +x "$stage/dist/src/cli.js"
-cp -R presets deploy LICENSES "$stage/"
+cp -R presets LICENSES "$stage/"
+mkdir -p "$stage/deploy/windows"
+cp deploy/README.md deploy/kitzur.service "$stage/deploy/"
+cp deploy/windows/*.ps1 deploy/windows/manage.mjs deploy/windows/*.md deploy/windows/opencode.template.json deploy/windows/profile.example.json "$stage/deploy/windows/"
 cp package.json "$stage/"
 missing=()
 for f in README.md CONFIG.md DESIGN.md SECURITY.md THIRD_PARTY_NOTICES.md LICENSE; do
@@ -46,7 +49,7 @@ node "$stage/dist/src/cli.js" config validate --preset 32k --upstream http://127
 (cd "$stage" && find . -type f ! -name SHA256SUMS -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > SHA256SUMS)
 
 # npm package from the same clean build (npm pack honours package.json "files")
-(cd "$stage" && npm pack --silent --pack-destination "$out" >/dev/null)
+(cd "$stage" && npm_config_cache="$tmp/npm-cache" npm pack --offline --ignore-scripts --silent --pack-destination "$out" >/dev/null)
 
 # vendored tarball, reproducible
 tar --sort=name --owner=0 --group=0 --numeric-owner --mtime="@${epoch}" -C "$tmp" -cf - "$name" | gzip -n -9 > "$out/${name}-offline.tar.gz"

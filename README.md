@@ -212,3 +212,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md), [CONFIG.md](CONFIG.md),
 
 Kitzur is Hebrew for “shortcut”. MIT licensed. Portions derive from gobstopper and other upstream projects;
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [LICENSES/](LICENSES/) preserve their notices.
+
+## Windows installation
+
+See the [Windows user guide](deploy/windows/USER.md) for per-user installation and background startup,
+and the [administrator guide](deploy/windows/ADMIN.md) for configuration profiles and Windows ZIP packaging.

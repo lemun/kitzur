@@ -1,3 +1,9 @@
+# Deployment
+
+For Windows users, start with [the Windows user guide](windows/USER.md).
+Administrators prepare one approved profile using [the Windows admin guide](windows/ADMIN.md).
+The Windows ZIP supports per-user install, login startup, graceful stop and safe diagnostics.
+
 # Installing kitzur as a user service (offline)
 
 kitzur has no runtime dependencies: the offline bundle is the compiled `dist/src`, the presets, this
