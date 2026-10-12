@@ -16,6 +16,65 @@ const stopFile = path.join(root, 'stop.json');
 const read = p => JSON.parse(fs.readFileSync(p, 'utf8'));
 const write = (p, v) => fs.writeFileSync(p, JSON.stringify(v, null, 2) + '\n', {mode: 0o600});
 const sha = p => createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+const templates = ['qwen3', 'chatml', 'generic', 'sim'];
+export function profileTemplate(profile) {
+  const value = profile.tokenizerTemplate ?? 'qwen3';
+  if (!templates.includes(value)) throw new SafeError('Unsupported tokenizer template in profile.');
+  return value;
+}
+export function validateProfile(profile) {
+  const required = ['gatewayBaseURL','modelId','tokenizerSha256','provenance','config'];
+  if (!profile || required.some(k => !Object.hasOwn(profile,k)) || Object.keys(profile).some(k => ![...required,'tokenizerTemplate'].includes(k))) throw new SafeError('Profile fields are invalid.');
+  const u = new URL(profile.gatewayBaseURL);
+  if (u.protocol !== 'https:' || u.username || u.password || u.search || u.hash || !u.pathname.endsWith('/v1') || u.hostname.endsWith('.invalid')) throw new SafeError('Profile requires a credential-free HTTPS API base ending /v1.');
+  if (!/^[a-f0-9]{64}$/.test(profile.tokenizerSha256) || typeof profile.modelId !== 'string' || !profile.modelId || /REPLACE|[\r\n]/.test(profile.modelId)) throw new SafeError('Complete model ID and lowercase tokenizer SHA256.');
+  const fields = ['model','revision','source','approval','license'];
+  if (!profile.provenance || Object.keys(profile.provenance).length !== fields.length || fields.some(k => typeof profile.provenance[k] !== 'string' || !profile.provenance[k] || /REPLACE/.test(profile.provenance[k]))) throw new SafeError('Complete tokenizer provenance and approval.');
+  if (!profile.config || typeof profile.config !== 'object' || Array.isArray(profile.config) || ['upstream','tokenizer','listen','stateDir','stats','store','ledger','errors'].some(k => Object.hasOwn(profile.config,k))) throw new SafeError('Profile config must contain policy only.');
+  profileTemplate(profile);
+  return u;
+}
+export function generatedClientConfig(profile, cfg, template) {
+  if (cfg.client.compactionPointTokens !== null || cfg.client.outputAllowanceTokens !== null) {
+    throw new SafeError('Generated client config cannot express custom compaction points/allowances; use a reviewed client config.');
+  }
+  const output = cfg.client.outputLimit ?? cfg.budget.planMaxTokens ?? cfg.budget.defaultMaxTokens;
+  if (!Number.isSafeInteger(output) || output <= 0 || output >= cfg.budget.window || output > cfg.client.outputTokenMax) {
+    throw new SafeError('Client output limit is incompatible with configured context/output cap.');
+  }
+  const result = structuredClone(template);
+  const model = result.provider.kitzur.models.REPLACE_WITH_GATEWAY_MODEL_ID;
+  model.limit = {context: cfg.budget.window, output};
+  result.provider.kitzur.models = {[profile.modelId]: model};
+  const base = new URL(profile.gatewayBaseURL);
+  result.provider.kitzur.options.baseURL = 'http://127.0.0.1:8270' + base.pathname.replace(/\/$/, '');
+  result.model = result.small_model = 'kitzur/' + profile.modelId;
+  return result;
+}
+export function verifiedManifest(bundle) {
+  const base = fs.realpathSync(bundle);
+  const seen = new Set();
+  const entries = [];
+  for (const line of fs.readFileSync(path.join(bundle, 'SHA256SUMS'), 'utf8').trim().split('\n')) {
+    const match = /^([a-f0-9]{64})  (?:\.\/)?(.+)$/.exec(line);
+    if (!match) throw new SafeError('Invalid bundle manifest.');
+    const rel = match[2];
+    const parts = rel.split('/');
+    if (path.isAbsolute(rel) || /[\\:\x00-\x1f]/.test(rel) || parts.some(p => !p || p === '.' || p === '..' || /[. ]$/.test(p) || /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(p))) throw new SafeError('Unsafe bundle path.');
+    const key = rel.toLowerCase();
+    if (seen.has(key)) throw new SafeError('Duplicate bundle path.');
+    seen.add(key);
+    let p = base;
+    for (const part of parts) {
+      p = path.join(p, part);
+      if (fs.lstatSync(p).isSymbolicLink()) throw new SafeError('Bundle links are not allowed.');
+    }
+    if (!fs.realpathSync(p).startsWith(base + path.sep) || !fs.lstatSync(p).isFile() || sha(p) !== match[1]) throw new SafeError('Bundle checksum verification failed.');
+    entries.push(rel);
+  }
+  if (!entries.includes('deploy/windows/manage.mjs')) throw new SafeError('Bundle manager is missing from manifest.');
+  return entries;
+}
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const startupFile = () => path.join(process.env.APPDATA, 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup', 'Kitzur.lnk');
 const log = event => {
@@ -40,7 +99,9 @@ async function configuration(base, file) {
   if (cfg.listen.host !== '127.0.0.1' || cfg.listen.port !== 8270 || !cfg.upstream.origin || cfg.upstream.insecureTls || Object.keys(cfg.upstream.headers).length || cfg.stats.path || cfg.store.persist || cfg.ledger.mirrorPath) {
     throw new SafeError('Windows profile requires loopback port 8270, TLS verification, no stored headers, stats, persisted plans or ledger mirror.');
   }
-  if (cfg.upstream.origin !== new URL(read(path.join(root, 'profile.json')).gatewayBaseURL).origin) throw new SafeError('Config gateway differs from approved profile.');
+  const profile = read(path.join(root, 'profile.json'));
+  if (cfg.upstream.origin !== new URL(profile.gatewayBaseURL).origin) throw new SafeError('Config gateway differs from approved profile.');
+  if (cfg.tokenizer.template.name !== profileTemplate(profile)) throw new SafeError('Config template differs from approved profile.');
   if (cfg.shadow) throw new SafeError('Windows launcher requires active mode.');
   const expected = read(path.join(root, 'profile.json')).tokenizerSha256;
   if (!cfg.tokenizer.path || sha(cfg.tokenizer.path) !== expected) throw new SafeError('Approved tokenizer checksum mismatch.');
@@ -76,27 +137,24 @@ function numericMap(m, allowed) {
 }
 export function diagnostics(s) {
   // Never export raw /status: it includes origins, model keys, paths and free-text warnings.
-  const pick = (o, keys) => Object.fromEntries(keys.filter(k => typeof o?.[k] === 'number').map(k => [k,o[k]]));
+  const pick = (o, keys) => Object.fromEntries(keys.filter(k => typeof o?.[k] === 'number' && Number.isFinite(o[k])).map(k => [k,o[k]]));
+  const budgetMode = s?.budget?.mode ?? s?.config?.server?.budgetMode;
   return {at: new Date().toISOString(), running: !!s, version: /^\d+\.\d+\.\d+(?:[-+][a-zA-Z0-9.-]+)?$/.test(s?.version) ? s.version : undefined,
     limits: pick(s?.config, ['window','defaultMaxTokens','planMaxTokens']),
     budget: pick(s?.budget, ['budget','trigger','target','clientPoint']),
-    budgetMode: ['prompt_only','total'].includes(s?.config?.server?.budgetMode) ? s.config.server.budgetMode : 'other',
+    budgetMode: ['prompt_only','strict_total','tgi','silent_truncate'].includes(budgetMode) ? budgetMode : 'other',
     counterMode: s?.counter?.mode === 'exact' ? 'exact' : 'other',
     counters: pick(s?.counters, ['requests','chat_requests','retries','usage_mismatch','fail_open','upstream_rejected_rewrite']),
-    actions: numericMap(s?.actions, ['passthrough','reuse','compact','admit','truncate','clamp','restore','shadow','impossible','guard_fallback','guard_reject']), guard: {engineExceptions: Object.entries(s?.guard || {}).filter(([k,v]) => k.startsWith('engine:') && typeof v === 'number').reduce((n,[,v]) => n+v,0), other: Object.entries(s?.guard || {}).filter(([k,v]) => !k.startsWith('engine:') && typeof v === 'number').reduce((n,[,v]) => n+v,0)}, errorKinds: numericMap(s?.error_kinds, ['overflow_prompt','overflow_total','overflow_unknown','max_tokens_too_large','payload_too_large','gateway_error','overflow_suspect','excluded','unmatched']),
+    actions: numericMap(s?.actions, ['passthrough','reuse','compact','admit','truncate','clamp','restore','shadow','impossible','guard_fallback','guard_reject']), guard: {engineExceptions: Object.entries(s?.guard || {}).filter(([k,v]) => k.startsWith('engine:') && typeof v === 'number' && Number.isFinite(v)).reduce((n,[,v]) => n+v,0), other: Object.entries(s?.guard || {}).filter(([k,v]) => !k.startsWith('engine:') && typeof v === 'number' && Number.isFinite(v)).reduce((n,[,v]) => n+v,0)}, errorKinds: numericMap(s?.error_kinds, ['overflow_prompt','overflow_total','overflow_unknown','max_tokens_too_large','payload_too_large','gateway_error','overflow_suspect','excluded','unmatched']),
     openCodeCompactions: 'not observed by proxy; record count and timestamps from UI separately'};
 }
 async function install([bundle, profilePath, tokenizerPath, startup]) {
   if (currentRun() || await live()) throw new SafeError('Stop Kitzur before installing/upgrading.');
   // Verify every manifest entry before importing or copying executable files. Reject links/traversal.
-  for (const line of fs.readFileSync(path.join(bundle,'SHA256SUMS'),'utf8').trim().split('\n')) {
-    const match = /^([a-f0-9]{64})  (?:\.\/)?(.+)$/.exec(line);
-    if (!match || path.isAbsolute(match[2]) || /^[a-z]:/i.test(match[2]) || match[2].split(/[\\/]/).includes('..')) throw new SafeError('Invalid bundle manifest.');
-    const p = path.join(bundle,match[2]);
-    if (!fs.realpathSync(p).startsWith(fs.realpathSync(bundle) + path.sep) || !fs.lstatSync(p).isFile() || sha(p) !== match[1]) throw new SafeError('Bundle checksum verification failed.');
-  }
+  const entries = verifiedManifest(bundle);
   const profile = read(profilePath);
-  const u = new URL(profile.gatewayBaseURL);
+  const tokenizerTemplate = profileTemplate(profile);
+  const u = validateProfile(profile);
   if (u.protocol !== 'https:' || u.username || u.password || u.search || u.hash || !u.pathname.endsWith('/v1') || u.hostname.endsWith('.invalid')) throw new SafeError('Profile requires a credential-free HTTPS LiteLLM API base ending /v1.');
   if (!/^[a-f0-9]{64}$/.test(profile.tokenizerSha256) || sha(tokenizerPath) !== profile.tokenizerSha256.toLowerCase()) throw new SafeError('Tokenizer checksum failed.');
   if (!profile.modelId || /REPLACE|[\r\n]/.test(profile.modelId) || !profile.provenance?.approval || JSON.stringify(profile.provenance).includes('REPLACE')) throw new SafeError('Admin must complete model ID and tokenizer provenance/approval.');
@@ -105,8 +163,7 @@ async function install([bundle, profilePath, tokenizerPath, startup]) {
   const staged = path.join(root,'app.new');
   fs.rmSync(staged,{recursive:true,force:true});
   // Copy only manifest-listed files; unlisted private files never enter the installed app.
-  for (const line of fs.readFileSync(path.join(bundle,'SHA256SUMS'),'utf8').trim().split('\n')) {
-    const rel = line.slice(66).replace(/^\.\//,'');
+  for (const rel of entries) {
     if (rel.startsWith('deployment/')) continue;
     const dest = path.join(staged,rel);
     fs.mkdirSync(path.dirname(dest),{recursive:true}); fs.copyFileSync(path.join(bundle,rel),dest);
@@ -118,12 +175,13 @@ async function install([bundle, profilePath, tokenizerPath, startup]) {
   if (!fs.existsSync(configFile)) {
     const cfg = structuredClone(profile.config || {});
     cfg.upstream = {...cfg.upstream, origin:u.origin};
-    cfg.tokenizer = {...cfg.tokenizer, path:tok, template:{name:'qwen3'}};
+    cfg.tokenizer = {...cfg.tokenizer, path:tok, template:{name:tokenizerTemplate}};
     cfg.listen = {host:'127.0.0.1',port:8270}; cfg.stateDir = path.join(root,'state');
     cfg.stats = {path:null}; cfg.store = {...cfg.store,persist:false}; cfg.ledger = {...cfg.ledger,mirrorPath:null};
     write(configFile,cfg);
   }
   const {cfg} = await configuration(staged,configFile);
+  const template = generatedClientConfig(profile,cfg,read(path.join(staged,'deploy','windows','opencode.template.json')));
   const code = await probe(profile.gatewayBaseURL,cfg.upstream.caFile);
   if (![200,401,403].includes(code)) throw new SafeError('Gateway API path check failed (expected 200/401/403).');
   console.log(code === 200 ? 'Gateway route/TLS reachable.' : 'Gateway route/TLS reachable; authentication still requires an admin/client check.');
@@ -132,10 +190,6 @@ async function install([bundle, profilePath, tokenizerPath, startup]) {
   if (fs.existsSync(appDir)) fs.renameSync(appDir,old);
   fs.renameSync(staged,appDir);
   fs.writeFileSync(path.join(root,'node-path.txt'),process.execPath);
-  const template = read(path.join(appDir,'deploy','windows','opencode.template.json'));
-  template.provider.kitzur.options.baseURL = 'http://127.0.0.1:8270' + u.pathname.replace(/\/$/,'');
-  template.provider.kitzur.models = {[profile.modelId]:template.provider.kitzur.models.REPLACE_WITH_GATEWAY_MODEL_ID};
-  template.model = template.small_model = 'kitzur/' + profile.modelId;
   const clientFile = path.join(root,'config','opencode.generated.json');
   if (!fs.existsSync(clientFile)) write(clientFile,template);
   if (startup === 'startup') {

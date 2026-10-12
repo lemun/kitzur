@@ -21,3 +21,73 @@ jobs:
       - name: Download development tokenizer
         run: scripts/fetch-tokenizer.sh
       - run: npm test -- --test-concurrency=2
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - name: Build clean offline, npm and Windows distributions
+        run: python3 scripts/pack-windows.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-distribution
+          path: |
+            dist/offline/*-windows.zip
+            dist/offline/*.tgz
+          if-no-files-found: error
+  windows:
+    needs: package
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: Download and verify development tokenizer
+        shell: bash
+        run: scripts/fetch-tokenizer.sh
+      - run: npm run build
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-distribution
+          path: distribution
+      - name: Extract actual ZIP and install npm package into a path with spaces
+        shell: pwsh
+        run: |
+          $zip = (Get-ChildItem distribution/*-windows.zip).FullName
+          $extract = Join-Path $env:RUNNER_TEMP 'Kitzur Distribution Spaces'
+          Expand-Archive -LiteralPath $zip -DestinationPath $extract
+          $bundle = (Get-ChildItem $extract -Directory).FullName
+          "KITZUR_TEST_WINDOWS_BUNDLE=$bundle" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $prefix = Join-Path $env:RUNNER_TEMP 'Kitzur Package Spaces'
+          $tgz = (Get-ChildItem distribution/*.tgz).FullName
+          npm install --offline --ignore-scripts --no-audit --no-fund --prefix $prefix $tgz
+          if ($LASTEXITCODE -ne 0) { throw 'npm package installation failed' }
+          $cli = Join-Path $prefix 'node_modules/kitzur/dist/src/cli.js'
+          node $cli version
+          if ($LASTEXITCODE -ne 0) { throw 'packaged CLI version failed' }
+          node $cli config validate --preset 32k --upstream http://127.0.0.1:1
+          if ($LASTEXITCODE -ne 0) { throw 'packaged preset/config validation failed' }
+          node $cli doctor --json --preset 32k --upstream http://127.0.0.1:1
+          if ($LASTEXITCODE -ne 0) { throw 'packaged offline doctor failed' }
+          $stats = Join-Path $prefix 'empty stats.jsonl'
+          [IO.File]::WriteAllText($stats, '')
+          node $cli report --json $stats
+          if ($LASTEXITCODE -ne 0) { throw 'packaged empty report failed' }
+      - name: Portable compaction, ledger, tokenizer and diagnostics suites
+        run: node scripts/run-tests.mjs --test-concurrency=2 dist/test/engine dist/test/ledger dist/test/summary dist/test/rules dist/test/tokenize dist/test/diagnostics
+      - name: Windows distribution, PowerShell installation and lifecycle
+        run: node scripts/run-tests.mjs --test-concurrency=1 dist/test/windows

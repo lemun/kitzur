@@ -25,8 +25,11 @@ out = Path(args.out).resolve()
 profile = None
 if args.deployment_profile:
     profile = json.loads(args.deployment_profile.read_text())
-    if set(profile) != {'gatewayBaseURL', 'modelId', 'tokenizerSha256', 'provenance', 'config'}:
-        parser.error('Profile must contain only the documented five fields; no keys/credentials.')
+    required_fields = {'gatewayBaseURL', 'modelId', 'tokenizerSha256', 'provenance', 'config'}
+    if not required_fields.issubset(profile) or set(profile) - required_fields - {'tokenizerTemplate'}:
+        parser.error('Profile must contain the documented fields and optional tokenizerTemplate; no keys/credentials.')
+    if profile.get('tokenizerTemplate', 'qwen3') not in {'qwen3', 'chatml', 'generic', 'sim'}:
+        parser.error('Unsupported tokenizerTemplate.')
     from urllib.parse import urlsplit
     u = urlsplit(profile['gatewayBaseURL'])
     if u.scheme != 'https' or not u.hostname or u.username or u.password or u.query or u.fragment or not u.path.endswith('/v1') or u.hostname.endswith('.invalid'):

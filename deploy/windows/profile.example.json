@@ -2,6 +2,7 @@
   "gatewayBaseURL": "https://gateway.example.invalid/llm/v1",
   "modelId": "REPLACE_WITH_GATEWAY_MODEL_ID",
   "tokenizerSha256": "REPLACE_WITH_APPROVED_SHA256",
+  "tokenizerTemplate": "qwen3",
   "provenance": {
     "model": "REPLACE_WITH_MODEL_NAME",
     "revision": "REPLACE_WITH_IMMUTABLE_MODEL_REVISION",

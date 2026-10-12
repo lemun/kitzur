@@ -22,6 +22,9 @@ it separately from the public package. Node.js and OpenCode are separate prerequ
    deployment-specific error patterns do not belong in public documentation or packages. Custom CAs
    must be trusted by Node before setup; `NODE_EXTRA_CA_CERTS` may be provisioned by the administrator.
    Never set insecure TLS. No API key is accepted by the installer or release builder.
+   Optional `tokenizerTemplate` selects `qwen3` (the backward-compatible default), `chatml`,
+   `generic` or `sim` (test use only). Match the served model's chat template: loading an exact
+   tokenizer does not establish that its rendered request count matches the server.
 
 ## Build and distribute
 
@@ -54,6 +57,15 @@ provenance for reproducibility. Do not release an unreviewed dirty build. Upgrad
 configuration; changed profiles/tokenizers require explicit migration. The launcher requires loopback
 port 8270, TLS verification, exact counting and no credential headers, request stats, persisted plans or
 ledger mirrors. The sample profile uses the public 100k preset; change deployment policy deliberately.
+Generated OpenCode context/output limits follow the effective preset/configuration, including
+`client.outputLimit` when set. Custom client compaction points/allowances cannot be expressed by
+this template and are rejected; configure such deployments through a separately reviewed client setup.
+
+CI builds the generic ZIP/npm archives on Linux with Python 3.12, then consumes both on Windows
+with Node 20 and 22. It exercises portable engine/ledger/tokenizer/diagnostic suites and the actual
+PowerShell installer, configuration-preserving reinstall, background start/status/stop, safe diagnostics
+and an isolated startup shortcut under paths with spaces. Linux continues to run the full suite,
+including POSIX signal/mode and Unix path cases. Windows runner results remain pending until CI executes.
 
 ## Validate operation and diagnose
 

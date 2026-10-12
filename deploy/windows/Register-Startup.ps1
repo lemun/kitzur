@@ -1,6 +1,8 @@
 $ErrorActionPreference = 'Stop'
 $root = Join-Path $env:LOCALAPPDATA 'Kitzur'
-$linkPath = Join-Path ([Environment]::GetFolderPath('Startup')) 'Kitzur.lnk'
+$startupDir = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup'
+New-Item -ItemType Directory -Force -Path $startupDir | Out-Null
+$linkPath = Join-Path $startupDir 'Kitzur.lnk'
 $shell = New-Object -ComObject WScript.Shell
 $link = $shell.CreateShortcut($linkPath)
 $link.TargetPath = Join-Path $PSHOME 'powershell.exe'
