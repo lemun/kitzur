@@ -115,7 +115,7 @@ export interface Rewrite {
 }
 
 /** Bumped on any change of engine behaviour; part of the planning inputs (§5.3). */
-export const ENGINE_ALGO_VERSION = 'kitzur-engine/3';
+export const ENGINE_ALGO_VERSION = 'kitzur-engine/5';
 
 export interface Plan {
   version: 2;

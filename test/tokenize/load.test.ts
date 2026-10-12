@@ -39,9 +39,11 @@ test('loadTokenizerCached: writes the compiled cache, loads from it, rebuilds a 
     // /proc, where Node's recursive mkdirSync would never return)
     writeFileSync(join(dir, 'file'), 'x');
     assert.equal(loadTokenizerCached(path!, join(dir, 'file', 'sub', 'tok.lctk')).cacheStatus, 'unwritable');
-    const e = loadTokenizerCached(path!, '/proc/kitzur-no-such-dir/tok.lctk');
-    assert.equal(e.cacheStatus, 'unwritable');
-    assert.equal(e.count('<|im_start|>user\nhi<|im_end|>'), 5);
+    if (process.platform === 'linux') {
+      const e = loadTokenizerCached(path!, '/proc/kitzur-no-such-dir/tok.lctk');
+      assert.equal(e.cacheStatus, 'unwritable');
+      assert.equal(e.count('<|im_start|>user\nhi<|im_end|>'), 5);
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

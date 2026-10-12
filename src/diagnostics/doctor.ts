@@ -1,0 +1,117 @@
+import { existsSync, statSync, accessSync, constants } from 'node:fs';
+import { dirname, parse } from 'node:path';
+import { validateConfig } from '../config/validate.js';
+import { computeBudget } from '../config/derived.js';
+import type { Config } from '../config/schema.js';
+import { stateDirOf } from '../config/paths.js';
+import { loadTokenizer } from '../tokenize/tokenizer.js';
+import { Upstream } from '../proxy/upstream.js';
+
+export interface DoctorCheck { code: string; status: 'ok' | 'warn' | 'error'; message: string; fix?: string }
+export interface DoctorResult { checks: DoctorCheck[]; exitCode: number }
+
+function nearestExistingDirectory(path: string): { path: string; blocked: boolean } | null {
+  let current = path;
+  while (true) {
+    if (existsSync(current)) return statSync(current).isDirectory() ? { path: current, blocked: false } : { path: current, blocked: true };
+    const parent = dirname(current);
+    if (parent === current || current === parse(current).root) return null;
+    current = parent;
+  }
+}
+
+/** Read-only local diagnostics. Network access is opt-in and uses the small models endpoint probe. */
+export async function doctor(config: Config, opts: { env?: Record<string, string | undefined>; upstreamCheck?: boolean; timeoutMs?: number } = {}): Promise<DoctorResult> {
+  const checks: DoctorCheck[] = [];
+  const add = (code: string, status: DoctorCheck['status'], message: string, fix?: string): void => { checks.push({ code, status, message, ...(fix ? { fix } : {}) }); };
+
+  try {
+    const validation = validateConfig(config, { checkFiles: true });
+    if (!validation.errors.length) add('config.valid', 'ok', 'Configuration is valid.');
+    else add('config.valid', 'error', `Configuration has ${validation.errors.length} validation error(s).`, 'Run `kitzur config validate` and correct the reported settings.');
+    if (validation.warnings.length) add('config.warnings', 'warn', `Configuration has ${validation.warnings.length} warning(s).`, 'Review `kitzur config validate` output.');
+  } catch {
+    add('config.valid', 'error', 'Configuration could not be validated safely.', 'Run `kitzur config validate` and correct the reported settings.');
+  }
+
+  let b: ReturnType<typeof computeBudget> | null = null;
+  try { b = computeBudget(config); } catch { /* malformed config is reported with fixed diagnostics */ }
+  if (!b) add('budget.compatible', 'error', 'Configured budget could not be calculated.', 'Run `kitzur config validate` and correct the budget settings.');
+  else {
+    if (b.budget > 0 && b.target < b.trigger && b.hard > 0) add('budget.compatible', 'ok', `Budget is usable (window ${b.window}, prompt budget ${b.budget}, trigger ${b.trigger}, target ${b.target}).`);
+    else add('budget.compatible', 'error', 'Configured context, output, and client limits leave no usable compaction budget.', 'Adjust budget.window, budget.planMaxTokens/defaultMaxTokens, client limits, or safety margins.');
+    if (b.hard <= 1) add('budget.client_limits', 'error', `Client compaction point ${b.clientPoint} minus output allowance ${b.allowance} leaves no usable prompt budget.`, 'Adjust client.compactionPointTokens and client.outputAllowanceTokens.');
+    else if (config.client.outputLimit !== null && b.planMaxTokens < config.client.outputLimit) add('budget.client_limits', 'warn', `Planned output limit ${b.planMaxTokens} is below the client output limit ${config.client.outputLimit}; long replies may be fitted down.`, 'Align budget.planMaxTokens/defaultMaxTokens with client.outputLimit.');
+    else add('budget.client_limits', 'ok', 'Configured plan output and client limits are compatible.');
+  }
+
+  if (config.tokenizer.mode === 'estimate') add('tokenizer.mode', 'warn', 'Tokenizer mode is estimate; token counts use the configured character ratios.', 'Set tokenizer.mode to auto and configure tokenizer.path for exact local counts.');
+  else if (!config.tokenizer.path) add('tokenizer.path', 'warn', 'No tokenizer file is configured; counts fall back to estimates.', 'Set tokenizer.path to a supported tokenizer.json file.');
+  else if (!existsSync(config.tokenizer.path)) add('tokenizer.path', 'warn', 'Configured tokenizer file is missing; counts fall back to estimates.', 'Check tokenizer.path or provide a supported tokenizer.json file.');
+  else {
+    try {
+      const tok = loadTokenizer(config.tokenizer.path);
+      const n = tok.count('kitzur diagnostic');
+      add(n > 0 ? 'tokenizer.load' : 'tokenizer.count', n > 0 ? 'ok' : 'error', n > 0 ? 'Tokenizer loaded and counted a sample locally.' : 'Tokenizer returned an empty count for a non-empty sample.', n > 0 ? undefined : 'Check tokenizer.json and use a supported tokenizer.');
+    } catch {
+      add('tokenizer.load', 'error', 'Tokenizer file could not be loaded or counted.', 'Check tokenizer.path and use a supported tokenizer.json file.');
+    }
+  }
+
+  const pathCheck = (code: string, path: string | null, label: string): void => {
+    if (path === null) { add(code, 'ok', `${label} path is not configured.`); return; }
+    try {
+      if (!existsSync(path)) {
+        const parent = nearestExistingDirectory(path);
+        if (parent?.blocked) { add(code, 'error', `An existing non-directory path blocks the ${label.toLowerCase()} directory.`, 'Choose a path below an accessible directory.'); return; }
+        if (!parent) { add(code, 'warn', `${label} path and its parent directories do not exist.`, 'Create the directory or update the configured path.'); return; }
+        accessSync(parent.path, constants.R_OK | constants.W_OK);
+        add(code, 'ok', `${label} directory does not exist yet; nearest existing parent is accessible.`);
+        return;
+      }
+      const s = statSync(path);
+      if (!s.isDirectory()) { add(code, 'error', `${label} path is not a directory.`, 'Set it to a directory path.'); return; }
+      accessSync(path, constants.R_OK | constants.W_OK);
+      add(code, 'ok', `${label} directory exists and is accessible.`);
+    } catch { add(code, 'warn', `${label} directory is not accessible.`, 'Check directory permissions and configured path.'); }
+  };
+  const statePath = stateDirOf(config, opts.env);
+  pathCheck('state.directory', statePath, 'State');
+  if (config.stats.path) {
+    try {
+      const parent = dirname(config.stats.path);
+      if (existsSync(config.stats.path)) {
+        if (!statSync(config.stats.path).isFile()) add('stats.path', 'error', 'Stats path is not a file.', 'Set stats.path to a JSONL file.');
+        else { accessSync(config.stats.path, constants.R_OK | constants.W_OK); add('stats.path', 'ok', 'Stats file exists and is accessible.'); }
+      } else {
+        const existingParent = nearestExistingDirectory(parent);
+        if (existingParent?.blocked) add('stats.path', 'error', 'An existing non-directory path blocks the stats file parent.', 'Choose a stats path below an accessible directory.');
+        else if (existingParent) { accessSync(existingParent.path, constants.W_OK); add('stats.path', 'ok', 'Stats file parent does not exist yet; nearest existing parent is writable.'); }
+        else add('stats.path', 'error', 'An existing non-directory path blocks the stats file parent.', 'Choose a stats path below an accessible directory.');
+      }
+    } catch { add('stats.path', 'warn', 'Stats file path is not accessible.', 'Check directory permissions and configured path.'); }
+  } else add('stats.path', 'ok', 'Stats output is disabled.');
+
+  if (opts.upstreamCheck) {
+    let upstream: Upstream | undefined;
+    try {
+      const cfg = structuredClone(config.upstream);
+      const requestedTimeout = opts.timeoutMs ?? config.upstream.timeoutMs;
+      cfg.timeoutMs = Number.isFinite(requestedTimeout) ? Math.max(1, Math.min(10_000, Math.floor(requestedTimeout))) : 3000;
+      upstream = new Upstream(cfg);
+      const result = await upstream.probe();
+      const status = result.status ?? 0;
+      if (status >= 200 && status < 300) add('upstream.reachable', 'ok', `Upstream responded to the lightweight models probe (HTTP ${status}).`);
+      else if (status === 401 || status === 403) add('upstream.reachable', 'warn', `Upstream is reachable but the models probe requires authorization (HTTP ${status}).`, 'Check upstream.headers authorization configuration.');
+      else if (status === 404) add('upstream.reachable', 'warn', 'Upstream is reachable but /v1/models is unavailable (HTTP 404).', 'Check the upstream gateway route.');
+      else add('upstream.reachable', 'error', 'Upstream probe failed.', 'Check upstream.origin, TLS settings, and network availability.');
+    } catch { add('upstream.reachable', 'error', 'Upstream probe could not be completed.', 'Check upstream.origin and upstream configuration.'); }
+    finally { upstream?.close(); }
+  } else add('upstream.skipped', 'ok', 'Upstream check skipped; pass --check-upstream to probe it.');
+
+  return { checks, exitCode: checks.some((c) => c.status === 'error') ? 1 : 0 };
+}
+
+export function renderDoctor(result: DoctorResult): string {
+  return [...result.checks.map((c) => `${c.status.toUpperCase()} ${c.code}: ${c.message}${c.fix ? ` Fix: ${c.fix}` : ''}`), `Exit code: ${result.exitCode}`].join('\n');
+}

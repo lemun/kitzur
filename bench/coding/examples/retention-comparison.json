@@ -1,0 +1,249 @@
+{
+  "kind": "mechanical-correction-fixtures",
+  "beforeRevision": "3f9afb8",
+  "cases": 25,
+  "beforeCorrect": 14,
+  "afterCorrect": 25,
+  "results": [
+    {
+      "case": "English additive shared ID",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [
+        0
+      ],
+      "afterSuperseded": [],
+      "beforeCorrect": false,
+      "afterCorrect": true
+    },
+    {
+      "case": "Hebrew additive shared ID",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [
+        0
+      ],
+      "afterSuperseded": [],
+      "beforeCorrect": false,
+      "afterCorrect": true
+    },
+    {
+      "case": "distinct IDs preserve independent instructions",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [
+        0
+      ],
+      "afterSuperseded": [],
+      "beforeCorrect": false,
+      "afterCorrect": true
+    },
+    {
+      "case": "arbitrary labelled IDs preserve independent instructions",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [
+        0
+      ],
+      "afterSuperseded": [],
+      "beforeCorrect": false,
+      "afterCorrect": true
+    },
+    {
+      "case": "label and marker identities stay distinct",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [
+        0
+      ],
+      "afterSuperseded": [],
+      "beforeCorrect": false,
+      "afterCorrect": true
+    },
+    {
+      "case": "English presence markers do not veto corrections",
+      "expectedSuperseded": [
+        0
+      ],
+      "beforeSuperseded": [
+        0
+      ],
+      "afterSuperseded": [
+        0
+      ],
+      "beforeCorrect": true,
+      "afterCorrect": true
+    },
+    {
+      "case": "Hebrew presence markers do not veto corrections",
+      "expectedSuperseded": [
+        0
+      ],
+      "beforeSuperseded": [
+        0
+      ],
+      "afterSuperseded": [
+        0
+      ],
+      "beforeCorrect": true,
+      "afterCorrect": true
+    },
+    {
+      "case": "English terse browser cancellation",
+      "expectedSuperseded": [
+        0
+      ],
+      "beforeSuperseded": [],
+      "afterSuperseded": [
+        0
+      ],
+      "beforeCorrect": false,
+      "afterCorrect": true
+    },
+    {
+      "case": "browser cancellation preserves fixture safety",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [],
+      "afterSuperseded": [],
+      "beforeCorrect": true,
+      "afterCorrect": true
+    },
+    {
+      "case": "browser cancellation preserves settings safety",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [],
+      "afterSuperseded": [],
+      "beforeCorrect": true,
+      "afterCorrect": true
+    },
+    {
+      "case": "browser cancellation with two targets is ambiguous",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [],
+      "afterSuperseded": [],
+      "beforeCorrect": true,
+      "afterCorrect": true
+    },
+    {
+      "case": "browser cancellation preserves second browser",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [],
+      "afterSuperseded": [],
+      "beforeCorrect": true,
+      "afterCorrect": true
+    },
+    {
+      "case": "browser cancellation preserves compound safety",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [],
+      "afterSuperseded": [],
+      "beforeCorrect": true,
+      "afterCorrect": true
+    },
+    {
+      "case": "English cancellation one sentence only",
+      "expectedSuperseded": [
+        0
+      ],
+      "beforeSuperseded": [],
+      "afterSuperseded": [
+        0
+      ],
+      "beforeCorrect": false,
+      "afterCorrect": true
+    },
+    {
+      "case": "Hebrew cancellation one sentence only",
+      "expectedSuperseded": [
+        0
+      ],
+      "beforeSuperseded": [],
+      "afterSuperseded": [
+        0
+      ],
+      "beforeCorrect": false,
+      "afterCorrect": true
+    },
+    {
+      "case": "English negated cancellation",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [],
+      "afterSuperseded": [],
+      "beforeCorrect": true,
+      "afterCorrect": true
+    },
+    {
+      "case": "English prefixed negated cancellation",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [
+        0
+      ],
+      "afterSuperseded": [],
+      "beforeCorrect": false,
+      "afterCorrect": true
+    },
+    {
+      "case": "English correction negated cancellation",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [
+        0
+      ],
+      "afterSuperseded": [],
+      "beforeCorrect": false,
+      "afterCorrect": true
+    },
+    {
+      "case": "Hebrew negated cancellation",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [],
+      "afterSuperseded": [],
+      "beforeCorrect": true,
+      "afterCorrect": true
+    },
+    {
+      "case": "Hebrew prefixed negated cancellation",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [
+        0
+      ],
+      "afterSuperseded": [],
+      "beforeCorrect": false,
+      "afterCorrect": true
+    },
+    {
+      "case": "English distinct browser objects",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [],
+      "afterSuperseded": [],
+      "beforeCorrect": true,
+      "afterCorrect": true
+    },
+    {
+      "case": "similar object words are not identity",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [],
+      "afterSuperseded": [],
+      "beforeCorrect": true,
+      "afterCorrect": true
+    },
+    {
+      "case": "quoted cancellation",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [],
+      "afterSuperseded": [],
+      "beforeCorrect": true,
+      "afterCorrect": true
+    },
+    {
+      "case": "question is no correction",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [],
+      "afterSuperseded": [],
+      "beforeCorrect": true,
+      "afterCorrect": true
+    },
+    {
+      "case": "unrelated similar language",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [],
+      "afterSuperseded": [],
+      "beforeCorrect": true,
+      "afterCorrect": true
+    }
+  ]
+}

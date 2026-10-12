@@ -1,5 +1,5 @@
-// Superseded user instructions (DESIGN.md, ): per sentence, explicit IDs first, additive cues never
-// supersede, otherwise the best overlap coefficient of content words above ledger.correctionMinOverlap.
+// Superseded user instructions: per sentence, additive cues never supersede;
+// shared explicit IDs, narrow direct cancellation, then conservative word overlap.
 //
 // A false supersession deletes a priority-1 rule, while a missed one only leaves the older instruction
 // visible next to the newer one; every rule here errs towards missing.
@@ -174,6 +174,37 @@ const WEAK_CUE = /^(?:actually|no longer|not\b[\s\S]*\banymore|בעצם)$/i;
 const DIRECTIVE =
   /\b(?:use[sd]?|using|run|running|keep|set|switch|skip|stop|start|don'?t|do not|never|always|only|should|must|need(?:s|ed)?|please|let'?s|go with|make|change|target|prefer|avoid|try|add|remove|drop|put|move|pick|choose|instead|rather|leave|turn|disable|enable|want(?:s|ed)?|required?|allowed?)\b|(?<![\p{L}\p{N}])(?:תשתמש|השתמש|להשתמש|תריץ|הרץ|להריץ|אל|תמיד|רק|צריך|צריכה|חייב|חייבת|במקום|תעבור|עבור ל|תשאיר|תוסיף|תוריד|תדלג|נא|בבקשה)(?![\p{L}\p{N}])/iu;
 
+// Only a direct, unquoted imperative opens this narrow cancellation path.
+// Negated cancellation is an instruction to retain work, never a cancellation.
+const NEGATED_CANCEL = /^(?:please\s+)?(?:do not|don't|never)\s+(?:cancel|drop|remove|skip)\b|^אל\s+(?:תבטל|תסיר|תדלג)(?![\p{L}\p{N}])/iu;
+const CANCEL_START = /^(?:(?:actually|correction)[:,]?\s*)?(?:please\s+)?(?:cancel|drop|skip|remove)\s+|^(?:בטל|בטלי|תבטל|תדלג)\s+/iu;
+const CANCEL_VERBS = new Set(['cancel','drop','skip','remove','run','running','keep','תריץ','הרץ','תשמור','בטל','בטלי','תבטל','תדלג']);
+const directiveBody = (text: string): string => stripQuoted(text).trim().replace(/^(?:(?:actually|correction|תיקון|בעצם)[:,]?\s*)+/iu, '');
+function cancellation(text: string): boolean {
+  const bare = directiveBody(text);
+  return !QUESTION_END.test(text) && !NEGATED_CANCEL.test(bare) && CANCEL_START.test(bare);
+}
+function cancelWords(words: ReadonlySet<string>): Set<string> {
+  return new Set([...words].filter(w => !CANCEL_VERBS.has(w)));
+}
+function sameObject(a: Candidate, b: Candidate): boolean {
+  const x = cancelWords(a.words), y = cancelWords(b.words);
+  return x.size >= 2 && x.size === y.size && [...x].every(w => y.has(w));
+}
+function browserAnchor(a: Candidate, b: Candidate): boolean {
+  const prior = directiveBody(a.status.sentence.text);
+  if (!/^(?:please\s+)?(?:also\s+)?(?:run|test)\b/iu.test(prior) || !/\b(?:specs?|tests?|project)\b/iu.test(prior)) return false;
+  if (/\b(?:and|but|without|unless|never|not|don't)\b/iu.test(prior)) return false;
+  if (['firefox','chromium','webkit'].filter(browser => a.words.has(browser)).length !== 1) return false;
+  const object = directiveBody(b.status.sentence.text).replace(CANCEL_START, '');
+  const browser = /^(firefox|chromium|webkit)(?:\s*[-.!;:]|\s*$)/iu.exec(object)?.[1]?.toLowerCase();
+  return browser !== undefined && a.words.has(browser);
+}
+function differentIds(a: Candidate, b: Candidate, headIds: ReadonlySet<string>): boolean {
+  const x = a.labelledIds.filter(id => !headIds.has(id)), y = b.labelledIds.filter(id => !headIds.has(id));
+  return x.length > 0 && y.length > 0 && !x.some(id => y.includes(id));
+}
+
 /**
  * True when sentence `s` cues a correction (DESIGN §6.1) under the rules' cue pattern, with three exclusions that
  * keep the rule erring towards missing ('s intent: a false supersession deletes a priority-1 rule):
@@ -188,6 +219,8 @@ const DIRECTIVE =
 export function cues(s: string, rules: SupersedeRules): boolean {
   if (QUESTION_END.test(s)) return false;
   const bare = /["'`\u201c\u201e\u00ab\u2018]/.test(s) ? stripQuoted(s) : s;
+  if (NEGATED_CANCEL.test(directiveBody(s))) return false;
+  if (cancellation(s)) return true;
   if (!rules.cues.test(bare)) return false;
   if (DIRECTIVE.test(bare)) return true;
   const all = new RegExp(rules.cues.source, rules.cues.flags.includes('g') ? rules.cues.flags : rules.cues.flags + 'g');
@@ -274,6 +307,8 @@ const normSentence = (t: string): string => {
 interface SentenceInfo {
   sentence: Sentence;
   ids: string[];
+  /** A colon after the ID declares an instruction label, unlike a presence marker. */
+  labelledIds: string[];
   words: Set<string>;
   /** normSentence(text), for verbatim repeats */
   norm: string;
@@ -291,7 +326,12 @@ class SentenceCache {
   get(text: string, rules: SupersedeRules): readonly SentenceInfo[] {
     let v = this.m.get(text);
     if (v !== undefined) return v;
-    v = splitSentences(text).map((sentence) => ({ sentence, ids: explicitIds(sentence.text), words: contentWords(sentence.text, rules.ignore), norm: normSentence(sentence.text) }));
+    v = splitSentences(text).map((sentence) => {
+      const spans = explicitIdSpans(sentence.text);
+      return { sentence, ids: spans.map(s => sentence.text.slice(s.start,s.end)),
+        labelledIds: spans.filter(s => /^\s*:/u.test(sentence.text.slice(s.end))).map(s => sentence.text.slice(s.start,s.end)),
+        words: contentWords(sentence.text, rules.ignore), norm: normSentence(sentence.text) };
+    });
     this.m.set(text, v);
     this.chars += text.length;
     while (this.m.size > 1 && this.chars > this.maxChars) {
@@ -326,6 +366,7 @@ interface Candidate {
   ord: number;
   head: boolean;
   ids: string[];
+  labelledIds: string[];
   words: Set<string>;
   norm: string;
   status: SentenceStatus;
@@ -335,9 +376,10 @@ interface Candidate {
  * Runs the §6.1 rule over the user texts in order (head messages first). Each cued sentence of message j (see
  * `cues`: questions and quoted cue words do not cue) considers the non-superseded sentences of strictly earlier
  * messages:
- *   1. every such sentence that shares an explicit ID (one not occurring in the head) is superseded;
- *   2. otherwise, an additive sentence supersedes nothing;
- *   3. otherwise the sentence with the highest overlap coefficient (ties: the newest) is superseded when the
+ *   1. an additive sentence supersedes nothing;
+ *   2. every such sentence that shares an explicit ID (one not occurring in the head) is superseded;
+ *   3. direct cancellation matches one exact object or a terse browser anchor; ambiguous targets survive;
+ *   4. otherwise the sentence with the highest overlap coefficient (ties: the newest) is superseded when the
  *      coefficient reaches minOverlap, together with its verbatim repeats in earlier messages (the same rule pasted
  *      twice); if it is a head sentence nothing is removed and j "amends the task".
  */
@@ -357,6 +399,7 @@ export function supersede(msgs: readonly UserText[], rules: SupersedeRules, head
       ord,
       head: msg.head,
       ids: a.ids,
+      labelledIds: a.labelledIds,
       words: a.words,
       norm: a.norm,
       status: { sentence: a.sentence, supersededBy: null },
@@ -366,6 +409,7 @@ export function supersede(msgs: readonly UserText[], rules: SupersedeRules, head
       for (const c of own) {
         const text = c.status.sentence.text;
         if (!cues(text, rules)) continue;
+        if (rules.additive.test(text)) continue;
         const ids = c.ids.filter((id) => !headIds.has(id));
         if (ids.length > 0) {
           const hit = pool.filter((p) => !p.head && p.status.supersededBy === null && p.ids.some((x) => ids.includes(x)));
@@ -377,7 +421,17 @@ export function supersede(msgs: readonly UserText[], rules: SupersedeRules, head
             continue;
           }
         }
-        if (rules.additive.test(text)) continue;
+        if (cancellation(text)) {
+          const hits = pool.filter(p => p.status.supersededBy === null && !differentIds(p,c,headIds) && (sameObject(p,c) || browserAnchor(p,c)));
+          // No identity and ambiguous subjects: retain both rather than deleting
+          // an instruction merely because a generic word overlaps.
+          if (hits.length === 1) {
+            const p = hits[0]!;
+            if (p.head) amends.add(msg.index); else p.status.supersededBy = msg.index;
+            events.push({by:msg.index,target:p.index,sentence:p.ord,rule:p.head?'amends':'overlap',score:1});
+          }
+          continue;
+        }
         let best: Candidate | null = null;
         let bestScore = -1;
         if (rules.minOverlap > 0) {
@@ -399,6 +453,7 @@ export function supersede(msgs: readonly UserText[], rules: SupersedeRules, head
               seen.add(at);
               const p = pool[at]!;
               if (p.status.supersededBy !== null) continue;
+              if (differentIds(p,c,headIds)) continue;
               const s = overlapCoefficient(p.words, c.words);
               if (s >= rules.minOverlap && (s > bestScore || (s === bestScore && at > bestAt))) {
                 best = p;
@@ -410,6 +465,7 @@ export function supersede(msgs: readonly UserText[], rules: SupersedeRules, head
         } else {
           for (const p of pool) {
             if (p.status.supersededBy !== null) continue;
+            if (differentIds(p,c,headIds)) continue;
             const s = overlapCoefficient(p.words, c.words);
             if (s >= rules.minOverlap && s >= bestScore) {
               best = p;

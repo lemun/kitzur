@@ -9,16 +9,24 @@
   },
   "main": "dist/src/index.js",
   "files": [
-    "dist/src",
+    "dist/src/**/*.js",
+    "dist/src/**/*.js.map",
     "presets",
-    "deploy",
     "README.md",
     "CONFIG.md",
     "DESIGN.md",
     "SECURITY.md",
+    "docs/DIAGNOSTICS.md",
     "THIRD_PARTY_NOTICES.md",
     "LICENSE",
-    "LICENSES"
+    "LICENSES",
+    "deploy/README.md",
+    "deploy/kitzur.service",
+    "deploy/windows/*.ps1",
+    "deploy/windows/manage.mjs",
+    "deploy/windows/*.md",
+    "deploy/windows/opencode.template.json",
+    "deploy/windows/profile.example.json"
   ],
   "engines": {
     "node": ">=20"
