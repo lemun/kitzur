@@ -1,0 +1,2 @@
+# Golden tokenizer fixtures hash this upstream template byte for byte.
+scripts/tokenizer/qwen3.6-chat-template.jinja text eol=lf
