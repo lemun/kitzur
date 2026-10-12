@@ -42,8 +42,9 @@ added arbitrary-label and English/Hebrew marker regression cases. Engine version
 advanced from 3 to 4, then 5 because the version-4 review commit can create cached
 plans. Focused ledger/summary/diagnostics checks: 88/88 passed. Final full rerun
 in `/tmp/kitzur-integration-final.log`: **626 tests, 623 passed, 0 failed,
-3 skipped** (282 seconds, bounded concurrency 2). The skipped tests include the
-actual Windows lifecycle, which requires a Windows runner.
+3 skipped** (282 seconds, bounded concurrency 2). Skips are two optional Gobstopper
+binary comparisons (binary absent) and the actual Windows lifecycle (requires a
+Windows runner); no unexpected skips remain.
 
 Mechanical expected-fact comparison against `3f9afb8`: 14/25 correct before,
 25/25 after. This is a targeted supersession comparison, not a historical full
