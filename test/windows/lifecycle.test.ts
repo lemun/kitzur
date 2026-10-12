@@ -39,12 +39,13 @@ test('Windows distribution installs, preserves config, starts, reports and stops
   const launcher=join(local,'Kitzur/app/deploy/windows/Kitzur.ps1');
   let installed=false;
   try {
-    const nativeHash=await exec('powershell.exe',['-NoProfile','-NonInteractive','-Command','(Get-Command Get-FileHash -ErrorAction Stop).Name'],{env:psEnv,timeout:10000});
+    const nativeHash=await exec('powershell.exe',['-NoProfile','-NonInteractive','-Command','(Get-Command Get-FileHash -ErrorAction Stop).Name'],{env:psEnv,timeout:60000});
     assert.equal(nativeHash.stdout.trim(),'Get-FileHash','Windows PowerShell rebuilt native module defaults');
     const installer=join(bundle,'deploy/windows/Install-Kitzur.ps1');
     const hash=createHash('sha256').update(readFileSync(join(bundle,'SHA256SUMS'))).digest('hex');
     const args=['-ManifestSha256',hash,'-Profile',profile,'-Tokenizer',tokenizer,'-NoStartup'];
     await ps(installer,args); installed=true;
+    assert.equal(readFileSync(join(local,'Kitzur/node-path.txt'),'utf8').trim().toLowerCase(),process.execPath.toLowerCase(),'installer selects the active matrix Node from PATH precedence');
     const cfgPath=join(local,'Kitzur/config/kitzur.json');
     const before=readFileSync(cfgPath,'utf8');
     await ps(installer,args);

@@ -33,6 +33,7 @@ foreach ($line in (Get-Content -LiteralPath $manifest)) {
   if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ne $expected) { throw 'Bundle file checksum mismatch.' }
 }
 if (-not $seen.ContainsKey('deploy/windows/manage.mjs')) { throw 'Bundle manager missing from manifest.' }
-$node = (Get-Command node -CommandType Application -ErrorAction Stop).Source
+# Multiple Node installations may be present; use the first PATH match only.
+$node = (Get-Command node -CommandType Application -ErrorAction Stop | Select-Object -First 1).Source
 & $node (Join-Path $PSScriptRoot 'manage.mjs') install $bundle $Profile $Tokenizer $(if ($NoStartup) { 'no-startup' } else { 'startup' })
 if ($LASTEXITCODE -ne 0) { throw 'Kitzur setup failed. See the safe error above.' }
