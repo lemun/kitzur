@@ -25,6 +25,8 @@ import { counterFromConfig } from './tokenize/counter.js';
 import { canonicalJSON } from './tokenize/canonical.js';
 import type { Config } from './config/schema.js';
 import type { ChatRequest, EngineResult, LearnedState } from './types.js';
+import { doctor, renderDoctor } from './diagnostics/doctor.js';
+import { report, renderReport } from './diagnostics/report.js';
 
 // ---------------------------------------------------------------- IO and errors
 
@@ -166,6 +168,8 @@ const USAGE = `usage: kitzur <command> [options]
                                 plus a live-vs-fresh determinism check
   count <request.json>          exact token count of a request (per message, no content)
   status [--url URL]            GET /status of a running instance
+  doctor [--json] [--check-upstream] [--timeout-ms N]  read-only setup diagnostics
+  report <stats.jsonl> [--json]  aggregate request stats; sizes only
   config init [--preset 100k] [--out FILE|-] [--force]
   config show [--changed] [--json]      effective config with the source of every value
   config validate [--json]              errors and startup warnings
@@ -318,6 +322,35 @@ async function importState(): Promise<{
 }
 
 // ---------------------------------------------------------------- commands
+
+async function cmdDoctor(argv: string[], io: CliIO): Promise<number> {
+  const p = parseArgs(argv, { ...CONFIG_OPTS, json: { type: 'boolean' }, 'check-upstream': { type: 'boolean' }, 'timeout-ms': { type: 'string' } });
+  if (p.positionals.length) throw new UsageError('doctor takes no positional arguments');
+  const timeoutMs = p.values['timeout-ms'] === undefined ? 1500 : Number(p.values['timeout-ms']);
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000) throw new UsageError('--timeout-ms must be an integer from 1 to 10000');
+  let loaded: LoadedConfig;
+  try { loaded = loadFromArgs(p, io); }
+  catch (e) {
+    if (!(e instanceof ConfigError)) throw e;
+    const result = { checks: [{ code: 'config.load', status: 'error' as const, message: 'Configuration could not be loaded.', fix: 'Check the config file exists and contains valid JSON/JSONC with supported settings.' }], exitCode: 2 };
+    io.stdout(p.values['json'] ? JSON.stringify(result, null, 2) + '\n' : renderDoctor(result) + '\n');
+    return 2;
+  }
+  const result = await doctor(loaded.config, { env: io.env, upstreamCheck: p.values['check-upstream'] === true, timeoutMs });
+  io.stdout(p.values['json'] ? JSON.stringify(result, null, 2) + '\n' : renderDoctor(result) + '\n');
+  return result.exitCode;
+}
+
+function cmdReport(argv: string[], io: CliIO): number {
+  const p = parseArgs(argv, { json: { type: 'boolean' } });
+  if (p.positionals.length !== 1) throw new UsageError('report needs one stats JSONL file');
+  let input: string;
+  try { input = readFileSync(resolve(io.cwd, p.positionals[0]!), 'utf8'); }
+  catch { io.stderr('kitzur: report could not read the stats file\n'); return 1; }
+  const result = report(input);
+  io.stdout(p.values['json'] ? JSON.stringify(result, null, 2) + '\n' : renderReport(result) + '\n');
+  return result.coverage.malformed ? 1 : 0;
+}
 
 async function cmdServe(argv: string[], io: CliIO): Promise<number> {
   const p = parseArgs(argv, { ...CONFIG_OPTS, 'drain-ms': { type: 'string' } });
@@ -773,6 +806,10 @@ export async function main(argv: readonly string[], io: CliIO = defaultIO()): Pr
         return await cmdCount(rest, io);
       case 'status':
         return await cmdStatus(rest, io);
+      case 'doctor':
+        return await cmdDoctor(rest, io);
+      case 'report':
+        return cmdReport(rest, io);
       case 'config':
         return await cmdConfig(rest, io);
       case 'state':

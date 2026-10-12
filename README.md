@@ -182,6 +182,8 @@ use `node dist/src/cli.js` in its place.
 ```text
 kitzur serve                         run the proxy
 kitzur status [--url URL]            inspect budgets, counters and learned limits
+kitzur doctor [--json]               diagnose setup (--check-upstream for a small probe)
+kitzur report stats.jsonl [--json]   summarize request reduction, retries and timing
 kitzur config init|show|validate      create or inspect configuration
 kitzur config import-eval DIR        import gateway probe results as configuration
 kitzur replay FILE|DIR               replay captured request bodies locally
@@ -209,6 +211,10 @@ optional and used only for the parity cross-check.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), [CONFIG.md](CONFIG.md),
 [DESIGN.md](DESIGN.md) and [SECURITY.md](SECURITY.md).
+
+[Setup diagnostics and session reports](docs/DIAGNOSTICS.md) explain accounting
+and coverage. [Coding task evaluation](bench/coding/README.md) provides executable
+grading with matched direct/proxy runs; real-model validation remains pending.
 
 Kitzur is Hebrew for “shortcut”. MIT licensed. Portions derive from gobstopper and other upstream projects;
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [LICENSES/](LICENSES/) preserve their notices.
