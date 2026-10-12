@@ -18,7 +18,7 @@ const ACTIONS = new Set(['passthrough', 'reuse', 'compact', 'admit', 'truncate',
 function validRecord(v: JsonRecord): boolean {
   const status = num(v.client_status);
   const hasTokenOrAttempts = num(v.tokens_in) !== null || num(v.tokens_out) !== null || Array.isArray(v.attempts);
-  return Number.isInteger(num(v.seq)) && ACTIONS.has(String(v.action)) && status !== null && Number.isInteger(status) && status >= 100 && status <= 599 && hasTokenOrAttempts;
+  return Number.isInteger(num(v.seq)) && typeof v.action === 'string' && ACTIONS.has(v.action) && status !== null && Number.isInteger(status) && status >= 100 && status <= 599 && hasTokenOrAttempts;
 }
 
 /** Aggregate stats JSONL. Values are whitelisted numeric/date fields; identifiers and content are discarded. */

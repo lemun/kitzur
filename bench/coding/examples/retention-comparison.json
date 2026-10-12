@@ -1,9 +1,9 @@
 {
   "kind": "mechanical-correction-fixtures",
   "beforeRevision": "3f9afb8",
-  "cases": 21,
-  "beforeCorrect": 12,
-  "afterCorrect": 21,
+  "cases": 25,
+  "beforeCorrect": 14,
+  "afterCorrect": 25,
   "results": [
     {
       "case": "English additive shared ID",
@@ -33,6 +33,54 @@
       ],
       "afterSuperseded": [],
       "beforeCorrect": false,
+      "afterCorrect": true
+    },
+    {
+      "case": "arbitrary labelled IDs preserve independent instructions",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [
+        0
+      ],
+      "afterSuperseded": [],
+      "beforeCorrect": false,
+      "afterCorrect": true
+    },
+    {
+      "case": "label and marker identities stay distinct",
+      "expectedSuperseded": [],
+      "beforeSuperseded": [
+        0
+      ],
+      "afterSuperseded": [],
+      "beforeCorrect": false,
+      "afterCorrect": true
+    },
+    {
+      "case": "English presence markers do not veto corrections",
+      "expectedSuperseded": [
+        0
+      ],
+      "beforeSuperseded": [
+        0
+      ],
+      "afterSuperseded": [
+        0
+      ],
+      "beforeCorrect": true,
+      "afterCorrect": true
+    },
+    {
+      "case": "Hebrew presence markers do not veto corrections",
+      "expectedSuperseded": [
+        0
+      ],
+      "beforeSuperseded": [
+        0
+      ],
+      "afterSuperseded": [
+        0
+      ],
+      "beforeCorrect": true,
       "afterCorrect": true
     },
     {

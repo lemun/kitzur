@@ -37,6 +37,8 @@ test('report handles empty, malformed, and partial JSONL without throwing', () =
   const malformed = report('{bad}\n{}\n"unrelated"\n');
   assert.equal(malformed.coverage.malformed, 3);
   assert.equal(malformed.requests, 0);
+  const hostile=report('{"seq":1,"action":{"toString":"SECRET"},"client_status":200,"tokens_in":1}\n');
+  assert.equal(hostile.coverage.malformed,1);
   const partial = report('{"seq":1,"action":"passthrough","client_status":200,"ts":"2026-01-01T00:00:00Z","tokens_in":3,"tokens_out":2,"attempts":[{}]}');
   assert.equal(partial.requests, 1);
   assert.equal(partial.coverage.partialFinalLine, true);

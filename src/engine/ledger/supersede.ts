@@ -201,7 +201,7 @@ function browserAnchor(a: Candidate, b: Candidate): boolean {
   return browser !== undefined && a.words.has(browser);
 }
 function differentIds(a: Candidate, b: Candidate, headIds: ReadonlySet<string>): boolean {
-  const x = a.ids.filter(id => !headIds.has(id)), y = b.ids.filter(id => !headIds.has(id));
+  const x = a.labelledIds.filter(id => !headIds.has(id)), y = b.labelledIds.filter(id => !headIds.has(id));
   return x.length > 0 && y.length > 0 && !x.some(id => y.includes(id));
 }
 
@@ -307,6 +307,8 @@ const normSentence = (t: string): string => {
 interface SentenceInfo {
   sentence: Sentence;
   ids: string[];
+  /** A colon after the ID declares an instruction label, unlike a presence marker. */
+  labelledIds: string[];
   words: Set<string>;
   /** normSentence(text), for verbatim repeats */
   norm: string;
@@ -324,7 +326,12 @@ class SentenceCache {
   get(text: string, rules: SupersedeRules): readonly SentenceInfo[] {
     let v = this.m.get(text);
     if (v !== undefined) return v;
-    v = splitSentences(text).map((sentence) => ({ sentence, ids: explicitIds(sentence.text), words: contentWords(sentence.text, rules.ignore), norm: normSentence(sentence.text) }));
+    v = splitSentences(text).map((sentence) => {
+      const spans = explicitIdSpans(sentence.text);
+      return { sentence, ids: spans.map(s => sentence.text.slice(s.start,s.end)),
+        labelledIds: spans.filter(s => /^\s*:/u.test(sentence.text.slice(s.end))).map(s => sentence.text.slice(s.start,s.end)),
+        words: contentWords(sentence.text, rules.ignore), norm: normSentence(sentence.text) };
+    });
     this.m.set(text, v);
     this.chars += text.length;
     while (this.m.size > 1 && this.chars > this.maxChars) {
@@ -359,6 +366,7 @@ interface Candidate {
   ord: number;
   head: boolean;
   ids: string[];
+  labelledIds: string[];
   words: Set<string>;
   norm: string;
   status: SentenceStatus;
@@ -391,6 +399,7 @@ export function supersede(msgs: readonly UserText[], rules: SupersedeRules, head
       ord,
       head: msg.head,
       ids: a.ids,
+      labelledIds: a.labelledIds,
       words: a.words,
       norm: a.norm,
       status: { sentence: a.sentence, supersededBy: null },

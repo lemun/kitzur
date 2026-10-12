@@ -64,7 +64,9 @@ open todos, files, browser state, the last test result and concise assistant/too
 A deterministic priority order chooses what fits; user instructions have the highest
 priority. Correction detection uses explicit IDs and word overlap, including Hebrew
 cues. Additive instructions are retained even when they share an explicit ID;
-different explicit IDs prevent deletion through generic word overlap. Direct
+different explicitly labelled instruction IDs (`RULE-A1:`) prevent deletion
+through generic word overlap; trailing presence markers do not veto corrections.
+Bare unlabelled IDs retain the existing heuristic overlap behavior. Direct
 cancellation uses a conservative exact object match or a terse browser-name
 anchor. Negated cancellations, questions and quoted commands do not cancel work.
 Ambiguous cancellation targets survive. It is heuristic and can miss corrections
