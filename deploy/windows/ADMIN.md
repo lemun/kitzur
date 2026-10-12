@@ -9,6 +9,10 @@ it separately from the public package. Node.js and OpenCode are separate prerequ
    the `@ai-sdk/openai-compatible` provider format documented in the
    [OpenCode provider guide](https://opencode.ai/docs/providers). Verify compatibility with the selected
    version. Use the system's normal PowerShell script policy; no scripts change policy or disable TLS.
+   When Node launches Windows PowerShell 5 for startup registration, it removes the
+   inherited `PSModulePath` from that child only so PowerShell builds compatible
+   defaults. Other environment settings, including script policy and custom CAs,
+   remain intact; this supports a PowerShell 7 → Node → Windows PowerShell bridge.
 2. Record the model ID and full HTTPS API base, such as `https://api.example.invalid/v1`. Kitzur's
    upstream origin excludes the API path; the client's local base URL includes it. Verify authenticated
    model listing and streamed Chat Completions independently. Installation makes an unauthenticated

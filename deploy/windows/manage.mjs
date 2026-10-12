@@ -16,6 +16,11 @@ const stopFile = path.join(root, 'stop.json');
 const read = p => JSON.parse(fs.readFileSync(p, 'utf8'));
 const write = (p, v) => fs.writeFileSync(p, JSON.stringify(v, null, 2) + '\n', {mode: 0o600});
 const sha = p => createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+export function powerShellEnvironment(env = process.env) {
+  // Windows PowerShell 5 must rebuild its own module paths when Node was
+  // launched by PowerShell 7. Never mutate the parent environment or policy.
+  return Object.fromEntries(Object.entries(env).filter(([key]) => key.toLowerCase() !== 'psmodulepath'));
+}
 const templates = ['qwen3', 'chatml', 'generic', 'sim'];
 export function profileTemplate(profile) {
   const value = profile.tokenizerTemplate ?? 'qwen3';
@@ -196,7 +201,7 @@ async function install([bundle, profilePath, tokenizerPath, startup]) {
     // A .lnk uses separate executable/arguments fields and handles spaces without shell evaluation.
     const ps = path.join(appDir,'deploy','windows','Register-Startup.ps1');
     await new Promise((resolve,reject) => {
-      const child = spawn('powershell.exe',['-NoProfile','-File',ps],{stdio:'inherit',windowsHide:true});
+      const child = spawn('powershell.exe',['-NoProfile','-File',ps],{stdio:'inherit',windowsHide:true,env:powerShellEnvironment()});
       child.on('error',reject); child.on('exit',code => code === 0 ? resolve() : reject(new SafeError('Startup registration failed (check approved script policy).')));
     });
   }

@@ -3,12 +3,14 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { execFile, spawnSync } from 'node:child_process';
 import { promisify } from 'node:util';
 import https from 'node:https';
 import { ROOT, testTokenizerPath } from '../helpers.js';
 const exec=promisify(execFile);
+const manager = await import(pathToFileURL(join(ROOT,'deploy/windows/manage.mjs')).href);
 
 test('Windows distribution installs, preserves config, starts, reports and stops with paths containing spaces', {skip:process.platform!=='win32'?'requires actual Windows runner':false, timeout:150000}, async () => {
   const bundle=process.env['KITZUR_TEST_WINDOWS_BUNDLE'];
@@ -28,10 +30,17 @@ test('Windows distribution installs, preserves config, starts, reports and stops
   const profile=join(dir,'profile.json');
   writeFileSync(profile,JSON.stringify({gatewayBaseURL:`https://127.0.0.1:${address.port}/v1`,modelId:'test-model',tokenizerSha256:createHash('sha256').update(readFileSync(tokenizer)).digest('hex'),provenance:{model:'test',revision:'fixture',source:'test',approval:'test',license:'test'},config:{preset:'32k'}}));
   const env={...process.env,LOCALAPPDATA:local,APPDATA:roaming,NODE_EXTRA_CA_CERTS:cert};
-  const ps=(file:string,args:string[]=[])=>exec('powershell.exe',['-NoProfile','-File',file,...args],{env,timeout:60000,maxBuffer:1024*1024});
+  // Model a PowerShell 7 -> Node -> Windows PowerShell bridge. The child must
+  // rebuild its compatible defaults instead of inheriting this module path.
+  const inheritedModulePath=Object.entries(env).find(([key])=>key.toLowerCase()==='psmodulepath')?.[1];
+  const incompatibleEnv={...manager.powerShellEnvironment(env),pSmOdUlEpAtH:inheritedModulePath??join(dir,'PowerShell 7-only modules')};
+  const psEnv=manager.powerShellEnvironment(incompatibleEnv);
+  const ps=(file:string,args:string[]=[])=>exec('powershell.exe',['-NoProfile','-File',file,...args],{env:psEnv,timeout:60000,maxBuffer:1024*1024});
   const launcher=join(local,'Kitzur/app/deploy/windows/Kitzur.ps1');
   let installed=false;
   try {
+    const nativeHash=await exec('powershell.exe',['-NoProfile','-NonInteractive','-Command','(Get-Command Get-FileHash -ErrorAction Stop).Name'],{env:psEnv,timeout:10000});
+    assert.equal(nativeHash.stdout.trim(),'Get-FileHash','Windows PowerShell rebuilt native module defaults');
     const installer=join(bundle,'deploy/windows/Install-Kitzur.ps1');
     const hash=createHash('sha256').update(readFileSync(join(bundle,'SHA256SUMS'))).digest('hex');
     const args=['-ManifestSha256',hash,'-Profile',profile,'-Tokenizer',tokenizer,'-NoStartup'];
@@ -40,6 +49,11 @@ test('Windows distribution installs, preserves config, starts, reports and stops
     const before=readFileSync(cfgPath,'utf8');
     await ps(installer,args);
     assert.equal(readFileSync(cfgPath,'utf8'),before,'reinstall preserves configuration');
+    const shortcut=join(roaming,'Microsoft/Windows/Start Menu/Programs/Startup/Kitzur.lnk');
+    assert.equal(existsSync(shortcut),false,'NoStartup preserves manual startup');
+    await exec(process.execPath,[join(local,'Kitzur/app/deploy/windows/manage.mjs'),'install',bundle,profile,tokenizer,'startup'],{env:incompatibleEnv,timeout:60000,maxBuffer:1024*1024});
+    assert.ok(existsSync(shortcut),'installed manager registers startup through compatible native PowerShell child');
+    assert.equal(readFileSync(cfgPath,'utf8'),before,'startup-enabled reinstall preserves configuration');
     const client=JSON.parse(readFileSync(join(local,'Kitzur/config/opencode.generated.json'),'utf8'));
     assert.deepEqual(client.provider.kitzur.models['test-model'].limit,{context:32000,output:8000});
     await ps(launcher,['-Action','Start']);
@@ -53,7 +67,6 @@ test('Windows distribution installs, preserves config, starts, reports and stops
     const safe=readFileSync(join(local,'Kitzur/logs/diagnostics.json'),'utf8');
     assert.ok(!safe.includes('test-model') && !safe.includes(dir));
     await ps(join(local,'Kitzur/app/deploy/windows/Register-Startup.ps1'));
-    const shortcut=join(roaming,'Microsoft/Windows/Start Menu/Programs/Startup/Kitzur.lnk');
     assert.ok(existsSync(shortcut),'shortcut stays inside isolated APPDATA');
     const inspect=join(dir,'inspect-shortcut.ps1');
     writeFileSync(inspect,"param([string]$Shortcut)\n$link = (New-Object -ComObject WScript.Shell).CreateShortcut($Shortcut)\n@{target=$link.TargetPath;arguments=$link.Arguments;workingDirectory=$link.WorkingDirectory} | ConvertTo-Json\n");

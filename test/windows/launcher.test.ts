@@ -11,6 +11,14 @@ const manager = await import(pathToFileURL(join(ROOT, 'deploy/windows/manage.mjs
 const template = JSON.parse(readFileSync(join(ROOT, 'deploy/windows/opencode.template.json'), 'utf8'));
 const profile = {gatewayBaseURL:'https://localhost/llm/v1', modelId:'example', tokenizerSha256:'a'.repeat(64), provenance:{model:'fixture', revision:'r1', source:'test', approval:'test', license:'MIT'}, config:{preset:'32k'}};
 
+test('Windows PowerShell child environment rebuilds module paths without changing other settings', () => {
+  const env = {PATH:'fixture-path',PSModulePath:'PS7-modules',pSmOdUlEpAtH:'other-PS7-modules',LOCALAPPDATA:'fixture-local',NODE_EXTRA_CA_CERTS:'fixture-ca',PSExecutionPolicyPreference:'RemoteSigned'};
+  const result=manager.powerShellEnvironment(env);
+  assert.deepEqual(result,{PATH:'fixture-path',LOCALAPPDATA:'fixture-local',NODE_EXTRA_CA_CERTS:'fixture-ca',PSExecutionPolicyPreference:'RemoteSigned'});
+  assert.equal(env.PSModulePath,'PS7-modules');
+  assert.equal(env.pSmOdUlEpAtH,'other-PS7-modules');
+});
+
 test('Windows generated client follows effective preset and profile API path without mutating template', () => {
   for (const preset of ['32k','64k','100k','128k']) {
     const cfg = loadConfig({preset, env:{}}).config;
