@@ -63,7 +63,14 @@ repeatedly summarizing earlier summaries. It records user instructions, decision
 open todos, files, browser state, the last test result and concise assistant/tool notes.
 A deterministic priority order chooses what fits; user instructions have the highest
 priority. Correction detection uses explicit IDs and word overlap, including Hebrew
-cues. It is heuristic and can miss corrections or retain obsolete instructions.
+cues. Additive instructions are retained even when they share an explicit ID;
+different explicit IDs prevent deletion through generic word overlap. Direct
+cancellation uses a conservative exact object match or a terse browser-name
+anchor. Negated cancellations, questions and quoted commands do not cancel work.
+Ambiguous cancellation targets survive. It is heuristic and can miss corrections
+or retain obsolete instructions; it does not understand arbitrary negation or
+Hebrew morphology. Between compactions the previous summary remains unchanged,
+with newer corrections in the verbatim tail, until the next compaction rebuilds it.
 
 The standard summary header interoperates with gobstopper and CliffCompaction.
 A `[kitzur]` footer marks the compacted range. Summaries default to a user message

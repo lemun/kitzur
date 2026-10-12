@@ -35,7 +35,7 @@ const PROBES: Array<[string, string, string, boolean, number?]> = [
   ['FP? E2E token', 'Run the E2E suite nightly.', 'Actually the E2E dashboard is broken, ignore its colours.', false],
 ];
 
-test('the 11 review probes: at least 10/11 correct and 0 false supersessions; only the terse firefox case may miss', () => {
+test('the 11 review probes: all correct and 0 false supersessions', () => {
   let correct = 0;
   let falsePos = 0;
   const misses: string[] = [];
@@ -52,15 +52,15 @@ test('the 11 review probes: at least 10/11 correct and 0 false supersessions; on
     else falsePos++;
   }
   assert.equal(falsePos, 0);
-  assert.ok(correct >= 10, `correct ${correct}/11`);
-  assert.ok(misses.every((m) => m === 'TP firefox (terse)'), `unexpected misses: ${misses}`);
+  assert.equal(correct, 11, `unexpected misses: ${misses}`);
 });
 
-test('the terse firefox correction is the documented safe miss (overlap 0.25-0.34 < 0.34)', () => {
+test('the terse firefox correction uses a shared browser anchor without relaxing overlap', () => {
   const a = contentWords('Please also run every spec on the firefox project.', rules.ignore);
   const b = contentWords('Actually, skip firefox - chromium only is enough.', rules.ignore);
   const o = overlapCoefficient(a, b);
   assert.ok(o > 0 && o < 0.34, String(o));
+  assert.deepEqual(run('Please also run every spec on the firefox project.', 'Actually, skip firefox - chromium only is enough.'), [[5,0]]);
 });
 
 test('bench corr60-style pairs (DESIGN A.5 F9)', () => {
