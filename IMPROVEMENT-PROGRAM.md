@@ -11,8 +11,8 @@ All four existing folders and ignored data are preserved.
 - [x] Instruction corrections: English/Hebrew expected facts, conservative changes,
   algorithm version bump, budget/pairing/determinism regressions.
 - [x] Session report: reviewed aggregation, coverage/accounting and CLI integration.
-- [x] Windows implementation: reused `ef3e0ec`, focused fixes and CI/package checks. Windows runner
-  execution pending; do not claim Windows validation until executed.
+- [x] Windows implementation: reused `ef3e0ec`, focused fixes and CI/package checks. Windows Node 20/22
+  portable, packaged CLI and actual installation/lifecycle checks passed in GitHub CI.
 
 ## Decisions and evidence
 
@@ -80,18 +80,87 @@ unknown-attempt and hostile-action checks. Manifest SHA256:
 
 ## Reviewable increments
 
-- `06cd720`: reuse Windows installation branch commit.
-- `bd4a9f6`: Windows packaging, profile/path fixes and Linux/Windows CI.
-- `a8b5cd5`: matched coding harness and executable graders.
-- `a87d86b`: conservative retention/cancellation rules and regressions.
-- `bdbebe4`: doctor and session reports.
-- `a44aad3`: labelled-ID integration fix and safe malformed-report handling.
+- `32874e3`: reuse Windows installation branch commit.
+- `7c39df6`: Windows packaging, profile/path fixes and Linux/Windows CI.
+- `2683fb0`: matched coding harness and executable graders.
+- `a17b923`: conservative retention/cancellation rules and regressions.
+- `3c33b48`: doctor and session reports.
+- `8438f4a`: labelled-ID integration fix and safe malformed-report handling.
 - Final evidence/checklist commit: see branch tip.
 
 ## External follow-up
 
-- Run actual Windows CI Node 20/22 and lifecycle checks; until executed, Windows
-  validation remains pending. Linux unit/package evidence does not establish it.
+- Windows CI Node 20/22 and actual lifecycle validation completed successfully;
+  linked remote results below provide platform evidence.
 - Run real-model paired repetitions using `bench/coding/README.md` after capacity
   becomes available; mock success does not establish comprehension or savings.
-- Review the branch for merge. Nothing has been merged, pushed or published.
+- Review draft PR #3 for merge: https://github.com/lemun/kitzur/pull/3.
+  The branch is pushed for review; no merge or release has been performed.
+
+## Remote validation follow-up
+
+2026-10-12: user authorized branch review/push and GitHub CI. GitHub blocked
+the first push under its private-email protection. Original commits were preserved
+locally under `backup/improvement-program-before-email-privacy`; unpublished
+author/committer email headers were normalized to the account's GitHub noreply
+address with identical file trees, messages and dates. Review commit hashes above
+now refer to the pushed history. Repository-local email uses that noreply address
+for future commits. Email privacy protection was kept enabled.
+
+Draft PR: https://github.com/lemun/kitzur/pull/3. PR CI run:
+https://github.com/lemun/kitzur/actions/runs/38239225527. Duplicate push-event CI
+was cancelled; the PR run validates Linux Node 20/22, packaging, and Windows
+Node 20/22.
+
+First remote run passed Linux Node 20/22 and packaging. Windows portable suites
+found checkout CRLF conversion of the byte-exact upstream template. Converting the
+committed template to CRLF reproduced the failing hash exactly. Commit `7a3f74d`
+pins only that template to LF via `.gitattributes`; an isolated Windows-style Git
+checkout and the unchanged golden assertion passed.
+
+Second PR run: https://github.com/lemun/kitzur/actions/runs/38239852124.
+Linux Node 20/22, packaging and Windows portable suites passed. Both Windows
+lifecycle tests reached installation and exposed PowerShell 7 module-path
+inheritance through Node into Windows PowerShell 5.1 (`Get-FileHash` unavailable).
+Microsoft documents this intermediate-process behavior and recommends removing
+`PSModulePath` from the child environment so Windows PowerShell restores native
+module paths: https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_psmodulepath?view=powershell-7.6.
+Commit `e313d8c` adds a narrow cloned child-environment helper that removes only
+case-insensitive `PSModulePath` entries for Windows PowerShell children. Parent
+environment, certificate settings, execution policy and checksum verification are
+unchanged. Local focused tests passed (6 pure tests, Windows lifecycle skipped on
+Linux). Actual lifecycle now verifies native `Get-FileHash`, two manual-startup
+installs, and an installed-manager startup-enabled reinstall under the actual
+inherited PowerShell 7 module directories. Astra reviewed this process-environment
+choice and regression coverage.
+
+Third PR run: https://github.com/lemun/kitzur/actions/runs/38245119653.
+The module fix advanced installation on Node 22; the installer then revealed that
+`Get-Command node` can return multiple executable matches on PATH. Its collection
+of Source paths was incorrectly invoked as one executable. Node 20's native module
+probe hit its 10-second cold-start timeout in the PR run; the duplicate push run
+passed that probe and reproduced the same multiple-Node-path failure.
+
+Commit `2f6b1b4` selects the first application match, preserving PATH precedence.
+The lifecycle asserts `node-path.txt` matches the active matrix Node before any
+direct-Node reinstall could mask selection. The native diagnostic probe now uses
+the same bounded 60-second allowance as other PowerShell calls.
+
+Final runtime CI: https://github.com/lemun/kitzur/actions/runs/38245999885,
+head `2f6b1b415820fb2f71ae153b1b584b8a22b85e46`. All five jobs passed:
+Linux Node 20 and 22, clean packaging, Windows Node 20 and 22. Each Windows job
+passed **241 portable tests and 7 deployment tests, with zero skips or failures**.
+The actual lifecycle verifies native module loading, trusted-manifest installation,
+configuration-preserving reinstall, installer startup registration, active Node
+selection, exact-tokenizer background startup, repeated start/status, proxied
+synthetic Chat Completions, redacted diagnostics, isolated shortcut arguments,
+graceful stop and uninstall retaining configuration.
+
+Both push- and PR-triggered workflows are retained for the final source revision.
+The checklist/doc-only follow-up records already-passed runtime evidence; live
+model evaluation remains the only deferred evaluation step.
+
+Astra independently reviewed the successful Windows logs and final source changes
+and approved Windows completion for runtime commit `2f6b1b4`. This establishes
+the tested per-user installation/lifecycle on GitHub Windows runners; it does not
+establish every Windows deployment environment or real-model task quality.

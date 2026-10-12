@@ -69,7 +69,9 @@ CI builds the generic ZIP/npm archives on Linux with Python 3.12, then consumes 
 with Node 20 and 22. It exercises portable engine/ledger/tokenizer/diagnostic suites and the actual
 PowerShell installer, configuration-preserving reinstall, background start/status/stop, safe diagnostics
 and an isolated startup shortcut under paths with spaces. Linux continues to run the full suite,
-including POSIX signal/mode and Unix path cases. Windows runner results remain pending until CI executes.
+including POSIX signal/mode and Unix path cases. Windows Node 20/22 artifact and installation/lifecycle checks passed in
+[GitHub CI](https://github.com/lemun/kitzur/actions/runs/38245999885); see
+`IMPROVEMENT-PROGRAM.md` for the tested revision and validation scope.
 
 ## Validate operation and diagnose
 

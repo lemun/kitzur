@@ -205,7 +205,9 @@ npm test
 ```
 
 Tests that require the development tokenizer skip when it is absent. CI downloads
-it and runs the suite on Node 20 and 22. Gobstopper comparisons require a separately
+it and runs the full suite on Linux Node 20 and 22, plus portable suites and
+packaged CLI/installation lifecycle checks on Windows Node 20 and 22.
+Gobstopper comparisons require a separately
 built gobstopper; an external Python reference harness and virtual environment are
 optional and used only for the parity cross-check.
 
