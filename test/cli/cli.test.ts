@@ -359,7 +359,7 @@ function fakeModules(opts: { flaky?: boolean; onClose?: (ms: number) => void; pr
       ({
         listen: async () => ({ host: '127.0.0.1', port: 45678 }),
         close: async (ms?: number) => opts.onClose?.(ms ?? -1),
-        upstream: { probe: opts.probe ?? (async () => ({ ok: true })) },
+        probe: opts.probe ?? (async () => ({ ok: true })),
         status: { warn: () => undefined },
       }) as unknown as ReturnType<AppModules['createProxyServer']>,
   };
