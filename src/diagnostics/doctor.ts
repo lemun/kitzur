@@ -21,7 +21,7 @@ function detachedCommand(configPath?: string): string {
 }
 
 /** Distinguish an absent instance from one accepting TCP but unable to serve HTTP. */
-export async function probeInstance(host: string, port: number, timeoutMs = 3000): Promise<'absent' | 'responsive' | 'hung'> {
+export async function probeInstance(host: string, port: number, timeoutMs = 3000): Promise<'absent' | 'responsive' | 'hung' | 'other'> {
   const started = Date.now();
   timeoutMs = Number.isFinite(timeoutMs) ? Math.max(1, Math.min(timeoutMs, 3000)) : 3000;
   const target = host === '0.0.0.0' ? '127.0.0.1' : host === '::' ? '::1' : host;
@@ -35,27 +35,31 @@ export async function probeInstance(host: string, port: number, timeoutMs = 3000
   if (!listening) return 'absent';
   return await new Promise((resolve) => {
     let settled = false;
-    const finish = (value: 'responsive' | 'hung'): void => {
+    const finish = (value: 'responsive' | 'hung' | 'other'): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       req.destroy();
       resolve(value);
     };
+    const failed = (e: NodeJS.ErrnoException): void => {
+      finish(e.code === 'ECONNRESET' || e.code === 'ETIMEDOUT' ? 'hung' : 'other');
+    };
     const req = request({ hostname: target, port, path: '/status', agent: false }, (res) => {
+      res.on('error', failed);
+      if (res.statusCode !== 200) { finish('other'); return; }
       let body = '';
       res.on('data', (chunk: Buffer) => {
         body += chunk.toString();
-        if (body.length > 1024 * 1024) finish('hung');
+        if (body.length > 1024 * 1024) finish('other');
       });
-      res.on('error', () => finish('hung'));
       res.on('end', () => {
-        try { finish(res.statusCode === 200 && JSON.parse(body).name === 'kitzur' ? 'responsive' : 'hung'); }
-        catch { finish('hung'); }
+        try { finish(JSON.parse(body)?.name === 'kitzur' ? 'responsive' : 'other'); }
+        catch { finish('other'); }
       });
     });
     const timer = setTimeout(() => finish('hung'), Math.max(1, timeoutMs - (Date.now() - started)));
-    req.on('error', () => finish('hung'));
+    req.on('error', failed);
     req.end();
   });
 }
@@ -146,6 +150,9 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
   if (instance === 'hung') {
     add('instance.responsive', 'error', 'Detected: a Kitzur process is listening but not responding. On Windows, a paused console (including QuickEdit selection) can freeze synchronous console writes.',
       `Restart detached with logs to a file. PowerShell: ${detachedCommand(opts.configPath)}`);
+  } else if (instance === 'other') {
+    add('instance.responsive', 'warn', `Another service (or a Kitzur refusing this probe) answers on ${config.listen.port}.`,
+      'Check listen.host, listen.port, and allowed Host settings; inspect the service response before taking action.');
   } else add('instance.responsive', 'ok', instance === 'responsive' ? 'Running instance answered GET /status.' : 'No running instance accepted a local TCP connection.');
 
   if (opts.upstreamCheck) {

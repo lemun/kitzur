@@ -212,3 +212,42 @@ test('the tokenize endpoint calibrator: one in flight, skipped while down or bus
   assert.equal(calls, 1);
   assert.equal(cal.skipped, 1);
 });
+
+test('reset starts an immediate checkpoint rather than waiting for debounce', async () => {
+  const s = new StateStore({ dir: tmp(), configuredWindow: 100_000, counterId: 'c', debounceMs: 60_000 });
+  try {
+    s.set('k', { ...s.entry('k'), samples: 1 });
+    await s.flush();
+    s.reset();
+    const writing = Reflect.get(s, 'writing') as Promise<void> | null;
+    assert.ok(writing, 'reset must start writing immediately');
+    await writing;
+    assert.deepEqual(readLearnedState(s.path!).state.entries, {});
+  } finally { await s.close(); }
+});
+
+test('a completed flush does not clear a newer in-flight write', async () => {
+  const s = new StateStore({ dir: tmp(), configuredWindow: 100_000, counterId: 'c' });
+  try {
+    s.set('k', { ...s.entry('k'), samples: 1 });
+    const first = s.flush();
+    const newer = Promise.resolve();
+    Reflect.set(s, 'writing', newer);
+    await first;
+    assert.equal(Reflect.get(s, 'writing'), newer);
+  } finally { await s.close(); }
+});
+
+test('concurrent flushes serialize updates and persist the latest snapshot', async () => {
+  const s = new StateStore({ dir: tmp(), configuredWindow: 100_000, counterId: 'c' });
+  try {
+    s.set('k', { ...s.entry('k'), samples: 1 });
+    const first = s.flush();
+    s.set('k', { ...s.entry('k'), samples: 2 });
+    const second = s.flush();
+    const third = s.flush();
+    await Promise.all([first, second, third]);
+    assert.equal(s.writes, 2);
+    assert.equal(readLearnedState(s.path!).state.entries['k']?.samples, 2);
+  } finally { await s.close(); }
+});

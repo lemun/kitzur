@@ -240,7 +240,7 @@ export class StateStore {
     const gone = [...this.entriesMap.keys()].filter((k) => keyMatches(k, filter));
     for (const k of gone) this.entriesMap.delete(k);
     this.dirty = true;
-    this.schedule();
+    void this.flush();
     return gone;
   }
 
@@ -251,15 +251,16 @@ export class StateStore {
     if (!this.dirty || !this.path) return;
     const data = JSON.stringify({ version: 2, entries: Object.fromEntries(this.entriesMap) }, null, 1) + '\n';
     this.dirty = false;
-    this.writing = writeFileAtomicAsync(this.path, data).then(() => {
+    const writing = writeFileAtomicAsync(this.path, data).then(() => {
       this.writes++;
       this.lastError = null;
     }).catch((e: unknown) => {
       this.dirty = true;
       this.lastError = `write learned.json: ${e instanceof Error ? e.message : String(e)}`;
     });
-    await this.writing;
-    this.writing = null;
+    this.writing = writing;
+    await writing;
+    if (this.writing === writing) this.writing = null;
     if (this.dirty) this.schedule();
   }
 

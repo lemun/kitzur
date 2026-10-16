@@ -132,3 +132,31 @@ test('log filesystem errors are reported without rejecting shutdown', async () =
     assert.match(log.errorMessage ?? '', /EEXIST|ENOTDIR/);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test('file rotation during watchdog reporting leaves both logs readable', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'kitzur-watch-rotate-'));
+  const log = new RuntimeLog({ dir, level: 'info', maxBytes: 200 });
+  const watchdog = new LoopWatchdog(log, { thresholdMs: 50, heartbeatMs: 10 });
+  try {
+    log.info('before rotation');
+    const startup = setTimeout(() => assert.fail('watchdog startup timed out'), 2000);
+    try { await watchdog.ready; } finally { clearTimeout(startup); }
+    await delay(50);
+    const until = Date.now() + 250;
+    while (Date.now() < until) { /* let the worker append while the main loop is stalled */ }
+    // Queue enough output to rotate the main stream while worker appends may still be in flight.
+    log.info('after rotation ' + 'x'.repeat(150));
+    await log.close();
+    watchdog.close();
+    const current = await readFile(log.path, 'utf8');
+    const previous = await readFile(`${log.path}.1`, 'utf8');
+    assert.match(current, /after rotation/);
+    assert.match(previous, /before rotation/);
+    assert.match(current + previous, /event_loop_stall/);
+    for (const line of (current + previous).split('\n').filter(Boolean)) {
+      if (line.startsWith('{')) assert.equal(JSON.parse(line).event, 'event_loop_stall');
+      else assert.match(line, /^\d{4}-\d{2}-\d{2}T.* kitzur: info: /);
+    }
+    assert.equal(log.errorMessage, null);
+  } finally { watchdog.close(); await log.close(); await rm(dir, { recursive: true, force: true }); }
+});
