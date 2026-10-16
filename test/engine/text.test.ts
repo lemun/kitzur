@@ -73,6 +73,20 @@ test('head+tail truncation: fits the room, head share, line boundaries, few coun
   assert.deepEqual(truncateHeadTail(text, 5000, count, { headShare: 0.8 }), truncateHeadTail(text, 5000, count, { headShare: 0.8 }));
 });
 
+test('estimate truncation keeps head and tail throughout the room sweep', () => {
+  const text = toolOutput(0, { hugeAt: 0, hugeChars: 180_000 });
+  for (let room = 20_000; room <= 35_000; room += 7) {
+    const c = counting(est.countText.bind(est));
+    const r = truncateHeadTail(text, room, c.count, { headShare: 0.8 })!;
+    assert.ok(r && r.tokens <= room, `fits room ${room}`);
+    assert.ok(!r.markerOnly && r.keptHead > 0 && r.keptTail > 0, `keeps head and tail at room ${room}: ${r.tokens} tokens`);
+    assert.ok(r.text.startsWith(text.slice(0, r.keptHead)), `original head at room ${room}`);
+    assert.ok(r.text.endsWith(text.slice(-r.keptTail)), `original tail at room ${room}`);
+    assert.equal(est.countText(r.text), r.tokens);
+    assert.ok(c.calls() <= 6, `counts at room ${room}: ${c.calls()}`);
+  }
+});
+
 const env: OpsEnv = { text: (s) => est.countText(s), headShare: 0.8, imageTokens: 1568 };
 
 test('array content: text parts only, largest first; images untouched until R4', () => {
