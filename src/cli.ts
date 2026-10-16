@@ -386,6 +386,8 @@ async function cmdServe(argv: string[], io: CliIO): Promise<number> {
   }
   const b = computeBudget(cfg);
   log.info(`upstream ${cfg.upstream.origin}; counter ${app.counter.mode}; mode ${b.mode}; budget ${b.budget}, trigger ${b.trigger}, target ${b.target}`);
+  // stdout keeps the documented 'listening on' line (help text, bench harness, supervisors); the file log records it too
+  io.stdout(`listening on http://${fmtHost(addr.host)}:${addr.port}\n`);
   log.info(`listening on http://${fmtHost(addr.host)}:${addr.port}`);
   return await new Promise<number>((done) => {
     let stopping = false;

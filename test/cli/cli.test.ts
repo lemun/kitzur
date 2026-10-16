@@ -397,7 +397,9 @@ test('serve logs the bound address to a file and drains on SIGTERM', () => withT
   const x = io({ onSignal: (h) => void (handler = h), modules: fakeModules({ onClose: (ms) => (closedWith = ms) }) });
   const done = main(['serve', '--upstream', 'http://127.0.0.1:9', '--port', '0', '--log-file', file, '--drain-ms', '1234'], x);
   for (let i = 0; i < 100 && !handler; i++) await new Promise((r) => setTimeout(r, 10));
-  assert.deepEqual(x.outBuf, []);
+  // stdout carries only the documented one-time 'listening on' line (written before serving starts); all other output goes to the file log
+  assert.equal(x.outBuf.length, 1);
+  assert.match(x.outBuf[0] ?? '', /^listening on http:\/\/127\.0\.0\.1:\d+\n$/);
   assert.ok(handler, 'signal handler registered');
   handler!('SIGTERM');
   assert.equal(await done, 0);
