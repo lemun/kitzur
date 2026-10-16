@@ -2,7 +2,7 @@
 //
 // Cut sizes come from ONE count of the original (its chars-per-token ratio) and a proportional estimate
 // of the kept head and tail; one verification count follows, and when the result is over the room both
-// parts shrink by the overshoot converted at the same ratio, at most 3 times. No binary search over
+// parts shrink from their snapped lengths by the overshoot at the same ratio, at most 3 times. No binary search over
 // counts (a 180k-character output would cost hundreds of milliseconds). The cut is a pure function of
 // (text, room, headShare, marker), so it is deterministic.
 
@@ -129,7 +129,11 @@ export function truncateHeadTail(text: string, room: number, count: (s: string) 
     const out = (head ? head + SEP : '') + truncationMarker(kh, kt, total, savedPath) + (tail ? SEP + tail : '');
     const n = count(out);
     if (n <= room) return { text: out, tokens: n, originalTokens: T, keptHead: kh, keptTail: kt, total, markerOnly: false };
-    // shrink both parts by the overshoot at the same ratio (+10% and a line's worth, so it converges)
+    // Start below both snapped cuts, not the requested lengths: otherwise a small correction can
+    // snap back to the same lines on every retry. The first fitting result is returned above.
+    if (share > 0) keep = Math.min(keep, Math.floor(headEnd / share));
+    if (share < 1) keep = Math.min(keep, Math.floor((len - tailStart) / (1 - share)));
+    // Shrink by the overshoot at the same ratio (+10% and a line's worth).
     keep -= Math.ceil((n - room) * ratio * 1.1) + 16;
   }
   return markerOnly();

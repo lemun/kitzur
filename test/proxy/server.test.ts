@@ -806,3 +806,52 @@ test('probe() records the upstream check in /status', async () => {
     assert.equal(s.json().upstream.probe.ok, true);
   });
 });
+
+test('chat diagnostics: JSON and SSE headers, content-free logs, last compaction and a bounded history', async () => {
+  const logs: string[] = [];
+  const up = await fakeUpstream((hit, res) => {
+    if (JSON.parse(hit.body.toString()).stream) sseRes(res, [chunk('ok', 'stop'), DONE]);
+    else jsonRes(res, 200, okCompletion());
+  });
+  const engine = new FakeEngine((req) => result(req, { ...req, messages: req.messages.slice(-1) }, true, {
+    tokensIn: 50, tokensOut: 10, budget: { trigger: 61_000, budget: 67_000, target: 40_000 },
+  }));
+  await withProxy(up, engine, async (f) => {
+    for (let i = 0; i < 66; i++) {
+      const r = await request(f.port, { body: chatBody('PRIVATE-PROMPT', { model: `m${i}`, stream: i === 0 }) });
+      assert.equal(r.headers['x-kitzur-action'], 'compact');
+      assert.equal(r.headers['x-kitzur-tokens'], '50/10/61000');
+    }
+    await waitRecords(f, 66);
+    const s = (await request(f.port, { method: 'GET', path: '/status' })).json();
+    assert.equal(s.recent_requests.length, 64);
+    assert.equal(s.recent_requests[0].model, 'm2');
+    assert.equal(s.recent_requests[63].model, 'm65');
+    assert.deepEqual(s.last_compaction, { at: s.last_compaction.at, in: 50, out: 10, trigger: 61_000 });
+    assert.ok(Number.isFinite(Date.parse(s.last_compaction.at)));
+    assert.ok(s.recent_requests.every((r: { ms: number }) => r.ms >= 0));
+    assert.equal(logs.length, 66);
+    assert.match(logs[0]!, /info chat action=compact tokens=50->10 budget=67000 trigger=61000 target=40000 model="m0" ms=/);
+    assert.ok(!JSON.stringify([logs, s]).includes('PRIVATE-PROMPT'));
+  }, { log: (level, msg) => logs.push(`${level} ${msg}`) });
+});
+
+test('chat diagnostics: passthrough, refusal and unparseable requests', async () => {
+  const up = await fakeUpstream((_hit, res) => jsonRes(res, 200, okCompletion()));
+  await withProxy(up, passthroughEngine(), async (f) => {
+    const r = await request(f.port, { body: chatBody('hi') });
+    assert.equal(r.headers['x-kitzur-action'], 'passthrough');
+    assert.match(String(r.headers['x-kitzur-tokens']), /^\d+\/\d+\/\d+$/);
+    const malformed = await request(f.port, { body: '{' });
+    assert.equal(malformed.headers['x-kitzur-action'], 'passthrough');
+    assert.equal(malformed.headers['x-kitzur-tokens'], 'unknown/unknown/unknown');
+  });
+  const up2 = await fakeUpstream((_hit, res) => jsonRes(res, 200, okCompletion()));
+  const engine = new FakeEngine((req) => result(req, null, false, { action: 'impossible', error: { status: 400, body: '{}' } }));
+  await withProxy(up2, engine, async (f) => {
+    const r = await request(f.port, { body: chatBody('hi') });
+    assert.equal(r.status, 400);
+    assert.equal(r.headers['x-kitzur-action'], 'refuse');
+    assert.match(String(r.headers['x-kitzur-tokens']), /^\d+\/0\/\d+$/);
+  });
+});

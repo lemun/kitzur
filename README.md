@@ -181,7 +181,7 @@ use `node dist/src/cli.js` in its place.
 
 ```text
 kitzur serve                         run the proxy
-kitzur status [--url URL]            inspect budgets, counters and learned limits
+kitzur status [--url URL] [--json]   inspect budgets, counters and recent activity
 kitzur doctor [--json]               diagnose setup (--check-upstream for a small probe)
 kitzur report stats.jsonl [--json]   summarize request reduction, retries and timing
 kitzur config init|show|validate      create or inspect configuration
@@ -272,3 +272,25 @@ WantedBy=default.target
 Create `~/.local/state/kitzur` first, then run `systemctl --user daemon-reload`
 and `systemctl --user enable --now kitzur`. See [CONFIG.md](CONFIG.md) for logging
 settings and `/status` health counters.
+
+### Seeing compaction happen
+
+At the default `info` log level, each completed chat request writes one line to stderr:
+
+```text
+chat action=compact tokens=50000->20000 budget=60000 trigger=45000 target=30000 model="local-model" ms=125
+```
+
+The line contains sizes, budget thresholds, model and timing, never message content.
+Chat responses include `x-kitzur-action` and `x-kitzur-tokens` (`in/out/trigger`),
+including streaming responses before their first byte. Actions are `passthrough`,
+`reuse`, `compact`, `clamp`, `truncate` or `refuse`. Unknown counts (for example,
+an unparseable request forwarded unchanged) appear as `unknown` in headers and logs.
+Shadow mode reports the actual passthrough rather than the proposed compaction.
+
+`kitzur status` shows a readable summary and the five latest requests; use
+`kitzur status --json` for the complete raw object. `/status` and `/kitzur/status`
+include `last_compaction: {at, in, out, trigger}` (initially `null`) and
+`recent_requests`, the latest 64 completed chat requests in completion order, each
+with `{action, tokens: {in, out, trigger}, model, ms}`. Unknown counts are `null`.
+This history is available even without a stats file and resets on restart.

@@ -43,7 +43,24 @@ export interface StatusExtras {
   upstream?: Record<string, unknown>;
 }
 
+/** Content-free diagnostics, in request completion order. */
+export interface RecentRequest {
+  action: 'passthrough' | 'reuse' | 'compact' | 'clamp' | 'truncate' | 'refuse';
+  tokens: { in: number | null; out: number | null; trigger: number | null };
+  model: string | null;
+  ms: number;
+}
+
 export class StatusTracker {
+  private readonly recent: RecentRequest[] = [];
+  private lastCompaction: { at: string; in: number | null; out: number | null; trigger: number | null } | null = null;
+
+  recordRequest(r: RecentRequest): void {
+    this.recent.push({ ...r, tokens: { ...r.tokens } });
+    if (this.recent.length > 64) this.recent.shift();
+    if (r.action === 'compact') this.lastCompaction = { at: new Date(this.now()).toISOString(), ...r.tokens };
+  }
+
   readonly startedAt: number;
   requests = 0;
   chatRequests = 0;
@@ -135,6 +152,8 @@ export class StatusTracker {
       budgets[k] = budgetQuantities(cfg, e);
     }
     return {
+      last_compaction: this.lastCompaction && { ...this.lastCompaction },
+      recent_requests: this.recent.map((r) => ({ ...r, tokens: { ...r.tokens } })),
       name: 'kitzur',
       version: this.version,
       uptime_s: Math.round((this.now() - this.startedAt) / 1000),

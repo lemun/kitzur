@@ -46,9 +46,10 @@ test('cuts never split a surrogate pair', () => {
   }
 });
 
-test('head+tail truncation: fits the room, head share, line boundaries, few counts ()', () => {
+test('head+tail truncation: fits the room, head share, line boundaries, few counts ()', (t) => {
   const tok = exactCounter('sim');
-  const count = tok ? tok.countText.bind(tok) : est.countText.bind(est);
+  if (!tok) return t.skip('Room utilization and line-boundary expectations require exact counts; the estimate room sweep checks fallback truncation.');
+  const count = tok.countText.bind(tok);
   const text = toolOutput(0, { hugeAt: 0, hugeChars: 180_000 });
   for (const room of [500, 5_000, 27_472]) {
     const c = counting(count);
@@ -71,6 +72,20 @@ test('head+tail truncation: fits the room, head share, line boundaries, few coun
   assert.ok(m.markerOnly && m.keptHead === 0 && m.keptTail === 0);
   // deterministic
   assert.deepEqual(truncateHeadTail(text, 5000, count, { headShare: 0.8 }), truncateHeadTail(text, 5000, count, { headShare: 0.8 }));
+});
+
+test('estimate truncation keeps head and tail throughout the room sweep', () => {
+  const text = toolOutput(0, { hugeAt: 0, hugeChars: 180_000 });
+  for (let room = 20_000; room <= 35_000; room += 7) {
+    const c = counting(est.countText.bind(est));
+    const r = truncateHeadTail(text, room, c.count, { headShare: 0.8 })!;
+    assert.ok(r && r.tokens <= room, `fits room ${room}`);
+    assert.ok(!r.markerOnly && r.keptHead > 0 && r.keptTail > 0, `keeps head and tail at room ${room}: ${r.tokens} tokens`);
+    assert.ok(r.text.startsWith(text.slice(0, r.keptHead)), `original head at room ${room}`);
+    assert.ok(r.text.endsWith(text.slice(-r.keptTail)), `original tail at room ${room}`);
+    assert.equal(est.countText(r.text), r.tokens);
+    assert.ok(c.calls() <= 6, `counts at room ${room}: ${c.calls()}`);
+  }
 });
 
 const env: OpsEnv = { text: (s) => est.countText(s), headShare: 0.8, imageTokens: 1568 };
