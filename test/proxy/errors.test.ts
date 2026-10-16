@@ -171,7 +171,8 @@ test('validateNumbers: window range (ii), prompt band (iii), server prompt limit
   const W = 100_000;
   assert.equal(validateNumbers({ ...base, window: 89_000 }, { configuredWindow: W, rejectedRaw: 90_000 }).window, 89_000);
   assert.equal(validateNumbers({ ...base, window: 100_000 }, { configuredWindow: W, rejectedRaw: 90_000 }).window, null, 'not below configured');
-  assert.equal(validateNumbers({ ...base, window: 49_999 }, { configuredWindow: W, rejectedRaw: 90_000 }).window, null, 'below 0.5 W');
+  assert.equal(validateNumbers({ ...base, window: 49_999 }, { configuredWindow: W, rejectedRaw: 90_000 }).window, 49_999, 'explicit limit below 0.5 W');
+  for (const window of [0, -1, 1.5, Infinity, NaN]) assert.equal(validateNumbers({ ...base, window }, { configuredWindow: W, rejectedRaw: 90_000 }).window, null);
   const band = validateNumbers({ ...base, window: 89_000, promptTokens: 60_000, promptIsLowerBound: false }, { configuredWindow: W, rejectedRaw: 90_000 });
   assert.equal(band.window, null, 'prompt 60k vs our 90k is outside [0.8, 1.25]');
   const ok = validateNumbers({ ...base, window: 89_000, promptTokens: 91_000, promptIsLowerBound: false }, { configuredWindow: W, rejectedRaw: 90_000 });

@@ -219,7 +219,7 @@ Columns: **Default**; **Meaning**; **If wrong**: what breaks; **Probe field**: t
 
 | Key | Default | Meaning | If wrong | Probe field |
 |---|---|---|---|---|
-| `budget.window` | `100000` | The model's context window `W` in tokens. | Too high: overflow rejections until a smaller window is learned from the error (accepted only down to half the configured value). Too low: wasted context, more compactions. | `probe_gateway.tests.models.max_model_len`, window numbers in overflow bodies and `summarize_capture.errors` (smallest), else the client's `limit.context`, else the probe's `--window` |
+| `budget.window` | `100000` | The model's context window `W` in tokens, or `"auto"` to discover it per model at startup. Auto falls back to the preset window (otherwise `100000`) with a warning when discovery is unavailable. | Too high: overflow rejections until a smaller explicit window is learned from the error. Too low: wasted context, more compactions. | `probe_gateway.tests.models.max_model_len`, window numbers in overflow bodies and `summarize_capture.errors` (smallest), else the client's `limit.context`, else the probe's `--window` |
 | `budget.limitCountsMaxTokens` | `null` | Whether the server's limit counts `max_tokens` (`true`: strict; `false`: prompt-only); `null` = from `server.type`. | See `server.type`. | overflow cases A/C/D (`prompt_plus_max_tokens_over_window`): rejected with an overflow body = `true`; accepted with prompt + max_tokens > W = `false`; inconclusive = not written |
 | `budget.defaultMaxTokens` | `32000` | `T_req` of a request with neither `max_tokens` nor `max_completion_tokens`, and `T_plan` unless `planMaxTokens` is set. | Too high: a smaller budget and extra compactions. Below what the client asks for: `max_tokens` is fitted down on strict servers and long replies stop at `length`. | mode of `summarize_capture.max_tokens_values`, else `min(limit.output, OUTPUT_TOKEN_MAX)` from the client config, else the probe's `--max-tokens` |
 | `budget.planMaxTokens` | `null` | `T_plan`, the output reservation the plans are made with (config only, never the request's value); `null` = `defaultMaxTokens`. | Below the client's output: replies are fitted per request (startup warning). Above: a smaller budget than needed. | the pack's `outputReserve` for prompt-only servers: `min(max_tokens, max(8192, 1.5 × max completion))` |
@@ -483,3 +483,21 @@ response is committed; a stream's headers cannot change after commitment.
 and reset on restart; entries contain only action, token counts, model and timing,
 never prompts or response text. Unknown counts are `null`. `kitzur status` prints
 a summary; `kitzur status --json` returns the full status object.
+
+### Upstream context discovery
+
+At startup Kitzur reads `/v1/models` for `data[].max_model_len` (vLLM),
+`data[].n_ctx`, or `data[].meta.n_ctx` / `n_ctx_train` (llama.cpp).
+For servers without `max_model_len`, it also tries `/props`; a positive
+`default_generation_settings.n_ctx` (or top-level `n_ctx`) overrides training
+metadata for a single served model. Unknown shapes and unavailable endpoints are ignored.
+
+`/status` exposes a `discovered_window` map keyed by model ID. A difference from
+the configured window produces a log warning and a status warning. Numeric
+`budget.window` keeps its configured behavior; `budget.window: "auto"` uses the
+discovered window for the requested model. `KITZUR_WINDOW=auto` and
+`--set budget.window=auto` select the same mode. Status reports `config.window_mode`
+and the numeric fallback as `config.window`. Discovery does not change output
+reservations: set `budget.defaultMaxTokens` / `budget.planMaxTokens` appropriately
+for a small context. Explicit overflow limits can tighten a window by more than
+half; prompt-count validation still applies.

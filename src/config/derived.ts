@@ -1,3 +1,4 @@
+import { modelWindow } from './window.js';
 // Budget quantities of DESIGN.md, computed from the config (plus the request's T_req, the learned
 // entry and, when known, the head size). Pure, no I/O.
 //
@@ -65,6 +66,7 @@ export function requestMaxTokens(req: Pick<ChatRequest, 'max_tokens' | 'max_comp
 }
 
 export interface BudgetInputs {
+  model?: string;
   /** T_req of the request; null/undefined = budget.defaultMaxTokens */
   tReq?: number | null;
   /** learned entry E for (origin, model); the caller has already applied invalidation (§8) */
@@ -85,7 +87,8 @@ export function computeBudget(cfg: Config, inputs: BudgetInputs = {}): Budget {
   const E = inputs.learned ?? null;
   const tPlan = planMaxTokens(cfg);
   const tReq = inputs.tReq != null && inputs.tReq > 0 ? inputs.tReq : cfg.budget.defaultMaxTokens;
-  const W = E?.window ?? cfg.budget.window;
+  const served = modelWindow(cfg, inputs.model);
+  const W = E?.window == null ? served : Math.min(E.window, served);
   // ceil with the same 1e-9 epsilon as the floors: 0.03 · 100 is 3.0000000000000004 in IEEE
   const margin = Math.max(cfg.budget.safetyMarginTokens, Math.ceil(cfg.budget.safetyMarginFraction * W - 1e-9));
   const tighten = Math.max(0, E?.tighten ?? 0) + Math.max(0, inputs.extraTighten ?? 0);

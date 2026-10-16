@@ -1,3 +1,4 @@
+import { isAutoWindow } from '../config/window.js';
 // GET /status and /kitzur/status (DESIGN.md "Routes"): version, uptime, config summary, the §3
 // budget quantities, counter mode and correction, learned entries with their tightenLog, counters by
 // action, error kind, guard reason and replan, upstream_rejected_rewrite, usage_mismatch, active
@@ -130,6 +131,10 @@ export class StatusTracker {
       w.message = message;
     } else this.warnings.set(key, { message, count: 1, last: at });
   }
+  private discoveredWindows: Record<string, number> = {};
+  setDiscoveredWindows(windows: Record<string, number>): void {
+    this.discoveredWindows = { ...windows };
+  }
   setProbe(p: Record<string, unknown>): void {
     this.probe = p;
   }
@@ -152,6 +157,7 @@ export class StatusTracker {
       budgets[k] = budgetQuantities(cfg, e);
     }
     return {
+      discovered_window: { ...this.discoveredWindows },
       last_compaction: this.lastCompaction && { ...this.lastCompaction },
       recent_requests: this.recent.map((r) => ({ ...r, tokens: { ...r.tokens } })),
       name: 'kitzur',
@@ -161,6 +167,7 @@ export class StatusTracker {
         upstream: cfg.upstream.origin,
         server: { type: cfg.server.type, budgetMode: cfg.server.budgetMode },
         window: cfg.budget.window,
+        window_mode: isAutoWindow(cfg) ? 'auto' : 'fixed',
         defaultMaxTokens: cfg.budget.defaultMaxTokens,
         planMaxTokens: cfg.budget.planMaxTokens,
         template: cfg.tokenizer.template.name,

@@ -110,6 +110,11 @@ test('config show: every leaf with its source, derived budget, masked headers', 
   assert.deepEqual(o.config.upstream.headers, { 'X-Key': '<set>' });
   assert.equal(o.derived.trigger, 61_000);
   assert.equal(o.provenance['upstream.headers'], 'cli:--set');
+  const auto = await run(['config', 'show', '--preset', '32k', '--set', 'budget.window=auto']);
+  assert.equal(auto.code, 0);
+  assert.match(auto.out, /budget\.window += "auto"/);
+  const autoJson = await run(['config', 'show', '--json', '--set', 'budget.window=auto']);
+  assert.equal(JSON.parse(autoJson.out).config.budget.window, 'auto');
   // errors are printed and set the exit code
   const bad = await run(['config', 'show', '--set', 'compaction.triggerFraction=2']);
   assert.equal(bad.code, 2);

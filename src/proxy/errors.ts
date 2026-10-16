@@ -252,7 +252,7 @@ export interface ValidatedNumbers {
 /**
  * Accepts learned numbers only when ():
  *  (i) they were matched in the extracted message (or structured JSON fields), not in echoed input;
- *  (ii) 0.5 · budget.window ≤ window < budget.window;
+ *  (ii) 0 < explicit window < budget.window;
  *  (iii) any exact prompt number in the same body is within [0.8, 1.25]× our count of the rejected request.
  * maxPrompt is learned only from a limit that is not a window (maxInput with no window number):
  * SGLang's scheduler and TGI's max_input_tokens, never vLLM's L − M. TGI's "must have less than N"
@@ -277,8 +277,8 @@ export function validateNumbers(c: Classification, ctx: NumbersContext): Validat
     return out;
   }
   if (c.window !== undefined) {
-    if (c.window >= 0.5 * W && c.window < W) out.window = c.window;
-    else out.refused = `window ${c.window} outside [0.5, 1) of the configured window`;
+    if (Number.isSafeInteger(c.window) && c.window > 0 && c.window < W) out.window = c.window;
+    else out.refused = `window ${c.window} outside (0, configured window)`;
   } else if (c.maxInput !== undefined) {
     const limit = c.ruleId === 'tgi.prompt' ? c.maxInput - 1 : c.maxInput;
     if (limit >= 0.25 * W && limit < W) out.maxPrompt = limit;

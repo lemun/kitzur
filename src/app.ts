@@ -250,14 +250,13 @@ export async function buildApp(
     version: packageInfo().version,
     listen: () => server.listen(),
     async probe(timeoutMs = 10_000) {
-      const up = server.upstream as { probe?: () => Promise<ProbeOutcome> } | undefined;
-      if (!up || typeof up.probe !== 'function') return { ok: true };
+      if (typeof server.probe !== 'function') return { ok: true };
       let timer: NodeJS.Timeout | undefined;
       const late = new Promise<ProbeOutcome>((r) => {
         timer = setTimeout(() => r({ ok: false, timedOut: true, error: `no answer within ${timeoutMs} ms` }), timeoutMs);
         timer.unref();
       });
-      const r = await Promise.race([up.probe(), late]);
+      const r = await Promise.race([server.probe(), late]);
       clearTimeout(timer);
       if (!r.ok && !r.tlsError) {
         log.error(`startup probe GET ${config.upstream.origin}/v1/models: ${r.error ?? `HTTP ${r.status}`}; the proxy keeps running`);

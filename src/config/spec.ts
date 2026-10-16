@@ -6,7 +6,7 @@
 import { DEFAULT_CONFIG } from './schema.js';
 
 export type LeafSpec =
-  | { t: 'int'; min: number; max?: number; nullable?: boolean }
+  | { t: 'int'; min: number; max?: number; nullable?: boolean; auto?: boolean }
   | { t: 'num'; min: number; max?: number; minExclusive?: boolean; maxExclusive?: boolean; nullable?: boolean }
   | { t: 'bool'; nullable?: boolean }
   | { t: 'str'; nullable?: boolean; nonEmpty?: boolean; format?: 'origin' | 'urlpath' | 'regex'; /** format 'regex': the flags its consumer compiles it with */ flags?: string }
@@ -55,7 +55,7 @@ export const LEAF_SPECS: Readonly<Record<string, LeafSpec>> = Object.assign(Obje
   'server.type': en('vllm', 'sglang', 'llamacpp', 'tgi', 'ollama', 'lmstudio', 'litellm', 'unknown'),
   'server.budgetMode': enN('strict_total', 'prompt_only', 'tgi', 'silent_truncate'),
 
-  'budget.window': int(256, MAX_TOKENS),
+  'budget.window': { t: 'int', min: 256, max: MAX_TOKENS, auto: true },
   'budget.limitCountsMaxTokens': boolN,
   'budget.defaultMaxTokens': int(1, MAX_TOKENS),
   'budget.planMaxTokens': intN(1, MAX_TOKENS),
@@ -289,7 +289,7 @@ export function describeSpec(s: LeafSpec): string {
   const n = 'nullable' in s && s.nullable ? ' or null' : '';
   switch (s.t) {
     case 'int':
-      return `an integer ${s.max === undefined ? `>= ${s.min}` : `in [${s.min}, ${s.max}]`}${n}`;
+      return `an integer ${s.max === undefined ? `>= ${s.min}` : `in [${s.min}, ${s.max}]`}${s.auto ? ' or "auto"' : ''}${n}`;
     case 'num':
       return `a number in ${s.minExclusive ? '(' : '['}${s.min}, ${s.max ?? 'inf'}${s.maxExclusive ? ')' : ']'}${n}`;
     case 'bool':

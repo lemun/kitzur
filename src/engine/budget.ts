@@ -1,3 +1,4 @@
+import { modelWindow } from '../config/window.js';
 // Budget quantities (DESIGN.md): T_req, T_plan, W, margin, budget, clientPoint, allowance, hard,
 // trigger, target, the byte limit, the server budget mode (with its precedence, ), serverFits (),
 // the step's fit predicate with the opt-in clamp clause (), and the forwarded max_tokens ().
@@ -41,10 +42,11 @@ export function requestedMaxTokens(req: ChatRequest, cfg: Config): number {
 }
 
 /** Every §3 quantity for one request. `summaryBudget`, `admitTokens` start at their base values. */
-export function computeBudget(cfg: Config, E: LearnedEntry, extraTighten: number, tReq: number): Budget {
+export function computeBudget(cfg: Config, E: LearnedEntry, extraTighten: number, tReq: number, model?: string): Budget {
   const b = cfg.budget;
   const tPlan = b.planMaxTokens ?? b.defaultMaxTokens;
-  const W = E.window ?? b.window;
+  const served = modelWindow(cfg, model);
+  const W = E.window === null ? served : Math.min(E.window, served);
   const margin = Math.max(b.safetyMarginTokens, Math.ceil(b.safetyMarginFraction * W - 1e-9));
   const tighten = Math.max(0, E.tighten) + Math.max(0, extraTighten);
   const byPrompt = E.maxPrompt === null ? Infinity : E.maxPrompt - margin;

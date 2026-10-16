@@ -128,11 +128,37 @@ export interface UpstreamStats {
 }
 
 export interface ProbeResult {
+  discovered_window?: Record<string, number>;
   ok: boolean;
   status?: number;
   /** a TLS verification failure: startup must exit non-zero */
   tlsError?: string;
   error?: string;
+}
+
+const object = (v: unknown): Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v) ? v as Record<string, unknown> : {};
+const contextLength = (v: unknown): number | undefined =>
+  typeof v === 'number' && Number.isSafeInteger(v) && v > 0 ? v : undefined;
+
+/** Only documented metadata fields are trusted; arbitrary nested numbers are ignored. */
+function modelWindows(value: unknown): { windows: Record<string, number>; ids: string[]; vllm: boolean } {
+  const windows: Record<string, number> = Object.create(null) as Record<string, number>;
+  const data = object(value)['data'];
+  const ids: string[] = [];
+  let vllm = false;
+  if (Array.isArray(data)) for (const item of data) {
+    const row = object(item);
+    const id = row['id'];
+    if (typeof id !== 'string' || !id) continue;
+    ids.push(id);
+    const meta = object(row['meta']);
+    const served = contextLength(row['max_model_len']);
+    if (served !== undefined) vllm = true;
+    const window = served ?? contextLength(row['n_ctx']) ?? contextLength(meta['n_ctx']) ?? contextLength(meta['n_ctx_train']);
+    if (window !== undefined) windows[id] = window;
+  }
+  return { windows, ids, vllm };
 }
 
 export class Upstream {
@@ -279,9 +305,27 @@ export class Upstream {
   /** Startup probe: GET <origin>/v1/models. A TLS verification failure is reported as tlsError. */
   async probe(path = '/v1/models', headers: Record<string, string> = {}): Promise<ProbeResult> {
     try {
-      const res = await this.request({ method: 'GET', path, headers: forwardRequestHeaders([], { ...this.cfg.headers, ...headers }), body: Buffer.alloc(0) });
-      res.body.resume();
-      return { ok: res.status >= 200 && res.status < 500, status: res.status };
+      const res = await this.request({ method: 'GET', path, headers: forwardRequestHeaders([], { ...this.cfg.headers, ...headers }), body: Buffer.alloc(0), signal: AbortSignal.timeout(this.cfg.timeoutMs) });
+      const result: ProbeResult = { ok: res.status >= 200 && res.status < 500, status: res.status };
+      const readJson = async (response: UpstreamResponse): Promise<unknown> => {
+        const { body, complete } = await readBody(response.body, 1024 * 1024);
+        if (!complete || body.length > 1024 * 1024 || response.status < 200 || response.status >= 300) return null;
+        try { return JSON.parse(body.toString('utf8')) as unknown; } catch { return null; }
+      };
+      const found = modelWindows(await readJson(res));
+      // llama.cpp's active context may be smaller than its training context. /props reports
+      // the per-slot default; do not divide it by total_slots or apply it across several models.
+      if (res.status >= 200 && res.status < 300 && !found.vllm) {
+        try {
+          const propsRes = await this.request({ method: 'GET', path: '/props', headers: forwardRequestHeaders([], { ...this.cfg.headers, ...headers }), body: Buffer.alloc(0), signal: AbortSignal.timeout(this.cfg.timeoutMs) });
+          const props = object(await readJson(propsRes));
+          const window = contextLength(object(props['default_generation_settings'])['n_ctx']) ?? contextLength(props['n_ctx']);
+          const id = found.ids.length === 1 ? found.ids[0] : found.ids.length === 0 && typeof props['model_path'] === 'string' ? props['model_path'] : undefined;
+          if (id && window !== undefined) found.windows[id] = window;
+        } catch { /* Optional metadata is unavailable on many OpenAI-compatible servers. */ }
+      }
+      if (Object.keys(found.windows).length) result.discovered_window = { ...found.windows };
+      return result;
     } catch (e) {
       const u = classifyNetError(e);
       return u.code === 'tls' ? { ok: false, tlsError: u.message } : { ok: false, error: u.message };

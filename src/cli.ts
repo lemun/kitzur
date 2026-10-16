@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { isAutoWindow } from './config/window.js';
 // The kitzur command line (DESIGN.md, §10):
 //   kitzur serve | replay | status | count | config {init,show,validate,import-eval} | state {show,reset} | bench | version
 // Arguments are parsed here without dependencies. Exit codes: 0 ok, 1 runtime failure, 2 usage or config
@@ -210,6 +211,7 @@ function maskedConfig(c: Config): Config {
   const m = structuredClone(c);
   m.upstream.headers = Object.fromEntries(Object.keys(m.upstream.headers).map((k) => [k, '<set>']));
   m.upstream.origin = maskUserinfo(m.upstream.origin) as string | null;
+  if (isAutoWindow(c)) (m.budget as unknown as Record<string, unknown>)['window'] = 'auto';
   return m;
 }
 
@@ -587,7 +589,7 @@ async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
       const leaves = DEFAULT_LEAVES.filter((k) => !p.values['changed'] || l.provenance[k] !== 'default');
       const w = Math.max(...leaves.map((k) => k.length), 10);
       for (const k of leaves) {
-        io.stdout(`${k.padEnd(w)} = ${display(k, getPath(l.config, k), p.values['full'] === true)}   (${l.provenance[k]})\n`);
+        io.stdout(`${k.padEnd(w)} = ${display(k, k === 'budget.window' && isAutoWindow(l.config) ? 'auto' : getPath(l.config, k), p.values['full'] === true)}   (${l.provenance[k]})\n`);
       }
       io.stdout('\n' + derivedLines(l.config).join('\n') + '\n');
       for (const x of [...l.warnings, ...v.warnings]) io.stdout(`# warning: ${x}\n`);
