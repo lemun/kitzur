@@ -167,7 +167,7 @@ const USAGE = `usage: kitzur <command> [options]
   replay <file|dir>...          run captured request bodies through the engine offline; sizes only,
                                 plus a live-vs-fresh determinism check
   count <request.json>          exact token count of a request (per message, no content)
-  status [--url URL]            GET /status of a running instance
+  status [--url URL] [--json]   Show a running instance’s status
   doctor [--json] [--check-upstream] [--timeout-ms N]  read-only setup diagnostics
   report <stats.jsonl> [--json]  aggregate request stats; sizes only
   config init [--preset 100k] [--out FILE|-] [--force]
@@ -517,7 +517,7 @@ async function cmdCount(argv: string[], io: CliIO): Promise<number> {
 }
 
 async function cmdStatus(argv: string[], io: CliIO): Promise<number> {
-  const p = parseArgs(argv, { ...CONFIG_OPTS, url: { type: 'string' }, 'timeout-ms': { type: 'string' } });
+  const p = parseArgs(argv, { ...CONFIG_OPTS, url: { type: 'string' }, json: { type: 'boolean' }, 'timeout-ms': { type: 'string' } });
   let url = p.values['url'] as string | undefined;
   if (!url) {
     const cfg = loadFromArgs(p, io).config;
@@ -528,7 +528,15 @@ async function cmdStatus(argv: string[], io: CliIO): Promise<number> {
     const r = await httpGet(url, Number(p.values['timeout-ms'] ?? 5000));
     let body = r.body;
     try {
-      body = JSON.stringify(JSON.parse(r.body), null, 1);
+      const s = JSON.parse(r.body);
+      body = p.values['json'] || r.status !== 200 ? JSON.stringify(s, null, 1) : [
+        `${s.name ?? 'kitzur'} ${s.version ?? ''} — uptime ${s.uptime_s ?? '?'}s`,
+        `Chat requests: ${s.counters?.chat_requests ?? 0}; actions: ${Object.entries(s.actions ?? {}).map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}`,
+        `Budget: ${s.budget?.budget ?? '?'}; trigger: ${s.budget?.trigger ?? '?'}; target: ${s.budget?.target ?? '?'}`,
+        s.last_compaction ? `Last compaction: ${s.last_compaction.at} — ${s.last_compaction.in ?? '?'} -> ${s.last_compaction.out ?? '?'} tokens (trigger ${s.last_compaction.trigger ?? '?'})` : 'Last compaction: none since startup',
+        `Recent requests: ${s.recent_requests?.length ?? 0}/64 (in memory; reset on restart)`,
+        ...(s.recent_requests ?? []).slice(-5).map((r: { action: string; tokens: { in: number | null; out: number | null }; model: string | null; ms: number }) => `  ${r.action} ${r.tokens.in ?? '?'} -> ${r.tokens.out ?? '?'} tokens; model=${JSON.stringify(r.model)}; ${r.ms}ms`),
+      ].join('\n');
     } catch {
       /* not JSON: print as is */
     }

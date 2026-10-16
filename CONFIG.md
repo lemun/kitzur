@@ -462,3 +462,24 @@ kitzur config import-eval <dir|file>... [--out kitzur.config.json] [--merge FILE
   measured windows, contradictory overflow cases, different server fingerprints) or a config that is not
   usable (it fails validation, or the measured window and the client's `max_tokens` leave a prompt budget
   under a quarter of the window: set `budget.planMaxTokens`); `1` invalid input.
+
+### Request visibility
+
+`logLevel: "info"` (the default) logs one content-free line per completed chat
+request: action, input/output token counts, budget, trigger, target, model and
+elapsed milliseconds. Set `logLevel` to `warn` or `error` to suppress these lines.
+`stats.path` is not required for request logs, diagnostic response headers or
+in-memory status history.
+
+Chat responses, including SSE, carry `x-kitzur-action` and `x-kitzur-tokens`
+(`in/out/trigger`). Unknown counts use `unknown`. Public actions are `passthrough`,
+`reuse`, `compact`, `clamp`, `truncate` and `refuse`: admission rewrites map to
+`compact`, output-limit restoration to `clamp`, guard fallback and shadow mode to
+`passthrough`, and local rejection to `refuse`. Headers describe the attempt whose
+response is committed; a stream's headers cannot change after commitment.
+
+`/status` includes `last_compaction` (`null` until a compaction) and
+`recent_requests` (up to 64 completed requests, oldest first). Both are in memory
+and reset on restart; entries contain only action, token counts, model and timing,
+never prompts or response text. Unknown counts are `null`. `kitzur status` prints
+a summary; `kitzur status --json` returns the full status object.
