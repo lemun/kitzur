@@ -384,10 +384,23 @@ test('import-eval: generated error rules never backtrack catastrophically on hos
   for (const [msg, body] of hostile) {
     const src = messageRegex(msg, { window: 32768 });
     const re = new RegExp(src, 'i');
-    const t0 = process.hrtime.bigint();
+    // Warm the regexp before measuring. CPU time excludes scheduler delays;
+    // doubling the input allows quadratic scanning but catches explosive growth.
     assert.equal(re.test(body), false);
-    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-    assert.ok(ms < 2000, `${src.slice(0, 60)}…: ${ms.toFixed(0)} ms`);
+    const cpu = (input: string): number => {
+      const samples: number[] = [];
+      for (let i = 0; i < 3; i++) {
+        const start = process.cpuUsage();
+        const matched = re.test(input);
+        const used = process.cpuUsage(start);
+        assert.equal(matched, false);
+        samples.push(used.user + used.system);
+      }
+      return Math.max(1, Math.min(...samples));
+    };
+    const small = cpu(body);
+    const large = cpu(body.repeat(2));
+    assert.ok(large / small < 6, `${src.slice(0, 60)}…: CPU growth ${large / small} (${small} → ${large} µs)`);
   }
   // the bodies the rules come from still match, numbers keep their names where nothing masks them
   const real: Array<[string, string, number | null]> = [

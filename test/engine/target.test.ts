@@ -63,8 +63,9 @@ test('targetFraction moves the cut when units are small: larger target keeps mor
   assert.ok(firstCut[0]! < firstCut[1]! && firstCut[1]! < firstCut[2]!, `kept tail not monotone in target: ${firstCut}`);
 });
 
-test('qa46 shape: when head + summaryBudget + the newest unit exceed the target, 0.30 and 0.35 give the same plan (cut at the kept-always unit)', () => {
-  const counter = counterFor();
+test('qa46 shape: when head + summaryBudget + the newest unit exceed the target, 0.30 and 0.35 give the same plan (cut at the kept-always unit)', (t) => {
+  const counter = exactCounter('sim');
+  if (!counter) return t.skip('The qa46 unit sizes are calibrated to exact token counts; the small-unit target test also runs in estimate mode.');
   // older units ~1k tokens, the newest assistant unit ~20k tokens (qa46 at 100k: kept-always tail 14–18k)
   const msgs = session([...Array.from({ length: 58 }, () => 800), 16_500]);
   const last = (g: number): EngineResult => runChain(cfgAt(g), msgs, counter).at(-1)!;

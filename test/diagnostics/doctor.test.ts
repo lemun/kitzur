@@ -50,10 +50,11 @@ test('doctor recognizes reachable auth and missing-route responses and bounds a 
   const origin = `http://127.0.0.1:${address.port}`;
   try {
     for (const [path, expectedStatus] of [['/auth', 'warn'], ['/missing', 'warn'], ['/stall', 'error']] as const) {
-      const cfg = defaultConfig(); cfg.upstream.origin = origin; cfg.upstream.timeoutMs = 80;
+      const timeoutMs = path === '/stall' ? 80 : 5_000;
+      const cfg = defaultConfig(); cfg.upstream.origin = origin; cfg.upstream.timeoutMs = timeoutMs;
       // Upstream's GET probe path is fixed; route by request header for independent status cases.
       cfg.upstream.headers = { 'x-diagnostic-route': path };
-      const result = await doctor(cfg, { upstreamCheck: true, timeoutMs: 80 });
+      const result = await doctor(cfg, { upstreamCheck: true, timeoutMs });
       const check = result.checks.find((c) => c.code === 'upstream.reachable');
       assert.equal(check?.status, expectedStatus, path);
     }

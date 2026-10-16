@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [20, 22]
+        node: [22, 24, 26]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,6 +21,23 @@ jobs:
       - name: Download development tokenizer
         run: scripts/fetch-tokenizer.sh
       - run: npm test -- --test-concurrency=2
+  estimate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24, 26]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: Test without the development tokenizer
+        env:
+          KITZUR_TEST_TOKENIZER: /nonexistent
+        run: npm test -- --test-concurrency=2
   package:
     runs-on: ubuntu-latest
     steps:
@@ -48,7 +65,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [20, 22]
+        node: [22, 24, 26]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
