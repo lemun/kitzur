@@ -16,6 +16,7 @@
 //   src/proxy/state.js         StateStore({ dir, configuredWindow, counterId })
 //   src/proxy/stats.js         StatsWriter(stats.path)
 //   src/proxy/server.js        createProxyServer(config, { engine, counter, remote, state, stats, log })
+import { RuntimeLog, LoopWatchdog } from './diagnostics/runtime.js';
 import { chmodSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Config } from './config/schema.js';
@@ -226,45 +227,57 @@ export async function buildApp(
   config: Config,
   opts: { log?: Logger; modules?: AppModules; env?: Record<string, string | undefined> } = {},
 ): Promise<App> {
-  const log = opts.log ?? createLogger(config.logLevel);
-  const modules = opts.modules ?? (await loadModules({ proxy: true }));
-  const es = await buildEngine(config, { log, modules, env: opts.env });
-  const remote = remoteFromConfig(config); // calibration source only (§4)
-  const state = modules.createState(config, es.stateDir, es.counter.id);
-  const stats = modules.createStats(config);
-  const server = modules.createProxyServer(config, {
-    engine: es.engine,
-    counter: es.counter,
-    remote,
-    state,
-    stats,
-    log: (level, msg) => log[level](msg),
-  });
-  return {
-    ...es,
-    config,
-    remote,
-    state,
-    stats,
-    server,
-    version: packageInfo().version,
-    listen: () => server.listen(),
-    async probe(timeoutMs = 10_000) {
-      const up = server.upstream as { probe?: () => Promise<ProbeOutcome> } | undefined;
-      if (!up || typeof up.probe !== 'function') return { ok: true };
-      let timer: NodeJS.Timeout | undefined;
-      const late = new Promise<ProbeOutcome>((r) => {
-        timer = setTimeout(() => r({ ok: false, timedOut: true, error: `no answer within ${timeoutMs} ms` }), timeoutMs);
-        timer.unref();
-      });
-      const r = await Promise.race([up.probe(), late]);
-      clearTimeout(timer);
-      if (!r.ok && !r.tlsError) {
-        log.error(`startup probe GET ${config.upstream.origin}/v1/models: ${r.error ?? `HTTP ${r.status}`}; the proxy keeps running`);
-        (server.status as { warn?: (k: string, m: string) => void } | undefined)?.warn?.('upstream_probe', r.error ?? `HTTP ${r.status}`);
-      }
-      return r;
-    },
-    close: (drainMs = 30_000) => server.close(drainMs),
-  };
+  const runtimeLog = opts.log instanceof RuntimeLog ? opts.log : opts.log ? undefined : new RuntimeLog({ dir: join(stateDirOf(config, opts.env), 'logs'), file: config.log.file, console: config.log.console, level: config.logLevel });
+  const log = opts.log ?? runtimeLog!;
+  const watchdog = runtimeLog ? new LoopWatchdog(runtimeLog) : undefined;
+  try {
+    const modules = opts.modules ?? (await loadModules({ proxy: true }));
+    const es = await buildEngine(config, { log, modules, env: opts.env });
+    const remote = remoteFromConfig(config); // calibration source only (§4)
+    const state = modules.createState(config, es.stateDir, es.counter.id);
+    const stats = modules.createStats(config);
+    const server = modules.createProxyServer(config, {
+      engine: es.engine,
+      counter: es.counter,
+      remote,
+      state,
+      stats,
+      log: (level, msg) => log[level](msg),
+      watchdog,
+    });
+    return {
+      ...es,
+      config,
+      remote,
+      state,
+      stats,
+      server,
+      version: packageInfo().version,
+      listen: () => server.listen(),
+      async probe(timeoutMs = 10_000) {
+        const up = server.upstream as { probe?: () => Promise<ProbeOutcome> } | undefined;
+        if (!up || typeof up.probe !== 'function') return { ok: true };
+        let timer: NodeJS.Timeout | undefined;
+        const late = new Promise<ProbeOutcome>((r) => {
+          timer = setTimeout(() => r({ ok: false, timedOut: true, error: `no answer within ${timeoutMs} ms` }), timeoutMs);
+          timer.unref();
+        });
+        const r = await Promise.race([up.probe(), late]);
+        clearTimeout(timer);
+        if (!r.ok && !r.tlsError) {
+          log.error(`startup probe GET ${config.upstream.origin}/v1/models: ${r.error ?? `HTTP ${r.status}`}; the proxy keeps running`);
+          (server.status as { warn?: (k: string, m: string) => void } | undefined)?.warn?.('upstream_probe', r.error ?? `HTTP ${r.status}`);
+        }
+        return r;
+      },
+      async close(drainMs = 30_000) {
+        try { await server.close(drainMs); }
+        finally { watchdog?.close(); log.info('stopped'); await runtimeLog?.close(); }
+      },
+    };
+  } catch (e) {
+    watchdog?.close();
+    await runtimeLog?.close();
+    throw e;
+  }
 }

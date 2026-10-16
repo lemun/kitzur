@@ -197,6 +197,7 @@ export interface Config {
   shadow: boolean;
   /** documented hook for an optional model-written digest; not implemented in v1 */
   digestHook: { enabled: false };
+  log: { file: string | null; console: boolean };
   logLevel: 'error' | 'warn' | 'info' | 'debug';
 }
 
@@ -300,5 +301,6 @@ export const DEFAULT_CONFIG: Config = {
   stats: { path: null },
   shadow: false,
   digestHook: { enabled: false },
+  log: { file: null, console: false },
   logLevel: 'info',
 };

@@ -14,6 +14,7 @@
 //
 // Shadow mode: the engine runs and is recorded, the original bytes are forwarded, errors are relayed
 // unchanged; usage and the tokenize endpoint still calibrate.
+import type { LoopWatchdog } from '../diagnostics/runtime.js';
 import http from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
@@ -74,6 +75,7 @@ export function parseFaults(v: string | undefined): Faults | null {
 }
 
 export interface ProxyDeps {
+  watchdog?: LoopWatchdog;
   engine: Engine;
   /** the local counter (exact or estimate); a 'remote' counter is refused */
   counter: TokenCounter & { profile?: TemplateProfile };
@@ -143,13 +145,16 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   const server = http.createServer({ noDelay: true }, (req, res) => {
     // in flight until the response is done *and* its stats/calibration ran (the drain waits for both)
     inflight++;
-    handle(req, res)
+    const requestId = String(status.requests + 1);
+    deps.watchdog?.phase(requestId, 'handling');
+    handle(req, res, requestId)
       .catch((e: unknown) => {
         log('error', `request failed: ${e instanceof Error ? e.message : String(e)}`);
         if (!res.headersSent) sendJson(res, 500, errorBody('kitzur: internal error', 'api_error', 'kitzur_internal_error'));
         else res.destroy();
       })
       .finally(() => {
+        deps.watchdog?.phase(requestId, 'complete');
         inflight--;
         settle();
       });
@@ -159,18 +164,20 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     s.once('close', () => sockets.delete(s));
   });
 
-  const snapshot = (): Record<string, unknown> =>
-    status.snapshot({
+  const snapshot = (): Record<string, unknown> => ({
+    ...status.snapshot({
       counter: { mode: deps.counter.mode, id: deps.counter.id },
       learned: deps.state.entries(),
       stateError: deps.state.lastError,
       statsPath: deps.stats.path,
       statsError: deps.stats.lastError,
       upstream: { origin, ...upstream.stats, endpoint: deps.remote ? deps.remote.stats() : null },
-    });
+    }),
+    ...deps.watchdog?.snapshot(),
+  });
 
   // ------------------------------------------------------------------ routing
-  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  async function handle(req: IncomingMessage, res: ServerResponse, requestId: string): Promise<void> {
     status.requests++;
     if (!hostAllowed(req.headers.host, cfg.listen.allowedHosts)) {
       status.hostRejected++;
@@ -190,13 +197,14 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       sendJson(res, 200, JSON.stringify(snapshot(), null, 1));
       return;
     }
+    deps.watchdog?.phase(requestId, 'reading_body');
     const body = await readRequest(req);
     if (body === null) {
       if (!res.headersSent && !req.destroyed) sendJson(res, 413, errorBody('kitzur: request body too large', 'invalid_request_error', 'request_too_large'));
       return;
     }
     const tBody = performance.now();
-    if (isChatCompletionsPath(req.method ?? '', pathname)) await handleChat(req, res, body, pathname, tBody);
+    if (isChatCompletionsPath(req.method ?? '', pathname)) await handleChat(req, res, body, pathname, tBody, requestId);
     else await passthrough(req, res, body);
   }
 
@@ -257,7 +265,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   }
 
   // ------------------------------------------------------------------ chat
-  async function handleChat(req: IncomingMessage, res: ServerResponse, raw: Buffer, pathname: string, tBody: number): Promise<void> {
+  async function handleChat(req: IncomingMessage, res: ServerResponse, raw: Buffer, pathname: string, tBody: number, requestId: string): Promise<void> {
     status.chatRequests++;
     const visible: RecentRequest = { action: 'passthrough', tokens: { in: null, out: null, trigger: null }, model: null, ms: 0 };
     let quantities: { budget: number; trigger: number; target: number } = budgetQuantities(cfg, null);
@@ -356,6 +364,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       if (!firstClientByte) firstUpByte = 0; // respPath is measured on the attempt that reaches the client
       let up: UpstreamResponse;
       try {
+        deps.watchdog?.phase(requestId, 'upstream');
         up = await upstream.request({
           method: 'POST', path: req.url ?? pathname, headers, body: a.body, signal: ac.signal,
           onWritten: () => {
@@ -544,11 +553,13 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       },
       learned: () => deps.state.entry(key),
       saveLearned: (e: LearnedEntry) => {
-        deps.state.set(key, e); // atomic and synchronous for planning changes
+        deps.watchdog?.phase(requestId, 'learning');
+        deps.state.set(key, e); // immediate memory update; async coalesced checkpoint
         deps.engine.setLearned(key, e);
       },
       process: (r: ChatRequest, o: ProcessOptions): EngineResult => {
         if (faults && o.attempt === 1 && (faults.random ?? Math.random)() < faults.engineThrow) throw new InjectedFault();
+        deps.watchdog?.phase(requestId, 'planning');
         const result = deps.engine.process(r, o);
         if (firstStats) {
           firstStats = false;
@@ -805,7 +816,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         });
       }
       for (const s of sockets) s.destroy();
-      deps.state.flush();
+      await deps.state.close();
       await deps.stats.close();
       upstream.close();
       deps.remote?.close();

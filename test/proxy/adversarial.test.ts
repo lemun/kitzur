@@ -196,6 +196,7 @@ test('the last attempt\'s rejection still teaches: with maxRetries 0 a validated
     assert.equal(r.json().error.code, 'context_length_exceeded', 'translated ()');
     assert.equal(up.hits.length, 1, 'no retry with maxRetries 0');
     const { readLearnedState, learnedKey } = await import('../../src/proxy/state.js');
+    await f.state.flush();
     const disk = readLearnedState(`${f.stateDir}/learned.json`).state.entries[learnedKey(up.origin, 'm1')];
     assert.equal(disk?.window, 60_000, 'the window is on disk');
     const rec = (await waitRecords(f, 1))[0]!;
