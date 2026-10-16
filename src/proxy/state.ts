@@ -171,7 +171,7 @@ export interface StateStoreOptions {
   /** the counter id: entries learned with another counter are discarded */
   counterId: string;
   now?: () => Date;
-  /** delay for writes that do not change planning (default 1000 ms) */
+  /** Delay for sample-only checkpoints (default 5000 ms); planning changes take at most 250 ms. */
   debounceMs?: number;
 }
 
@@ -193,6 +193,7 @@ export class StateStore {
   private readonly entriesMap = new Map<string, LearnedEntry>();
   private timer: NodeJS.Timeout | null = null;
   private dirty = false;
+  private scheduledAt = 0;
   private writing: Promise<void> | null = null;
   private readonly now: () => Date;
 
@@ -221,9 +222,10 @@ export class StateStore {
   /** Update memory immediately and schedule a coalesced async checkpoint. */
   set(key: string, e: LearnedEntry): void {
     const stored = clone({ ...e, updatedAt: e.updatedAt ?? this.now().toISOString() });
+    const urgent = planningChanged(this.entriesMap.get(key), stored);
     this.entriesMap.set(key, stored);
     this.dirty = true;
-    this.schedule();
+    this.schedule(urgent);
   }
 
   /** All valid entries (copies), by key. */
@@ -266,12 +268,17 @@ export class StateStore {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
   }
 
-  private schedule(): void {
-    if (this.timer || !this.path) return;
+  private schedule(urgent = false): void {
+    if (!this.path) return;
+    const delay = urgent ? Math.min(250, this.o.debounceMs ?? 5000) : this.o.debounceMs ?? 5000;
+    const deadline = Date.now() + delay;
+    if (this.timer && this.scheduledAt <= deadline) return;
+    if (this.timer) clearTimeout(this.timer);
+    this.scheduledAt = deadline;
     this.timer = setTimeout(() => {
       this.timer = null;
       void this.flush();
-    }, this.o.debounceMs ?? 5000);
+    }, delay);
     this.timer.unref();
   }
 }

@@ -360,7 +360,7 @@ async function cmdServe(argv: string[], io: CliIO): Promise<number> {
   if (p.positionals.length) throw new UsageError(`serve takes no arguments (got ${p.positionals.join(' ')})`);
   const l = loadFromArgs(p, io);
   const cfg = l.config;
-  // Serving output must never write to the attached console on the main thread.
+  // Routine serving logs stay off the attached console; fatal startup errors also reach stderr.
   const { RuntimeLog } = await import('./diagnostics/runtime.js');
   const log = new RuntimeLog({ dir: join(stateDirOf(cfg, io.env), 'logs'), file: cfg.log.file, console: cfg.log.console, level: cfg.logLevel });
   const v = validateConfig(cfg, { provenance: l.provenance, checkFiles: true });
@@ -380,7 +380,9 @@ async function cmdServe(argv: string[], io: CliIO): Promise<number> {
   // startup probe (§9 TLS): a certificate failure exits non-zero; an unreachable upstream only logs
   const probe = await app.probe(Math.min(10_000, cfg.upstream.timeoutMs));
   if (probe.tlsError) {
-    log.error(`TLS verification of ${cfg.upstream.origin} failed: ${probe.tlsError} (set upstream.caFile or NODE_EXTRA_CA_CERTS; see deploy/README.md)`);
+    const message = `TLS verification of ${cfg.upstream.origin} failed: ${probe.tlsError} (set upstream.caFile or NODE_EXTRA_CA_CERTS; see deploy/README.md)`;
+    log.error(message);
+    io.stderr(`kitzur: error: ${message}\n`);
     await app.close(0);
     return 1;
   }

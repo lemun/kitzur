@@ -40,6 +40,21 @@ test('planning and sample writes coalesce off the request path', async () => {
   await s.close();
 });
 
+test('planning changes expedite an existing sample checkpoint', async () => {
+  const dir = tmp();
+  const s = new StateStore({ dir, configuredWindow: 100_000, counterId: 'c1' });
+  try {
+    s.set('k', { ...s.entry('k'), samples: 1 });
+    for (const patch of [{ window: 89_000 }, { maxPrompt: 80_000 }, { tighten: 256 }]) {
+      const writes = s.writes;
+      s.set('k', { ...s.entry('k'), ...patch });
+      assert.equal(s.writes, writes, 'set stays asynchronous');
+      await sleep(450);
+      assert.deepEqual(readLearnedState(join(dir, 'learned.json')).state.entries['k'], s.entry('k'));
+    }
+  } finally { await s.close(); }
+});
+
 test('async persistence failures stay visible and a later flush recovers', async () => {
   const dir = tmp();
   const blocked = join(dir, 'blocked');

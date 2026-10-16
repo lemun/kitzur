@@ -483,7 +483,9 @@ milliseconds since startup) and `stalls_total` (stall episodes since startup).
 The watchdog is stopped during shutdown and does not keep the process alive.
 
 Learned entries update in memory immediately. `learned.json` checkpoints coalesce
-for five seconds and use asynchronous write/fsync/rename. Windows EPERM/EBUSY rename
+sample-only changes for five seconds; planning changes (including window, prompt
+limit and tightening) expedite the checkpoint to 250 ms. Checkpoints use
+asynchronous write/fsync/rename. Windows EPERM/EBUSY rename
 failures retry four times with exponential backoff; persistent failures appear in
 `/status` under `state.error`. A crash can lose recent learning; graceful shutdown
 flushes pending entries.
@@ -492,7 +494,10 @@ flushes pending entries.
 
 `logLevel: "info"` (the default) logs one content-free line per completed chat
 request: action, input/output token counts, budget, trigger, target, model and
-elapsed milliseconds. Set `logLevel` to `warn` or `error` to suppress these lines.
+elapsed milliseconds. These lines go to the rotating log file
+(`<stateDir>/logs/kitzur-YYYY-MM-DD.log` by default, or `log.file` / `--log-file PATH`).
+Console echo is opt-in with `--foreground` / `log.console: true` and requires a TTY.
+Set `logLevel` to `warn` or `error` to suppress these lines.
 `stats.path` is not required for request logs, diagnostic response headers or
 in-memory status history.
 

@@ -227,9 +227,9 @@ export async function buildApp(
   config: Config,
   opts: { log?: Logger; modules?: AppModules; env?: Record<string, string | undefined> } = {},
 ): Promise<App> {
-  const runtimeLog = opts.log instanceof RuntimeLog ? opts.log : new RuntimeLog({ dir: join(stateDirOf(config, opts.env), 'logs'), file: config.log.file, console: config.log.console, level: config.logLevel });
-  const log = opts.log ?? runtimeLog;
-  const watchdog = new LoopWatchdog(runtimeLog);
+  const runtimeLog = opts.log instanceof RuntimeLog ? opts.log : opts.log ? undefined : new RuntimeLog({ dir: join(stateDirOf(config, opts.env), 'logs'), file: config.log.file, console: config.log.console, level: config.logLevel });
+  const log = opts.log ?? runtimeLog!;
+  const watchdog = runtimeLog ? new LoopWatchdog(runtimeLog) : undefined;
   try {
     const modules = opts.modules ?? (await loadModules({ proxy: true }));
     const es = await buildEngine(config, { log, modules, env: opts.env });
@@ -272,12 +272,12 @@ export async function buildApp(
       },
       async close(drainMs = 30_000) {
         try { await server.close(drainMs); }
-        finally { watchdog.close(); runtimeLog.info('stopped'); await runtimeLog.close(); }
+        finally { watchdog?.close(); log.info('stopped'); await runtimeLog?.close(); }
       },
     };
   } catch (e) {
-    watchdog.close();
-    await runtimeLog.close();
+    watchdog?.close();
+    await runtimeLog?.close();
     throw e;
   }
 }

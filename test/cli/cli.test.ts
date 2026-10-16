@@ -317,7 +317,7 @@ test('count: exact per-message counts without content', { skip: testTokenizerPat
 // ---------------------------------------------------------------- replay and serve with injected modules
 
 /** A fake engine: drops every other message after the first two; `flaky` makes a fresh engine differ. */
-function fakeModules(opts: { flaky?: boolean; onClose?: (ms: number) => void; probe?: () => Promise<{ ok: boolean; tlsError?: string }> } = {}): AppModules & { built: number } {
+function fakeModules(opts: { flaky?: boolean; listenError?: Error; onClose?: (ms: number) => void; probe?: () => Promise<{ ok: boolean; tlsError?: string }> } = {}): AppModules & { built: number } {
   let built = 0;
   const mods = {
     get built() {
@@ -352,7 +352,10 @@ function fakeModules(opts: { flaky?: boolean; onClose?: (ms: number) => void; pr
     createStats: () => ({ close: async () => undefined }) as unknown as ReturnType<AppModules['createStats']>,
     createProxyServer: () =>
       ({
-        listen: async () => ({ host: '127.0.0.1', port: 45678 }),
+        listen: async () => {
+          if (opts.listenError) throw opts.listenError;
+          return { host: '127.0.0.1', port: 45678 };
+        },
         close: async (ms?: number) => opts.onClose?.(ms ?? -1),
         upstream: { probe: opts.probe ?? (async () => ({ ok: true })) },
         status: { warn: () => undefined },
@@ -413,6 +416,10 @@ test('serve logs the bound address to a file and drains on SIGTERM', () => withT
   assert.match(r.err, /upstream\.origin is required/);
   const tls = await run(['serve', '--upstream', 'https://gw.example', '--log-file', file], { modules: fakeModules({ probe: async () => ({ ok: false, tlsError: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' }) }) });
   assert.equal(tls.code, 1);
+  assert.match(tls.err, /TLS verification.*UNABLE_TO_VERIFY_LEAF_SIGNATURE/);
+  const failed = await run(['serve', '--upstream', 'http://127.0.0.1:9', '--log-file', file], { modules: fakeModules({ listenError: new Error('listen EADDRINUSE') }) });
+  assert.equal(failed.code, 1);
+  assert.match(failed.err, /listen EADDRINUSE/);
   assert.match(readFileSync(file, 'utf8'), /UNABLE_TO_VERIFY_LEAF_SIGNATURE/);
 }));
 

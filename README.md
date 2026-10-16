@@ -275,7 +275,9 @@ settings and `/status` health counters.
 
 ### Seeing compaction happen
 
-At the default `info` log level, each completed chat request writes one line to stderr:
+At the default `info` log level, each completed chat request writes one line to the rotating log file
+(`<stateDir>/logs/kitzur-YYYY-MM-DD.log` by default, or `--log-file PATH`).
+Use `--foreground` to echo logs to a TTY console:
 
 ```text
 chat action=compact tokens=50000->20000 budget=60000 trigger=45000 target=30000 model="local-model" ms=125
