@@ -26,7 +26,10 @@ test(`random chains: I1–I6, , store caps, restart (${N} chains, seed ${BASE_SE
   assert.ok(pct(cov.slim) >= 2, `slim coverage ${report}`);
   if (N >= 40) {
     assert.ok(cov.impossible + cov.truncate >= 1, `§5.7 coverage ${report}`);
-    assert.ok(cov.clamp >= 1, `clamp coverage ${report}`);
+    // These seeds reach clamp only with exact counts. The deterministic clamp test
+    // in engine.test.ts exercises that path with the estimator.
+    if (hasTok) assert.ok(cov.clamp >= 1, `clamp coverage ${report}`);
+    else t.diagnostic('Estimate mode: clamp coverage is checked by the deterministic engine test.');
   }
   assert.ok(cov.i6pairs >= cov.requests / 10, `I6 pairs ${report}`);
 });

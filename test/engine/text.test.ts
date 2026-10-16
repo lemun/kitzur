@@ -46,9 +46,10 @@ test('cuts never split a surrogate pair', () => {
   }
 });
 
-test('head+tail truncation: fits the room, head share, line boundaries, few counts ()', () => {
+test('head+tail truncation: fits the room, head share, line boundaries, few counts ()', (t) => {
   const tok = exactCounter('sim');
-  const count = tok ? tok.countText.bind(tok) : est.countText.bind(est);
+  if (!tok) return t.skip('Room utilization and line-boundary expectations require exact counts; the estimate room sweep checks fallback truncation.');
+  const count = tok.countText.bind(tok);
   const text = toolOutput(0, { hugeAt: 0, hugeChars: 180_000 });
   for (const room of [500, 5_000, 27_472]) {
     const c = counting(count);
