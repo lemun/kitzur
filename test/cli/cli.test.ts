@@ -274,7 +274,11 @@ test('status: GET /status of a running instance', async () => {
   try {
     const r = await run(['status', '--port', String(port)]);
     assert.equal(r.code, 0, r.err);
-    assert.deepEqual(JSON.parse(r.out), { name: 'kitzur', uptime_s: 3 });
+    assert.match(r.out, /kitzur.*uptime 3s/);
+    assert.match(r.out, /Last compaction: none since startup/);
+    const raw = await run(['status', '--port', String(port), '--json']);
+    assert.equal(raw.code, 0, raw.err);
+    assert.deepEqual(JSON.parse(raw.out), { name: 'kitzur', uptime_s: 3 });
     const nf = await run(['status', '--url', `http://127.0.0.1:${port}/missing`]);
     assert.equal(nf.code, 1);
     assert.match(nf.err, /returned HTTP 404/);

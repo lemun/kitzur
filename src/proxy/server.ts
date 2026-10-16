@@ -32,9 +32,9 @@ import { SseRelay, type RelayStep } from './sse.js';
 import { Upstream, forwardRequestHeaders, forwardResponseHeaders, readBody, type ProbeResult, type UpstreamResponse } from './upstream.js';
 import { learnedKey, type StateStore } from './state.js';
 import { buildStatsRecord, type StatsWriter } from './stats.js';
-import { StatusTracker } from './status.js';
+import { StatusTracker, type RecentRequest } from './status.js';
 import { applyAcceptedRatio, EndpointCalibrator, judgeSample, type CounterKind } from './calibration.js';
-import { budgetModeOf, serverLimits } from './budget.js';
+import { budgetModeOf, serverLimits, budgetQuantities } from './budget.js';
 
 export const KITZUR_VERSION = '0.1.0';
 
@@ -259,6 +259,26 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   // ------------------------------------------------------------------ chat
   async function handleChat(req: IncomingMessage, res: ServerResponse, raw: Buffer, pathname: string, tBody: number): Promise<void> {
     status.chatRequests++;
+    const visible: RecentRequest = { action: 'passthrough', tokens: { in: null, out: null, trigger: null }, model: null, ms: 0 };
+    let quantities: { budget: number; trigger: number; target: number } = budgetQuantities(cfg, null);
+    const show = (n: number | null): string => n === null ? 'unknown' : String(n);
+    const setVisibleHeaders = (): void => {
+      if (res.headersSent) return;
+      res.setHeader('x-kitzur-action', visible.action);
+      res.setHeader('x-kitzur-tokens', `${show(visible.tokens.in)}/${show(visible.tokens.out)}/${show(visible.tokens.trigger)}`);
+    };
+    const actionOf = (a: string): RecentRequest['action'] => {
+      if (a === 'impossible' || a === 'guard_reject') return 'refuse';
+      if (a === 'admit') return 'compact';
+      if (a === 'restore') return 'clamp';
+      return a === 'reuse' || a === 'compact' || a === 'clamp' || a === 'truncate' ? a : 'passthrough';
+    };
+    res.once('close', () => {
+      visible.ms = Math.round((performance.now() - tBody) * 10) / 10;
+      status.recordRequest(visible);
+      log('info', `chat action=${visible.action} tokens=${show(visible.tokens.in)}->${show(visible.tokens.out)} budget=${quantities.budget} trigger=${show(visible.tokens.trigger)} target=${quantities.target} model=${JSON.stringify(visible.model)} ms=${visible.ms}`);
+    });
+    setVisibleHeaders();
     const seq = deps.stats.nextSeq();
     const ts = now();
     const cpu0 = process.cpuUsage();
@@ -281,7 +301,11 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     const commit = (st: number, msg: string, hdrs: string[]): void => {
       if (committed) return;
       committed = true;
-      res.writeHead(st, msg, hdrs);
+      setVisibleHeaders();
+      // Local diagnostics take precedence over similarly named upstream headers.
+      const clean: string[] = [];
+      for (let i = 0; i < hdrs.length; i += 2) if (!hdrs[i]!.toLowerCase().startsWith('x-kitzur-')) clean.push(hdrs[i]!, hdrs[i + 1]!);
+      res.writeHead(st, msg, clean);
       res.flushHeaders();
     };
 
@@ -301,6 +325,10 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     }
     const creq = parsed.value.req;
     const key = learnedKey(origin, creq.model);
+    visible.model = creq.model ?? null;
+    quantities = budgetQuantities(cfg, deps.state.entry(key));
+    visible.tokens.trigger = quantities.trigger;
+    setVisibleHeaders();
 
     // ---------------------------------------------------------------- one upstream attempt
     let firstUpByte = 0;
@@ -314,6 +342,14 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     };
     const send = async (a: OutgoingAttempt): Promise<AttemptOutcome> => {
       const t0 = performance.now();
+      if (!committed) {
+        const st = a.result?.stats;
+        if (st) quantities = st.budget;
+        visible.action = cfg.shadow || !a.result ? 'passthrough' : actionOf(a.result.action);
+        visible.tokens.out = a.original ? visible.tokens.in : st?.tokensOut ?? visible.tokens.in;
+        visible.tokens.trigger = quantities.trigger;
+        setVisibleHeaders();
+      }
       upstreamCalls++;
       dropRest(); // a retry: the previous attempt's error is not relayed
       if (a.n > 1) status.retries++;
@@ -497,10 +533,15 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       });
 
     // ---------------------------------------------------------------- the ladder
+    let firstStats = true;
     const io = {
       send,
       aborted: () => clientGone,
-      count: (r: ChatRequest) => deps.counter.countRequest(r),
+      count: (r: ChatRequest) => {
+        const n = deps.counter.countRequest(r);
+        if (r === creq && firstStats) visible.tokens.in = n;
+        return n;
+      },
       learned: () => deps.state.entry(key),
       saveLearned: (e: LearnedEntry) => {
         deps.state.set(key, e); // atomic and synchronous for planning changes
@@ -508,7 +549,12 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       },
       process: (r: ChatRequest, o: ProcessOptions): EngineResult => {
         if (faults && o.attempt === 1 && (faults.random ?? Math.random)() < faults.engineThrow) throw new InjectedFault();
-        return deps.engine.process(r, o);
+        const result = deps.engine.process(r, o);
+        if (firstStats) {
+          firstStats = false;
+          visible.tokens.in = result.stats.tokensIn;
+        }
+        return result;
       },
       now,
       onRewriteRejected: (ruleId: string, st: number) => status.rewriteRejected(ruleId, st),
@@ -523,6 +569,12 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       dropRest();
       if (upstreamCalls > 0 || committed || clientGone) throw e;
       log('error', `ladder failed before any upstream call, forwarding the original: ${e instanceof Error ? e.message : String(e)}`);
+      visible.action = 'passthrough';
+      if (visible.tokens.in === null) {
+        try { visible.tokens.in = deps.counter.countRequest(creq); } catch { /* count unavailable */ }
+      }
+      visible.tokens.out = visible.tokens.in;
+      setVisibleHeaders();
       status.failedOpen('internal');
       status.action('passthrough');
       await passthrough(req, res, raw);
@@ -532,6 +584,15 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         rewriteRejected: false, reason: 'internal', forwarded: 'original', ...(clientSession ? { clientSession } : {}),
       }));
       return;
+    }
+    if (!committed) {
+      visible.action = result.final.type === 'generated' ? 'refuse' : actionOf(result.action);
+      if (result.originalResent || cfg.shadow) visible.action = 'passthrough';
+      const st = (result.last ?? result.first)?.stats;
+      if (st) quantities = st.budget;
+      visible.tokens.trigger = quantities.trigger;
+      if (result.attempts.length === 0) visible.tokens.out = 0;
+      setVisibleHeaders();
     }
     writeFinal(res, result.final, () => committed, (c) => (committed = c), rest);
     if (firstUpByte && firstClientByte) respPathMs = Math.max(0, firstClientByte - firstUpByte);
