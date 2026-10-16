@@ -135,6 +135,8 @@ export const CONFIG_OPTS: OptSpec = {
   template: { type: 'string', set: 'tokenizer.template.name' },
   'state-dir': { type: 'string', set: 'stateDir' },
   stats: { type: 'string', set: 'stats.path' },
+  'log-file': { type: 'string', set: 'log.file' },
+  foreground: { type: 'boolean', set: 'log.console' },
   'log-level': { type: 'string', set: 'logLevel' },
   shadow: { type: 'boolean', set: 'shadow' },
 };
@@ -163,7 +165,7 @@ function loadFromArgs(p: ParsedArgs, io: CliIO): LoadedConfig {
 
 const USAGE = `usage: kitzur <command> [options]
 
-  serve                         run the proxy (prints "listening on http://127.0.0.1:<port>")
+  serve                         run the proxy (logs the bound address to a file)
   replay <file|dir>...          run captured request bodies through the engine offline; sizes only,
                                 plus a live-vs-fresh determinism check
   count <request.json>          exact token count of a request (per message, no content)
@@ -186,6 +188,7 @@ config options (serve, replay, count, status, config show|validate, state):
   -s, --set a.b=v        set any key (repeatable)                    also KITZUR_SET="a.b=v;c.d=w"
   --upstream URL  --host H  --port N  --tokenizer FILE  --template NAME
   --state-dir DIR  --stats FILE  --log-level L  --shadow
+  --log-file PATH  --foreground (opt into TTY console echo)
 Precedence: defaults < preset < config file < KITZUR_* env < command line. Every key: CONFIG.md.
 `;
 
@@ -326,7 +329,7 @@ async function importState(): Promise<{
 async function cmdDoctor(argv: string[], io: CliIO): Promise<number> {
   const p = parseArgs(argv, { ...CONFIG_OPTS, json: { type: 'boolean' }, 'check-upstream': { type: 'boolean' }, 'timeout-ms': { type: 'string' } });
   if (p.positionals.length) throw new UsageError('doctor takes no positional arguments');
-  const timeoutMs = p.values['timeout-ms'] === undefined ? 1500 : Number(p.values['timeout-ms']);
+  const timeoutMs = p.values['timeout-ms'] === undefined ? 3000 : Number(p.values['timeout-ms']);
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000) throw new UsageError('--timeout-ms must be an integer from 1 to 10000');
   let loaded: LoadedConfig;
   try { loaded = loadFromArgs(p, io); }
@@ -336,7 +339,7 @@ async function cmdDoctor(argv: string[], io: CliIO): Promise<number> {
     io.stdout(p.values['json'] ? JSON.stringify(result, null, 2) + '\n' : renderDoctor(result) + '\n');
     return 2;
   }
-  const result = await doctor(loaded.config, { env: io.env, upstreamCheck: p.values['check-upstream'] === true, timeoutMs });
+  const result = await doctor(loaded.config, { env: io.env, upstreamCheck: p.values['check-upstream'] === true, timeoutMs, configPath: loaded.configPath ?? undefined });
   io.stdout(p.values['json'] ? JSON.stringify(result, null, 2) + '\n' : renderDoctor(result) + '\n');
   return result.exitCode;
 }
@@ -357,18 +360,23 @@ async function cmdServe(argv: string[], io: CliIO): Promise<number> {
   if (p.positionals.length) throw new UsageError(`serve takes no arguments (got ${p.positionals.join(' ')})`);
   const l = loadFromArgs(p, io);
   const cfg = l.config;
-  const log = createLogger(cfg.logLevel, io.stderr);
+  // Serving output must never write to the attached console on the main thread.
+  const { RuntimeLog } = await import('./diagnostics/runtime.js');
+  const log = new RuntimeLog({ dir: join(stateDirOf(cfg, io.env), 'logs'), file: cfg.log.file, console: cfg.log.console, level: cfg.logLevel });
   const v = validateConfig(cfg, { provenance: l.provenance, checkFiles: true });
   for (const w of [...l.warnings, ...v.warnings.filter((x) => !/^upstream\.origin is not set/.test(x))]) log.warn(w);
   if (v.errors.length || !cfg.upstream.origin) {
     for (const e of v.errors) io.stderr(`kitzur: config error: ${e}\n`);
     if (!cfg.upstream.origin) io.stderr('kitzur: config error: upstream.origin is required (--upstream http://gateway:8000, KITZUR_UPSTREAM_ORIGIN or the config file)\n');
+    await log.close();
     return 2;
   }
   const drainMs = p.values['drain-ms'] !== undefined ? Number(p.values['drain-ms']) : 30_000;
   if (!Number.isFinite(drainMs) || drainMs < 0) throw new UsageError('--drain-ms must be a number of milliseconds');
   const app = await buildApp(cfg, { log, modules: io.modules, env: io.env });
-  const addr = await app.listen();
+  let addr: { host: string; port: number };
+  try { addr = await app.listen(); }
+  catch (e) { await app.close(0); throw e; }
   // startup probe (§9 TLS): a certificate failure exits non-zero; an unreachable upstream only logs
   const probe = await app.probe(Math.min(10_000, cfg.upstream.timeoutMs));
   if (probe.tlsError) {
@@ -378,7 +386,7 @@ async function cmdServe(argv: string[], io: CliIO): Promise<number> {
   }
   const b = computeBudget(cfg);
   log.info(`upstream ${cfg.upstream.origin}; counter ${app.counter.mode}; mode ${b.mode}; budget ${b.budget}, trigger ${b.trigger}, target ${b.target}`);
-  io.stdout(`listening on http://${fmtHost(addr.host)}:${addr.port}\n`);
+  log.info(`listening on http://${fmtHost(addr.host)}:${addr.port}`);
   return await new Promise<number>((done) => {
     let stopping = false;
     io.onSignal((sig) => {
@@ -391,8 +399,7 @@ async function cmdServe(argv: string[], io: CliIO): Promise<number> {
       log.info(`${sig}: stopping; draining in-flight requests (up to ${drainMs} ms)`);
       app.close(drainMs).then(
         () => {
-          log.info('stopped');
-          done(0);
+          void log.close().then(() => done(0));
         },
         (e: unknown) => {
           log.error(`shutdown: ${(e as Error).message}`);

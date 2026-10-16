@@ -87,7 +87,7 @@ test('buildApp: the engine gets a local counter; the tokenize endpoint only reac
   assert.ok(logs.includes('kitzur: warn: hello\n'));
   assert.deepEqual(await app.listen(), { host: '127.0.0.1', port: 1 });
   assert.deepEqual(await app.probe(), { ok: true }, 'no probe on the server: nothing to check');
-  app.remote?.close();
+  await app.close();
 });
 
 test('buildEngine: the real engine modules load and process a request', async () => {

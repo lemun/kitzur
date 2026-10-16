@@ -192,7 +192,7 @@ Columns: **Default**; **Meaning**; **If wrong**: what breaks; **Probe field**: t
 | Key | Default | Meaning | If wrong | Probe field |
 |---|---|---|---|---|
 | `listen.host` | `127.0.0.1` | Bind address. | A non-loopback address exposes the proxy, and the credentials it forwards, to the network. | – |
-| `listen.port` | `8270` | Listen port; `0` picks a free port (`serve` prints `listening on http://127.0.0.1:<port>`). | A port in use: `serve` fails to start. The client's `baseURL` must use it. | – |
+| `listen.port` | `8270` | Listen port; `0` picks a free port (`serve` records the bound address in the server log). | A port in use: `serve` fails to start. The client's `baseURL` must use it. | – |
 | `listen.allowedHosts` | `["127.0.0.1","localhost","[::1]","::1"]` | Accepted `Host` header names (port ignored); blocks DNS rebinding. `["*"]` disables the check. | Too narrow: clients that use another name are refused. `*`: a web page can reach the proxy through DNS rebinding. | – |
 
 ### upstream
@@ -393,7 +393,7 @@ Columns: **Default**; **Meaning**; **If wrong**: what breaks; **Probe field**: t
 | `stats.path` | `null` | JSONL of one record per client request (sizes only, never content). | – | – |
 | `shadow` | `false` | Run the engine and record what it would do, but forward the original bytes (calibration can run before enabling). | – | – |
 | `digestHook.enabled` | `false` | Documented hook for an optional model-written digest; not implemented in v1 (must stay `false`). | – | – |
-| `logLevel` | `info` | `error`, `warn`, `info` or `debug` (stderr; never content). | – | – |
+| `logLevel` | `info` | `error`, `warn`, `info` or `debug` (server log file; never content). | – | – |
 
 ---
 
@@ -462,3 +462,28 @@ kitzur config import-eval <dir|file>... [--out kitzur.config.json] [--merge FILE
   measured windows, contradictory overflow cases, different server fingerprints) or a config that is not
   usable (it fails validation, or the measured window and the client's `max_tokens` leave a prompt budget
   under a quarter of the window: set `budget.planMaxTokens`); `1` invalid input.
+
+### Serving logs and event-loop health
+
+| Key | Default | Meaning | Failure behavior | CLI |
+| --- | --- | --- | --- | --- |
+| `log.file` | `null` | Async server log; null selects `<stateDir>/logs/kitzur-YYYY-MM-DD.log` (UTC). Relative paths resolve against the config file. | File errors and dropped lines appear in `/status`. | `--log-file PATH` |
+| `log.console` | `false` | Echo logs only when stderr is a TTY. Console writes run in an isolated worker with at most one pending line; additional lines are dropped and counted. | A paused Windows console cannot stall requests. | `--foreground` |
+
+Logs contain operational messages, never request bodies. Dated logs retain seven UTC dates.
+Each file is capped at 10 MiB with one `.1` backup. A custom log path uses the same
+size cap; only files named `kitzur-YYYY-MM-DD.log` and their backups are age-pruned.
+File output queues at most 256 lines (each capped at 8,192 characters), then drops lines.
+`/status` exposes `log.path`, `log.error`, `log.dropped`, and `log.console_dropped`.
+
+A separate watchdog checks a shared heartbeat every second. Stalls longer than ten
+seconds append diagnostic lines with the stall start, duration, last request ID and
+phase, and last log line. `/status` exposes `loop_lag_ms` (event-loop delay p99 in
+milliseconds since startup) and `stalls_total` (stall episodes since startup).
+The watchdog is stopped during shutdown and does not keep the process alive.
+
+Learned entries update in memory immediately. `learned.json` checkpoints coalesce
+for five seconds and use asynchronous write/fsync/rename. Windows EPERM/EBUSY rename
+failures retry four times with exponential backoff; persistent failures appear in
+`/status` under `state.error`. A crash can lose recent learning; graceful shutdown
+flushes pending entries.

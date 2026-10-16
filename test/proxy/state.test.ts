@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, unlinkSync, readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_CONFIG } from '../../src/config/schema.js';
@@ -28,22 +28,31 @@ test('state dir default and keys', () => {
   assert.ok(!keyMatches('http://gw:8000|qwen', 'qwen-small'));
 });
 
-test('a planning change is on disk before set() returns; sample-only changes are debounced', async () => {
+test('planning and sample writes coalesce off the request path', async () => {
   const dir = tmp();
-  const s = new StateStore({ dir, configuredWindow: 100_000, counterId: 'c1', debounceMs: 30, now: () => NOW });
-  const key = learnedKey('http://gw', 'm');
-  const e = { ...s.entry(key), window: 89_000 };
-  s.set(key, e);
-  const disk = readLearnedState(join(dir, 'learned.json'));
-  assert.equal(disk.state.entries[key]?.window, 89_000, 'written synchronously');
-  // a sample-only change: not yet on disk, then flushed by the debounce
-  s.set(key, { ...s.entry(key), samples: 3, ratios: [1, 1, 1] });
-  assert.equal(readLearnedState(join(dir, 'learned.json')).state.entries[key]?.samples, 0);
-  await sleep(80);
-  assert.equal(readLearnedState(join(dir, 'learned.json')).state.entries[key]?.samples, 3);
-  // no temp files left behind
-  assert.deepEqual(readdirSync(dir).filter((f) => f.includes('.tmp')), []);
-  s.close();
+  const s = new StateStore({ dir, configuredWindow: 100_000, counterId: 'c1', debounceMs: 30 });
+  s.set('k', { ...s.entry('k'), window: 89_000 });
+  assert.equal(existsSync(join(dir, 'learned.json')), false, 'set must not touch disk');
+  s.set('k', { ...s.entry('k'), samples: 3 });
+  await sleep(100);
+  assert.equal(s.writes, 1);
+  assert.equal(readLearnedState(join(dir, 'learned.json')).state.entries['k']?.samples, 3);
+  await s.close();
+});
+
+test('async persistence failures stay visible and a later flush recovers', async () => {
+  const dir = tmp();
+  const blocked = join(dir, 'blocked');
+  writeFileSync(blocked, 'file blocks directory');
+  const s = new StateStore({ dir: blocked, configuredWindow: 100_000, counterId: 'c1' });
+  s.set('k', { ...s.entry('k'), window: 12_000 });
+  await s.flush();
+  assert.match(s.lastError ?? '', /write learned.json/);
+  assert.equal(s.entry('k').window, 12_000);
+  unlinkSync(blocked);
+  await s.close();
+  assert.equal(s.lastError, null);
+  assert.equal(readLearnedState(join(blocked, 'learned.json')).state.entries['k']?.window, 12_000);
 });
 
 test('entries learned under another window or counter are discarded at load ()', () => {
@@ -69,16 +78,18 @@ test('corrupt or foreign files do not stop the proxy; entries are sanitized', ()
   assert.deepEqual([e.tighten, e.ratios, e.window, e.correction], [0, [1, 2], null, 1]);
 });
 
-test('state show / reset with key filters', () => {
+test('state show / reset with key filters', async () => {
   const dir = tmp();
   const s = new StateStore({ dir, configuredWindow: 100_000, counterId: 'c1' });
   s.set('http://a|m1', { ...s.entry('http://a|m1'), tighten: 256 });
   s.set('http://a|m2', { ...s.entry('http://a|m2'), tighten: 512 });
   s.set('http://b|m1', { ...s.entry('http://b|m1'), window: 90_000 });
+  await s.flush();
   assert.deepEqual(Object.keys(showState(dir, 'm1').state.entries).sort(), ['http://a|m1', 'http://b|m1']);
   assert.deepEqual(resetState(dir, 'http://a').sort(), ['http://a|m1', 'http://a|m2']);
   assert.deepEqual(Object.keys(showState(dir).state.entries), ['http://b|m1']);
   assert.deepEqual(s.reset(), ['http://a|m1', 'http://a|m2', 'http://b|m1']);
+  await s.flush();
   assert.deepEqual(readLearnedState(join(dir, 'learned.json')).state.entries, {});
 });
 

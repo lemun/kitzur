@@ -40,7 +40,7 @@ export const LOADER_ENV = ['KITZUR_CONFIG', 'KITZUR_PRESET', 'KITZUR_SET', 'KITZ
 
 /** Leaves holding file-system paths (resolved relative to the layer's base directory). */
 export const PATH_LEAVES: ReadonlySet<string> = new Set([
-  'upstream.caFile', 'tokenizer.path', 'tokenizer.cachePath', 'stateDir', 'stats.path', 'ledger.mirrorPath',
+  'upstream.caFile', 'tokenizer.path', 'tokenizer.cachePath', 'stateDir', 'stats.path', 'ledger.mirrorPath', 'log.file',
 ]);
 
 /** One CLI/env assignment: `raw` is parsed according to the leaf's spec. */

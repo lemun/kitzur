@@ -225,3 +225,50 @@ Kitzur is Hebrew for “shortcut”. MIT licensed. Portions derive from gobstopp
 
 See the [Windows user guide](deploy/windows/USER.md) for per-user installation and background startup,
 and the [administrator guide](deploy/windows/ADMIN.md) for configuration profiles and Windows ZIP packaging.
+
+## Running Kitzur in the background
+
+Serving logs go to `<stateDir>/logs/kitzur-YYYY-MM-DD.log` by default, with seven
+UTC dates retained and a 10 MiB size cap plus one backup. Use `--log-file PATH`
+for a fixed location. `--foreground` opts into console echo when stderr is a TTY;
+slow console output is dropped instead of delaying requests.
+
+On **Windows**, run Node detached from PowerShell (replace the two paths):
+
+```powershell
+Start-Process -FilePath 'node' -ArgumentList '"C:\path\to\kitzur\dist\src\cli.js" serve --config "C:\path\to\kitzur.json"' -WindowStyle Hidden -RedirectStandardOutput "$env:TEMP\kitzur-out.log" -RedirectStandardError "$env:TEMP\kitzur-err.log"
+```
+
+Alternatively, create a Task Scheduler task that runs `node` with the same script,
+`serve`, and `--config` arguments, using “Run whether user is logged on or not.”
+The server still writes its rotating file log. Paused console selection (QuickEdit)
+can freeze older versions that write synchronously to the console. `kitzur doctor`
+checks the configured local listener and reports a process that accepts TCP but
+cannot answer `/status` within three seconds.
+
+On **macOS**, use a LaunchAgent in `~/Library/LaunchAgents/` with `ProgramArguments`
+set to the absolute Node path, the absolute `dist/src/cli.js` path, `serve`,
+`--config`, and your absolute config path. Set `RunAtLoad` to true and configure
+`StandardOutPath` and `StandardErrorPath` to files in an existing writable directory.
+Load it with `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/your.kitzur.plist`.
+The rotating server log remains in the configured state directory.
+
+On **Linux**, create `~/.config/systemd/user/kitzur.service`:
+
+```ini
+[Unit]
+Description=Kitzur context compaction proxy
+
+[Service]
+ExecStart=/absolute/path/to/node /absolute/path/to/kitzur/dist/src/cli.js serve --config /absolute/path/to/kitzur.json
+Restart=on-failure
+StandardOutput=append:%h/.local/state/kitzur/service-out.log
+StandardError=append:%h/.local/state/kitzur/service-err.log
+
+[Install]
+WantedBy=default.target
+```
+
+Create `~/.local/state/kitzur` first, then run `systemctl --user daemon-reload`
+and `systemctl --user enable --now kitzur`. See [CONFIG.md](CONFIG.md) for logging
+settings and `/status` health counters.

@@ -289,7 +289,7 @@ test('client disconnect aborts the upstream within 50 ms (mid-stream and before 
 
 // ---------------------------------------------------------------- the ladder end to end
 
-test('ladder: vLLM overflow teaches the window (persisted before the retry); the retry is strictly smaller; the next request plans with it', async () => {
+test('ladder: vLLM overflow teaches the window (in memory before the retry); the retry is strictly smaller; the next request plans with it', async () => {
   const counter = charCounter();
   const cfgOver = { budget: { window: 10_000, defaultMaxTokens: 1000, planMaxTokens: 1000 } };
   const cfg = testConfig(cfgOver);
@@ -314,7 +314,9 @@ test('ladder: vLLM overflow teaches the window (persisted before the retry); the
     const r = await request(f.port, { body: raw });
     assert.equal(r.status, 200);
     assert.equal(up.hits.length, 2);
-    assert.equal(learnedAtRetry, LIMIT, 'on disk before the retry was sent');
+    assert.equal(learnedAtRetry, undefined, 'persistence is deferred beyond the retry');
+    await f.state.flush();
+    assert.equal(readLearnedState(join(stateDir, 'learned.json')).state.entries[learnedKey(up.origin, 'm1')]?.window, LIMIT);
     assert.notEqual(up.hits[1]!.body.toString(), raw);
     assert.ok(bodyTokens(up.hits[1]!.json) < bodyTokens(up.hits[0]!.json));
     assert.equal(engine.calls[1]!.opts.attempt, 2);
@@ -648,7 +650,7 @@ test('stats JSONL: one record per chat request, gobstopper-compatible fields plu
   });
 });
 
-test('calibration from usage: accepted samples move the correction, persisted before the next request plans with it', async () => {
+test('calibration from usage: accepted samples move the correction, checkpointed asynchronously and used by the next request', async () => {
   const counter = charCounter('estimate');
   // the server counts 1.3x our estimate
   const up = await fakeUpstream((hit, res) => jsonRes(res, 200, okCompletion(Math.round(bodyTokens(hit.json) * 1.3))));
@@ -659,6 +661,7 @@ test('calibration from usage: accepted samples move the correction, persisted be
     await waitRecords(f, 3);
     await sleep(30);
     const key = learnedKey(up.origin, 'm1');
+    await f.state.flush();
     const disk = readLearnedState(join(f.stateDir, 'learned.json')).state.entries[key]!;
     assert.equal(disk.correction, 1.3);
     assert.equal(disk.samples, 3);

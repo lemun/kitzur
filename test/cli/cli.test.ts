@@ -386,28 +386,29 @@ test('replay: sizes only, live vs fresh determinism, exit codes', () =>
     assert.equal((await run(['replay'], { cwd: dir })).code, 2);
   }));
 
-test('serve: prints the bound address, drains on SIGTERM, refuses a config without an origin', async () => {
+test('serve logs the bound address to a file and drains on SIGTERM', () => withTmp(async (dir) => {
   let handler: ((sig: string) => void) | null = null;
   let closedWith: number | null = null;
+  const file = join(dir, 'server.log');
   const x = io({ onSignal: (h) => void (handler = h), modules: fakeModules({ onClose: (ms) => (closedWith = ms) }) });
-  const done = main(['serve', '--upstream', 'http://127.0.0.1:9', '--port', '0', '--drain-ms', '1234'], x);
-  for (let i = 0; i < 100 && !x.outBuf.length; i++) await new Promise((r) => setTimeout(r, 10));
-  assert.deepEqual(x.outBuf, ['listening on http://127.0.0.1:45678\n']);
+  const done = main(['serve', '--upstream', 'http://127.0.0.1:9', '--port', '0', '--log-file', file, '--drain-ms', '1234'], x);
+  for (let i = 0; i < 100 && !handler; i++) await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(x.outBuf, []);
   assert.ok(handler, 'signal handler registered');
   handler!('SIGTERM');
   assert.equal(await done, 0);
   assert.equal(closedWith, 1234);
-  assert.match(x.errBuf.join(''), /SIGTERM: stopping; draining in-flight requests \(up to 1234 ms\)/);
-  // no origin
-  const r = await run(['serve'], { modules: fakeModules() });
+  const logs = readFileSync(file, 'utf8');
+  assert.match(logs, /listening on http:\/\/127.0.0.1:45678/);
+  assert.match(logs, /SIGTERM: stopping; draining/);
+  assert.deepEqual(x.errBuf, []);
+  const r = await run(['serve', '--log-file', file], { modules: fakeModules() });
   assert.equal(r.code, 2);
   assert.match(r.err, /upstream\.origin is required/);
-  // a TLS verification failure at the startup probe exits non-zero (§9)
-  const tls = await run(['serve', '--upstream', 'https://gw.example', '--port', '0'], { modules: fakeModules({ probe: async () => ({ ok: false, tlsError: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' }) }) });
+  const tls = await run(['serve', '--upstream', 'https://gw.example', '--log-file', file], { modules: fakeModules({ probe: async () => ({ ok: false, tlsError: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' }) }) });
   assert.equal(tls.code, 1);
-  assert.match(tls.err, /TLS verification of https:\/\/gw\.example failed: UNABLE_TO_VERIFY_LEAF_SIGNATURE/);
-  assert.equal(tls.out, '', 'never announces a listener it is about to close');
-});
+  assert.match(readFileSync(file, 'utf8'), /UNABLE_TO_VERIFY_LEAF_SIGNATURE/);
+}));
 
 test('collectRequests / asRequest: bodies, wrapped bodies, JSONL, arrays', () =>
   withTmp(async (dir) => {

@@ -187,6 +187,8 @@ export const LEAF_SPECS: Readonly<Record<string, LeafSpec>> = Object.assign(Obje
   'stats.path': strN,
   shadow: bool,
   'digestHook.enabled': { t: 'false' },
+  'log.file': strN,
+  'log.console': bool,
   logLevel: en('error', 'warn', 'info', 'debug'),
 } satisfies Record<string, LeafSpec>);
 

@@ -3,12 +3,11 @@
 //   <stateDir>/learned.json   LearnedState v2: one LearnedEntry per `${origin}|${model}`
 //   <stateDir>/plans/*.jsonl  the optional plan store (store.persist): one append-only file per day
 //
-// Learned values are planning inputs (§5.3), so a change is written atomically (temp file + fsync +
-// rename) *synchronously* inside StateStore.set: it is on disk before any later request can plan with
-// it. Changes that do not affect planning (calibration samples) are written with a short debounce.
-// Entries learned under another configured window or another counter id are discarded ().
-// Directory creation avoids mkdirSync({recursive}) (it never returns for some /proc paths on Node 26).
+// Learned entries update in memory immediately; persistence coalesces changes asynchronously.
+// A crash can lose up to five seconds of learning, never request correctness.
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeSync, appendFileSync } from 'node:fs';
+import { mkdir, open, rename, unlink } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { LearnedEntry, LearnedState, Plan } from '../types.js';
@@ -68,6 +67,23 @@ export function writeFileAtomic(path: string, data: string | Buffer): void {
   }
 }
 
+/** Async atomic replacement. Antivirus scanners can temporarily deny Windows renames. */
+export async function writeFileAtomicAsync(path: string, data: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  const tmp = `${path}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+  try {
+    const file = await open(tmp, 'wx', 0o600);
+    try { await file.writeFile(data); await file.sync(); } finally { await file.close(); }
+    for (let attempt = 0; ; attempt++) {
+      try { await rename(tmp, path); break; }
+      catch (e) {
+        if (!['EPERM', 'EBUSY'].includes((e as NodeJS.ErrnoException).code ?? '') || attempt >= 4) throw e;
+        await delay(50 * 2 ** attempt);
+      }
+    }
+  } finally { await unlink(tmp).catch(() => undefined); }
+}
+
 // ---------------------------------------------------------------- entries
 
 /** The learned-state key of a request: `${origin}|${model}` (). */
@@ -83,7 +99,7 @@ export function freshLearnedEntry(configuredWindow: number, counterId: string): 
   };
 }
 
-/** Fields that are planning inputs (§5.3) or change what is forwarded: written synchronously. */
+/** Fields that are planning inputs (§5.3) or change what is forwarded. */
 export function planningChanged(a: LearnedEntry | undefined, b: LearnedEntry): boolean {
   if (!a) return b.window !== null || b.maxPrompt !== null || b.maxBodyBytes !== null || b.tighten !== 0 || b.correction !== 1 || b.includeUsageRejected;
   return a.window !== b.window || a.maxPrompt !== b.maxPrompt || a.maxBodyBytes !== b.maxBodyBytes || a.tighten !== b.tighten ||
@@ -177,6 +193,7 @@ export class StateStore {
   private readonly entriesMap = new Map<string, LearnedEntry>();
   private timer: NodeJS.Timeout | null = null;
   private dirty = false;
+  private writing: Promise<void> | null = null;
   private readonly now: () => Date;
 
   constructor(private readonly o: StateStoreOptions) {
@@ -201,17 +218,12 @@ export class StateStore {
     return this.entriesMap.has(key);
   }
 
-  /**
-   * Stores an entry. A planning change is written before this returns (atomic), so no request can
-   * plan with a value that is not on disk; other changes are written after `debounceMs`.
-   */
+  /** Update memory immediately and schedule a coalesced async checkpoint. */
   set(key: string, e: LearnedEntry): void {
-    const prev = this.entriesMap.get(key);
     const stored = clone({ ...e, updatedAt: e.updatedAt ?? this.now().toISOString() });
     this.entriesMap.set(key, stored);
     this.dirty = true;
-    if (planningChanged(prev, stored)) this.flush();
-    else this.schedule();
+    this.schedule();
   }
 
   /** All valid entries (copies), by key. */
@@ -226,40 +238,40 @@ export class StateStore {
     const gone = [...this.entriesMap.keys()].filter((k) => keyMatches(k, filter));
     for (const k of gone) this.entriesMap.delete(k);
     this.dirty = true;
-    this.flush();
+    this.schedule();
     return gone;
   }
 
-  /** Writes pending changes now. */
-  flush(): void {
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
-    if (!this.dirty || !this.path) {
-      this.dirty = false;
-      return;
-    }
-    const state: LearnedState = { version: 2, entries: Object.fromEntries(this.entriesMap) };
-    try {
-      writeFileAtomic(this.path, JSON.stringify(state, null, 1) + '\n');
-      this.dirty = false;
+  /** Write a pending snapshot asynchronously, waiting for any existing write first. */
+  async flush(): Promise<void> {
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+    if (this.writing) await this.writing;
+    if (!this.dirty || !this.path) return;
+    const data = JSON.stringify({ version: 2, entries: Object.fromEntries(this.entriesMap) }, null, 1) + '\n';
+    this.dirty = false;
+    this.writing = writeFileAtomicAsync(this.path, data).then(() => {
       this.writes++;
-    } catch (e) {
-      this.lastError = `write ${this.path}: ${e instanceof Error ? e.message : String(e)}`;
-    }
+      this.lastError = null;
+    }).catch((e: unknown) => {
+      this.dirty = true;
+      this.lastError = `write learned.json: ${e instanceof Error ? e.message : String(e)}`;
+    });
+    await this.writing;
+    this.writing = null;
+    if (this.dirty) this.schedule();
   }
 
-  close(): void {
-    this.flush();
+  async close(): Promise<void> {
+    await this.flush();
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
   }
 
   private schedule(): void {
     if (this.timer || !this.path) return;
     this.timer = setTimeout(() => {
       this.timer = null;
-      this.flush();
-    }, this.o.debounceMs ?? 1000);
+      void this.flush();
+    }, this.o.debounceMs ?? 5000);
     this.timer.unref();
   }
 }
