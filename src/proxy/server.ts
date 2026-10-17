@@ -42,41 +42,6 @@ import { budgetModeOf, serverLimits, budgetQuantities } from './budget.js';
 
 export const KITZUR_VERSION = '0.1.0';
 
-/** Test-only fault injection (KITZUR_TEST_FAULTS=engine-throw:0.01): the engine throws on attempt 1. */
-export interface Faults {
-  engineThrow: number;
-  random?: () => number;
-}
-
-export class InjectedFault extends Error {
-  constructor() {
-    super('injected engine fault');
-    this.name = 'InjectedFault';
-  }
-}
-
-/**
- * Parses KITZUR_TEST_FAULTS (`engine-throw:<probability>[:<seed>]`); null when unset or malformed.
- * With a seed the faults are reproducible (mulberry32), else Math.random decides.
- */
-export function parseFaults(v: string | undefined): Faults | null {
-  if (!v) return null;
-  const m = /^engine-throw:(0(?:\.\d+)?|1(?:\.0+)?)(?::(\d+))?$/.exec(v.trim());
-  if (!m) return null;
-  const f: Faults = { engineThrow: Number(m[1]) };
-  if (m[2] !== undefined) {
-    let s = Number(m[2]) >>> 0;
-    f.random = () => {
-      s = (s + 0x6d2b79f5) >>> 0;
-      let t = s;
-      t = Math.imul(t ^ (t >>> 15), t | 1);
-      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-  }
-  return f;
-}
-
 export interface ProxyDeps {
   watchdog?: LoopWatchdog;
   engine: Engine;
@@ -89,7 +54,6 @@ export interface ProxyDeps {
   now?: () => Date;
   /** defaults to a client built from config.upstream */
   upstream?: Upstream;
-  faults?: Faults | null;
   /** error-level diagnostics (never content) */
   log?: (level: 'error' | 'warn' | 'info' | 'debug', msg: string) => void;
 }
@@ -132,7 +96,6 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   const classifier = new ErrorClassifier(cfg.errors);
   const status = new StatusTracker(cfg, KITZUR_VERSION, () => now().getTime());
   const endpoint = deps.remote && deps.counter.profile ? new EndpointCalibrator(deps.remote, deps.counter.profile) : null;
-  const faults = deps.faults === undefined ? parseFaults(process.env['KITZUR_TEST_FAULTS']) : deps.faults;
   const mode = budgetModeOf(cfg);
   for (const [k, e] of Object.entries(deps.state.entries())) deps.engine.setLearned(k, e);
   if (deps.state.discarded.length) status.warn('learned_discarded', `${deps.state.discarded.length} learned entries discarded (window or counter changed)`);
@@ -638,7 +601,6 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         deps.engine.setLearned(key, stored);
       },
       process: (r: ChatRequest, o: ProcessOptions): EngineResult => {
-        if (faults && o.attempt === 1 && (faults.random ?? Math.random)() < faults.engineThrow) throw new InjectedFault();
         deps.watchdog?.phase(requestId, 'planning');
         const result = deps.engine.process(r, o);
         if (firstStats) {

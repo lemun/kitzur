@@ -1,29 +1,29 @@
-// JSONL persistence for the plan store (DESIGN.md, store.persist): one append-only file per day,
-// `plans-YYYY-MM-DD.jsonl` in the given directory (the proxy passes stateDir/plans), each line
-// `{"key": <plan key>, "plan": <plan>}`. Files are read lazily on the first lookup; later lines win.
-// Corrupt lines and I/O errors are ignored: persistence only saves CPU, the fold recomputes any plan.
-// Used only when injected into MemoryPlanStore; the engine itself does no I/O.
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
+// Best-effort daily JSONL persistence. Lookups scan retained days newest first;
+// only the byte-bounded LRU index stays resident. Writes run asynchronously.
+import { readdirSync, readFileSync } from 'node:fs';
+import { appendFile, mkdir, readdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Plan } from '../types.js';
 import type { PlanPersistence } from './store.js';
 
 export interface FilePersistenceOptions {
-  /** directory of the JSONL files (created on the first append) */
   dir: string;
-  /** clock for the file name (default: now) */
+  maxBytes?: number;
+  /** Number of UTC calendar days to keep, including today. Default: 14. */
+  retentionDays?: number;
   now?: () => Date;
 }
 
 export interface FilePersistence extends PlanPersistence {
-  /** entries known after the lazy load (diagnostics) */
   entries(): number;
-  /** lines that failed to parse during the load (diagnostics) */
+  bytes(): number;
+  /** Invalid lines encountered by the most recent disk lookup. */
   corruptLines(): number;
+  /** Wait for queued writes and retention cleanup (shutdown/tests). */
+  flush(): Promise<void>;
 }
 
 const FILE_RE = /^plans-\d{4}-\d{2}-\d{2}\.jsonl$/;
-
 const isPlan = (x: unknown): x is Plan => {
   if (typeof x !== 'object' || x === null) return false;
   const p = x as Record<string, unknown>;
@@ -31,57 +31,97 @@ const isPlan = (x: unknown): x is Plan => {
     typeof p['rewrites'] === 'object' && typeof p['headRewrites'] === 'object';
 };
 
-/** The JSONL adapter. */
+/** The index and pending write queue each use at most maxBytes serialized bytes. */
 export function createFilePersistence(o: FilePersistenceOptions): FilePersistence {
-  let index: Map<string, Plan> | null = null;
-  let corrupt = 0;
+  const index = new Map<string, { plan: Plan; bytes: number }>();
+  const maxBytes = Math.max(0, o.maxBytes ?? 64 * 1024 * 1024);
+  const retentionDays = Math.max(1, o.retentionDays ?? 14);
   const now = o.now ?? (() => new Date());
-
-  const loadAll = (): Map<string, Plan> => {
-    if (index) return index;
-    index = new Map();
-    try {
-      if (!existsSync(o.dir)) return index;
-      for (const name of readdirSync(o.dir).filter((f) => FILE_RE.test(f)).sort()) {
-        let text: string;
-        try {
-          text = readFileSync(join(o.dir, name), 'utf8');
-        } catch {
-          continue;
-        }
-        for (const line of text.split('\n')) {
-          if (!line) continue;
-          try {
-            const rec = JSON.parse(line) as { key?: unknown; plan?: unknown };
-            if (typeof rec.key === 'string' && isPlan(rec.plan)) index.set(rec.key, rec.plan);
-            else corrupt++;
-          } catch {
-            corrupt++; // e.g. a torn last line after a crash
-          }
+  let bytes = 0;
+  let pendingBytes = 0;
+  let corrupt = 0;
+  let queue = Promise.resolve();
+  let cleanupDay = '';
+  const day = () => now().toISOString().slice(0, 10);
+  const cutoff = () => {
+    const d = new Date(`${day()}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - retentionDays + 1);
+    return d.toISOString().slice(0, 10);
+  };
+  const remember = (key: string, plan: Plan) => {
+    const old = index.get(key);
+    if (old) { bytes -= old.bytes; index.delete(key); }
+    const size = Buffer.byteLength(JSON.stringify({ key, plan }));
+    if (size > maxBytes) return;
+    index.set(key, { plan, bytes: size });
+    bytes += size;
+    while (bytes > maxBytes) {
+      const k = index.keys().next().value!;
+      bytes -= index.get(k)!.bytes;
+      index.delete(k);
+    }
+  };
+  const cleanup = () => {
+    if (cleanupDay === day()) return;
+    cleanupDay = day();
+    // Invalidate cached entries when the retention window advances.
+    index.clear();
+    bytes = 0;
+    const oldest = cutoff();
+    queue = queue.then(async () => {
+      for (const name of await readdir(o.dir)) {
+        if (FILE_RE.test(name) && name.slice(6, 16) < oldest) {
+          await unlink(join(o.dir, name)).catch(() => undefined);
         }
       }
-    } catch {
-      /* unreadable directory: behave as empty */
-    }
-    return index;
+    }).catch(() => undefined);
   };
-
   return {
     load(key) {
-      return loadAll().get(key);
+      cleanup();
+      const cached = index.get(key);
+      if (cached) {
+        index.delete(key);
+        index.set(key, cached);
+        return cached.plan;
+      }
+      corrupt = 0;
+      try {
+        const files = readdirSync(o.dir).filter((f) => FILE_RE.test(f) && f.slice(6, 16) >= cutoff()).sort().reverse();
+        for (const name of files) {
+          let text: string;
+          try { text = readFileSync(join(o.dir, name), 'utf8'); } catch { continue; }
+          let found: Plan | undefined;
+          // Later records within a day win; older days never overwrite a hit.
+          for (const line of text.split('\n')) {
+            if (!line) continue;
+            try {
+              const rec = JSON.parse(line) as { key?: unknown; plan?: unknown };
+              if (typeof rec.key !== 'string' || !isPlan(rec.plan)) { corrupt++; continue; }
+              if (rec.key === key) found = rec.plan;
+            } catch { corrupt++; }
+          }
+          if (found) { remember(key, found); return found; }
+        }
+      } catch { /* cache misses are safe on I/O errors */ }
+      return undefined;
     },
     append(key, plan) {
-      const d = now();
-      const day = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-      try {
-        if (!existsSync(o.dir)) mkdirSync(o.dir, { recursive: true });
-        appendFileSync(join(o.dir, `plans-${day}.jsonl`), JSON.stringify({ key, plan }) + '\n', { mode: 0o600 }); // summaries are user content
-      } catch {
-        /* persistence is best effort */
-      }
-      if (index) index.set(key, plan);
+      cleanup();
+      remember(key, plan);
+      const line = JSON.stringify({ key, plan }) + '\n';
+      const size = Buffer.byteLength(line);
+      if (pendingBytes + size > maxBytes) return; // drop cache writes under pressure
+      pendingBytes += size;
+      const name = `plans-${day()}.jsonl`;
+      queue = queue.then(async () => {
+        await mkdir(o.dir, { recursive: true, mode: 0o700 });
+        await appendFile(join(o.dir, name), line, { mode: 0o600 });
+      }).catch(() => undefined).finally(() => { pendingBytes -= size; });
     },
-    entries: () => loadAll().size,
+    entries: () => index.size,
+    bytes: () => bytes,
     corruptLines: () => corrupt,
+    flush: () => queue,
   };
 }

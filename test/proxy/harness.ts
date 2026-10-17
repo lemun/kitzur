@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_CONFIG, type Config } from '../../src/config/schema.js';
 import type { ChatRequest, Measure, TokenCounter } from '../../src/types.js';
-import { createProxyServer, type Faults, type ProxyServer } from '../../src/proxy/server.js';
+import { createProxyServer, type ProxyServer } from '../../src/proxy/server.js';
 import { StateStore } from '../../src/proxy/state.js';
 import { StatsWriter, type ProxyStatsRecord } from '../../src/proxy/stats.js';
 import type { RemoteTokenizer } from '../../src/tokenize/remote.js';
@@ -189,7 +189,6 @@ export interface FixtureOptions {
   config?: DeepPartial<Config>;
   counter?: TokenCounter & { profile?: TemplateProfile };
   remote?: RemoteTokenizer | null;
-  faults?: Faults | null;
   stateDir?: string;
 }
 
@@ -201,7 +200,7 @@ export async function startProxy(up: FakeUpstream | string, engine: FakeEngine, 
   const counter = o.counter ?? charCounter();
   const state = new StateStore({ dir: stateDir, configuredWindow: cfg.budget.window, counterId: counter.id, debounceMs: 20 });
   const stats = new StatsWriter(statsPath);
-  const proxy = createProxyServer(cfg, { engine, counter, state, stats, log: o.log, remote: o.remote ?? null, faults: o.faults ?? null });
+  const proxy = createProxyServer(cfg, { engine, counter, state, stats, log: o.log, remote: o.remote ?? null });
   const { port } = await proxy.listen();
   return {
     proxy, port, url: `http://127.0.0.1:${port}`, cfg, engine, state, stats, stateDir, statsPath, counter,

@@ -196,7 +196,7 @@ export interface Config {
     translateForClient: boolean;
   };
   cache: { prefixCaching: 'on' | 'off' | 'unknown' };
-  store: { persist: boolean; maxPlans: number; maxBytes: number };
+  store: { persist: boolean; maxPlans: number; maxBytes: number; retentionDays: number };
   stateDir: string | null;
   stats: { path: string | null };
   shadow: boolean;
@@ -301,7 +301,7 @@ export const DEFAULT_CONFIG: Config = {
     translateForClient: true,
   },
   cache: { prefixCaching: 'unknown' },
-  store: { persist: false, maxPlans: 4096, maxBytes: 64 * 1024 * 1024 },
+  store: { persist: false, retentionDays: 14, maxPlans: 4096, maxBytes: 64 * 1024 * 1024 },
   stateDir: null,
   stats: { path: null },
   shadow: false,

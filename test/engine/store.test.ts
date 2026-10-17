@@ -31,7 +31,7 @@ test('memory store: LRU order, entry cap, byte cap, never empty', () => {
   assert.ok(tiny.get('b'));
 });
 
-test('file persistence: JSONL per day, lazy load, later lines win, corrupt lines ignored', () => {
+test('file persistence: JSONL per day, lazy load, later lines win, corrupt lines ignored', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-plans-'));
   try {
     const now = () => new Date(Date.UTC(2026, 8, 28, 12));
@@ -40,6 +40,7 @@ test('file persistence: JSONL per day, lazy load, later lines win, corrupt lines
     s1.set('a', plan(1));
     s1.set('b', plan(2, 'S'));
     s1.set('b', plan(3, 'S2'));
+    await p1.flush();
     const files = readdirSync(join(dir, 'plans'));
     assert.deepEqual(files, ['plans-2026-09-28.jsonl']);
     const lines = readFileSync(join(dir, 'plans', files[0]!), 'utf8').trim().split('\n');
@@ -57,6 +58,34 @@ test('file persistence: JSONL per day, lazy load, later lines win, corrupt lines
     // a missing directory behaves as empty and never throws
     const p3 = createFilePersistence({ dir: join(dir, 'nope', 'deeper') });
     assert.equal(p3.load('x'), undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('persistence bounds its index and loads retained days on demand', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-plans-'));
+  try {
+    const now = () => new Date('2026-09-28T12:00:00Z');
+    for (const day of ['01', '27', '28']) {
+      appendFileSync(join(dir, `plans-2026-09-${day}.jsonl`), JSON.stringify({ key: day, plan: plan(Number(day)) }) + '\n');
+    }
+    const p = createFilePersistence({ dir, now, maxBytes: 400, retentionDays: 2 });
+    assert.equal(p.entries(), 0, 'diagnostics do not load files');
+    assert.deepEqual(p.load('28'), plan(28));
+    assert.equal(p.entries(), 1, 'older days are not loaded on a recent hit');
+    assert.deepEqual(p.load('27'), plan(27));
+    assert.ok(p.bytes() <= 400);
+    assert.equal(p.load('01'), undefined, 'expired plans cannot be reused');
+    await p.flush();
+    assert.deepEqual(readdirSync(dir), ['plans-2026-09-27.jsonl', 'plans-2026-09-28.jsonl']);
+    const tiny = createFilePersistence({ dir, now, maxBytes: 1 });
+    assert.deepEqual(tiny.load('28'), plan(28), 'oversized disk hits can be returned without caching');
+    assert.equal(tiny.entries(), 0);
+    p.append('new', plan(30));
+    assert.equal(readFileSync(join(dir, 'plans-2026-09-28.jsonl'), 'utf8').includes('new'), false, 'append is deferred');
+    await p.flush();
+    assert.ok(readFileSync(join(dir, 'plans-2026-09-28.jsonl'), 'utf8').includes('new'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

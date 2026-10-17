@@ -183,6 +183,7 @@ export const LEAF_SPECS: Readonly<Record<string, LeafSpec>> = Object.assign(Obje
   'cache.prefixCaching': en('on', 'off', 'unknown'),
 
   'store.persist': bool,
+  'store.retentionDays': int(1, 36500),
   'store.maxPlans': int(1),
   'store.maxBytes': int(1024),
 
