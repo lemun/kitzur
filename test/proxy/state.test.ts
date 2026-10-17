@@ -34,7 +34,8 @@ test('planning and sample writes coalesce off the request path', async () => {
   s.set('k', { ...s.entry('k'), window: 89_000 });
   assert.equal(existsSync(join(dir, 'learned.json')), false, 'set must not touch disk');
   s.set('k', { ...s.entry('k'), samples: 3 });
-  await sleep(100);
+  // the debounced write is async I/O: wait for it rather than a fixed time (a loaded runner can take >100 ms)
+  for (const t0 = Date.now(); s.writes === 0 && Date.now() - t0 < 3000;) await sleep(10);
   assert.equal(s.writes, 1);
   assert.equal(readLearnedState(join(dir, 'learned.json')).state.entries['k']?.samples, 3);
   await s.close();
