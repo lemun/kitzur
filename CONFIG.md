@@ -531,3 +531,28 @@ and the numeric fallback as `config.window`. Discovery does not change output
 reservations: set `budget.defaultMaxTokens` / `budget.planMaxTokens` appropriately
 for a small context. Explicit overflow limits can tighten a window by more than
 half; prompt-count validation still applies.
+
+### Detecting client compaction
+
+Run `kitzur doctor --client-config opencode.json` to check an OpenCode JSON/JSONC
+provider against Kitzur's listen address, SDK, model limits and trigger. Use
+`@ai-sdk/openai-compatible` for Chat Completions; `@ai-sdk/openai` uses
+`/responses`, which Kitzur forwards untouched. The check reserves
+`min(limit.output, 32000)` from `limit.input` (or `limit.context`) and warns
+when the usable context is at or below Kitzur's trigger plus output allowance.
+
+`/status` exposes `client_compactions`, `last_client_compaction` (previous
+forwarded prompt tokens and trigger), and `completion_tokens_p99`. A request
+whose final user message matches `client.compactionMarkers` counts as a client
+summary request. Prior summary markers carried in later conversation history
+do not count again. Previous prompt sizes use upstream usage when available,
+otherwise Kitzur's count, scoped by model and optional `X-Session-Id` header
+(`X-Sim-Session` is also supported). Without a session header, concurrent chats
+using the same model share the previous-size estimate.
+
+A warning such as `client compacted at 20000 < kitzur trigger 25000` means the
+client requested a summary before Kitzur's trigger. If upstream p99 completion
+usage exceeds the allowance, another warning suggests increasing
+`client.outputAllowanceTokens`; reasoning tokens can consume this allowance.
+Completion percentiles cover the latest 2048 observed usage samples and reset
+on restart.

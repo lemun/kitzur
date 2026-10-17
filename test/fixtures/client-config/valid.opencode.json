@@ -1,0 +1,19 @@
+// OpenCode provider fixture
+{
+  "provider": {
+    "local": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "http://localhost:8787/v1"
+      },
+      "models": {
+        "local-model": {
+          "limit": {
+            "context": 200000,
+            "output": 32000
+          }
+        }
+      }
+    }
+  }
+}

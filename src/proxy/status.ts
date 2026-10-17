@@ -1,3 +1,6 @@
+import { firstText } from '../engine/message.js';
+import type { ChatRequest } from '../types.js';
+import { computeBudget } from '../config/derived.js';
 import { isAutoWindow } from '../config/window.js';
 // GET /status and /kitzur/status (DESIGN.md "Routes"): version, uptime, config summary, the §3
 // budget quantities, counter mode and correction, learned entries with their tightenLog, counters by
@@ -60,6 +63,40 @@ export class StatusTracker {
     this.recent.push({ ...r, tokens: { ...r.tokens } });
     if (this.recent.length > 64) this.recent.shift();
     if (r.action === 'compact') this.lastCompaction = { at: new Date(this.now()).toISOString(), ...r.tokens };
+  }
+
+  private readonly forwarded = new Map<string, number>();
+  private readonly completions = new Ring(2048);
+  private clientCompactions = 0;
+  private lastClientCompaction: { previous_prompt_tokens: number | null; trigger: number } | null = null;
+
+  clientRequest(req: ChatRequest, session: string | undefined, trigger: number): string | null {
+    // Count a summary request once, not every later request carrying a prior summary.
+    const last = req.messages.at(-1);
+    if (!last || last.role !== 'user' || !this.cfg.client.compactionMarkers.includes(firstText(last).trim())) return null;
+    this.clientCompactions++;
+    const previous = this.forwarded.get(JSON.stringify([session ?? null, req.model ?? null])) ?? null;
+    this.lastClientCompaction = { previous_prompt_tokens: previous, trigger };
+    if (previous !== null && previous < trigger) {
+      const message = `client compacted at ${previous} < kitzur trigger ${trigger}`;
+      this.warn('client_compaction', message);
+      return message;
+    }
+    return null;
+  }
+
+  forwardedPrompt(model: string | undefined, session: string | undefined, tokens: number | null): void {
+    if (tokens === null || !Number.isFinite(tokens) || tokens < 0) return;
+    const key = JSON.stringify([session ?? null, model ?? null]);
+    if (this.forwarded.size >= 2048 && !this.forwarded.has(key)) this.forwarded.delete(this.forwarded.keys().next().value!);
+    this.forwarded.set(key, tokens);
+  }
+
+  completionUsage(tokens: number | undefined, allowance = computeBudget(this.cfg).allowance): void {
+    if (tokens === undefined || !Number.isFinite(tokens) || tokens < 0) return;
+    this.completions.push(tokens);
+    const p99 = this.completions.pct(0.99)!;
+    if (p99 > allowance) this.warn('output_allowance', `Upstream p99 completion_tokens ${p99} exceeds allowance ${allowance}; increase client.outputAllowanceTokens, especially for reasoning models.`);
   }
 
   readonly startedAt: number;
@@ -157,6 +194,9 @@ export class StatusTracker {
       budgets[k] = budgetQuantities(cfg, e);
     }
     return {
+      client_compactions: this.clientCompactions,
+      last_client_compaction: this.lastClientCompaction && { ...this.lastClientCompaction },
+      completion_tokens_p99: this.completions.pct(0.99),
       discovered_window: { ...this.discoveredWindows },
       last_compaction: this.lastCompaction && { ...this.lastCompaction },
       recent_requests: this.recent.map((r) => ({ ...r, tokens: { ...r.tokens } })),

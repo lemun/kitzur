@@ -147,3 +147,14 @@ test('probe classifies HTTP answers and transport failures without requiring a l
     finally { mock.restoreAll(); syncBuiltinESMExports(); }
   }
 });
+
+test('doctor reads an OpenCode JSONC file and handles unreadable files safely', async () => {
+  const cfg = defaultConfig();
+  cfg.listen.port = 8787;
+  const result = await doctor(cfg, { clientConfigPath: 'test/fixtures/client-config/npm.opencode.json' });
+  assert.ok(result.checks.some((c) => c.code === 'client.npm'));
+  const missing = await doctor(cfg, { clientConfigPath: 'SECRET_MISSING_FILE' });
+  assert.equal(missing.exitCode, 1);
+  assert.ok(missing.checks.some((c) => c.code === 'client.config'));
+  assert.doesNotMatch(renderDoctor(missing), /SECRET_MISSING_FILE/);
+});
