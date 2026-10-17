@@ -170,7 +170,8 @@ export function checkErrorRule(r: unknown, where: string): string[] {
 
 /** Any local process (or user, on a shared machine) can use the upstream.headers credentials without a client token. */
 export function listenTokenWarning(cfg: Config): string | null {
-  return Object.keys(cfg.upstream.headers).length > 0 && cfg.listen.token === null
+  const headers: unknown = cfg.upstream?.headers;
+  return typeof headers === 'object' && headers !== null && Object.keys(headers).length > 0 && cfg.listen?.token === null
     ? 'upstream.headers is set and listen.token is not: every local process can use those credentials through the proxy; set listen.token'
     : null;
 }

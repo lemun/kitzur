@@ -181,3 +181,11 @@ test('doctor warns when upstream.headers is set without listen.token, without pr
   assert.equal(closed.checks.find((c) => c.code === 'listen.token'), undefined);
   assert.doesNotMatch(renderDoctor(closed), /CLIENT_SECRET|UPSTREAM_SECRET/);
 });
+
+test('doctor still reports diagnostics when upstream.headers is not a record', async () => {
+  const cfg = defaultConfig();
+  (cfg.upstream as { headers: unknown }).headers = null;
+  const result = await doctor(cfg);
+  assert.equal(result.checks.find((c) => c.code === 'config.valid')?.status, 'error');
+  assert.equal(result.checks.find((c) => c.code === 'listen.token'), undefined);
+});
