@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { isAutoWindow } from './config/window.js';
 // The kitzur command line (DESIGN.md, §10):
 //   kitzur serve | replay | status | count | config {init,show,validate,import-eval} | state {show,reset} | bench | version
 // Arguments are parsed here without dependencies. Exit codes: 0 ok, 1 runtime failure, 2 usage or config
@@ -16,6 +15,7 @@ import { ConfigError, loadConfig, parseSetArg, type LoadedConfig, type SetOp } f
 import { validateConfig } from './config/validate.js';
 import { computeBudget, planMaxTokens, requestMaxTokens, serverFits } from './config/derived.js';
 import { DEFAULT_LEAVES, getPath, isPlainObject } from './config/spec.js';
+import { isAutoWindow } from './config/window.js';
 import { renderInitConfig } from './config/init.js';
 import { packageInfo, stateDirOf } from './config/paths.js';
 import { jsonErrorInfo, lineCol, parseJsonc } from './config/jsonc.js';
