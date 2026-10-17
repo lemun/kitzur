@@ -168,6 +168,14 @@ export function checkErrorRule(r: unknown, where: string): string[] {
   return out;
 }
 
+/** Any local process (or user, on a shared machine) can use the upstream.headers credentials without a client token. */
+export function listenTokenWarning(cfg: Config): string | null {
+  const headers: unknown = cfg.upstream?.headers;
+  return typeof headers === 'object' && headers !== null && Object.keys(headers).length > 0 && cfg.listen?.token === null
+    ? 'upstream.headers is set and listen.token is not: every local process can use those credentials through the proxy; set listen.token'
+    : null;
+}
+
 /** The value's source, for messages: " (file:/x.json)" or '' for defaults. */
 function src(prov: Provenance | undefined, path: string): string {
   const s = prov?.[path];
@@ -303,6 +311,8 @@ export function validateConfig(cfg: Config, opts: ValidateOptions = {}): Validat
   if (cfg.upstream.origin === null) warnings.push('upstream.origin is not set: serve refuses to start without it');
   const securityError = listenSecurityError(cfg);
   if (securityError) errors.push(securityError);
+  const tokenWarning = listenTokenWarning(cfg);
+  if (tokenWarning && !securityError) warnings.push(tokenWarning);
   if (!isLoopbackHost(cfg.listen.host)) {
     warnings.push(`listen.host ${cfg.listen.host} is not loopback: the proxy forwards credentials; keep it on 127.0.0.1 unless you know why`);
   }

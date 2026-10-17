@@ -3,7 +3,7 @@ import { createConnection } from 'node:net';
 import { request } from 'node:http';
 import { existsSync, statSync, accessSync, constants, readFileSync } from 'node:fs';
 import { dirname, parse } from 'node:path';
-import { validateConfig } from '../config/validate.js';
+import { listenTokenWarning, validateConfig } from '../config/validate.js';
 import { computeBudget } from '../config/derived.js';
 import type { Config } from '../config/schema.js';
 import { stateDirOf } from '../config/paths.js';
@@ -89,6 +89,7 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
   } catch {
     add('config.valid', 'error', 'Configuration could not be validated safely.', 'Run `kitzur config validate` and correct the reported settings.');
   }
+  if (listenTokenWarning(config)) add('listen.token', 'warn', 'upstream.headers is set without listen.token: every local process can use those credentials through the proxy.', 'Set listen.token and give it to the agent as its API key.');
 
   let b: ReturnType<typeof computeBudget> | null = null;
   try { b = computeBudget(config); } catch { /* malformed config is reported with fixed diagnostics */ }
