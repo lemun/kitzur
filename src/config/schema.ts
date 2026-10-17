@@ -12,6 +12,10 @@ export interface Config {
   listen: {
     host: string;
     port: number;
+    maxRequestBytes: number;
+    maxConcurrentRequests: number;
+    /** client Bearer token; null disables authentication */
+    token: string | null;
     /** accepted Host header names (port ignored); ['*'] disables the DNS-rebinding guard */
     allowedHosts: string[];
   };
@@ -204,7 +208,7 @@ export interface Config {
 
 /** Built-in defaults = the 100k/32k reference setup. */
 export const DEFAULT_CONFIG: Config = {
-  listen: { host: '127.0.0.1', port: 8270, allowedHosts: ['127.0.0.1', 'localhost', '[::1]', '::1'] },
+  listen: { host: '127.0.0.1', port: 8270, maxRequestBytes: 64 * 1024 * 1024, maxConcurrentRequests: 16, token: null, allowedHosts: ['127.0.0.1', 'localhost', '[::1]', '::1'] },
   upstream: {
     origin: null, timeoutMs: 900_000, idleTimeoutMs: 300_000, caFile: null, insecureTls: false,
     headers: {}, maxBodyBytes: null, keepAliveIdleMs: 4000,

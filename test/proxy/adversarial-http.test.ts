@@ -4,15 +4,25 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
+import http from 'node:http';
+import { Duplex } from 'node:stream';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createProxyServer } from '../../src/proxy/server.js';
+import { StateStore } from '../../src/proxy/state.js';
+import { StatsWriter } from '../../src/proxy/stats.js';
 import { FakeEngine, result } from './fake-engine.js';
 import {
-  DONE, chatBody, chunk, fakeUpstream, jsonRes, request, sseRes, startProxy, waitRecords,
+  DONE, charCounter, testConfig, chatBody, chunk, fakeUpstream, jsonRes, request, sseRes, startProxy, waitRecords,
   type FakeUpstream, type ProxyFixture,
 } from './harness.js';
 import { Upstream } from '../../src/proxy/upstream.js';
 import { SseParser } from '../../src/proxy/sse.js';
 import { hostAllowed } from '../../src/proxy/hostcheck.js';
 import { CLIENT_RETRY_RUNS, formatK } from '../../src/dialect/openai-chat.js';
+import { DEFAULT_CONFIG } from '../../src/config/schema.js';
+import { validateConfig } from '../../src/config/validate.js';
 import { refuseMessage } from '../../src/proxy/recovery.js';
 
 async function withProxy(up: FakeUpstream, engine: FakeEngine, fn: (f: ProxyFixture) => Promise<void>, opts: Parameters<typeof startProxy>[2] = {}): Promise<void> {
@@ -307,4 +317,159 @@ test('§9 keep-alive: a reused socket reset after the server already sent respon
     u.close();
     srv.close();
   }
+});
+
+// Request admission must not wait for the rest of a hostile upload.
+async function unfinishedUpload(port: number, wire: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(port, '127.0.0.1', () => socket.write(wire));
+    let reply = '';
+    socket.setTimeout(1500, () => socket.destroy(new Error('upload was not rejected promptly')));
+    socket.on('data', (d) => { reply += d.toString(); });
+    socket.on('close', () => resolve(reply));
+    socket.on('error', reject);
+  });
+}
+
+test('request limits reject oversized declared and chunked uploads before end', async () => {
+  const up = await fakeUpstream((_h, res) => jsonRes(res, 200, {}));
+  await withProxy(up, passthrough(), async (f) => {
+    Object.assign(f.cfg.listen, { maxRequestBytes: 8 });
+    for (const body of [
+      'Content-Length: 9\r\n\r\n',
+      'Transfer-Encoding: chunked\r\n\r\n9\r\n123456789\r\n',
+    ]) {
+      const reply = await unfinishedUpload(f.port, 'POST /upload HTTP/1.1\r\nHost: localhost\r\n' + body);
+      assert.match(reply, /HTTP\/1.1 413/);
+    }
+    assert.equal(up.hits.length, 0);
+    assert.equal((await request(f.port, { path: '/upload', body: '12345678' })).status, 200);
+  });
+});
+
+test('concurrency admission returns 503 with Retry-After and releases aborted uploads', { timeout: 5000 }, async () => {
+  const up = await fakeUpstream((_h, res) => jsonRes(res, 200, {}));
+  await withProxy(up, passthrough(), async (f) => {
+    Object.assign(f.cfg.listen, { maxConcurrentRequests: 1 });
+    const socket = net.connect(f.port, '127.0.0.1');
+    const released = new Promise<void>((resolve) => f.proxy.server.once('request', (req) => req.once('close', () => setImmediate(resolve))));
+    try {
+      await new Promise<void>((resolve) => socket.once('connect', resolve));
+      const admitted = new Promise<void>((resolve) => f.proxy.server.once('request', () => resolve()));
+      socket.write('POST /upload HTTP/1.1\r\nHost: localhost\r\nContent-Length: 100\r\n\r\nx');
+      await admitted;
+      const r = await request(f.port, { path: '/upload', body: '' });
+      assert.equal(r.status, 503);
+      assert.equal(r.headers['retry-after'], '1');
+    } finally { socket.destroy(); }
+    await released;
+    assert.equal((await request(f.port, { path: '/upload', body: '' })).status, 200);
+  });
+});
+
+test('credentialed non-loopback binds require a client token', () => {
+  const cfg = structuredClone(DEFAULT_CONFIG);
+  cfg.listen.host = '0.0.0.0';
+  cfg.upstream.headers = { Authorization: 'private-value' };
+  assert.match(validateConfig(cfg).errors.join(' '), /listen.token/);
+  Object.assign(cfg.listen, { token: 'client-secret' });
+  assert.deepEqual(validateConfig(cfg).errors, []);
+});
+
+
+// Exercise real request/response streams without binding a port (also works in restricted CI).
+test('offline admission: size, concurrency, read errors, aborts, and client authentication', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-admission-'));
+  const cfg = testConfig({ upstream: { origin: 'http://127.0.0.1:1' }, listen: { maxRequestBytes: 8, maxConcurrentRequests: 1 } });
+  const proxy = createProxyServer(cfg, {
+    engine: passthrough(), counter: charCounter(),
+    state: new StateStore({ dir, configuredWindow: cfg.budget.window, counterId: 'test' }),
+    stats: new StatsWriter(null),
+  });
+  const requests: http.IncomingMessage[] = [];
+  const inject = (headers: http.IncomingHttpHeaders = {}, path = '/upload') => {
+    const socket = new net.Socket();
+    const req = new http.IncomingMessage(socket);
+    req.method = 'POST';
+    req.url = path;
+    req.method = path === '/status' ? 'GET' : 'POST';
+    req.rawHeaders = Object.entries(headers).flatMap(([key, value]) => [key, String(value)]);
+    req.headers = { host: 'localhost', ...headers };
+    requests.push(req);
+    const res = new http.ServerResponse(req);
+    let wire = '';
+    const transport = new Duplex({
+      read() {},
+      write(chunk, _encoding, callback) { wire += chunk.toString(); callback(); },
+    });
+    res.assignSocket(transport as net.Socket);
+    proxy.server.emit('request', req, res);
+    return { req, res, wire: () => wire, transport };
+  };
+  const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
+  try {
+    const declared = inject({ 'content-length': '9' });
+    await tick();
+    assert.equal(declared.res.statusCode, 413);
+    assert.equal(declared.req.destroyed, true);
+    const chunked = inject();
+    chunked.req.emit('data', Buffer.alloc(8));
+    assert.equal(chunked.res.headersSent, false, 'exactly the limit is allowed');
+    chunked.req.emit('data', Buffer.alloc(1));
+    await tick();
+    assert.equal(chunked.res.statusCode, 413);
+    assert.equal(chunked.req.destroyed, true);
+    assert.equal(proxy.active(), 0);
+
+    const reading = inject();
+    const excess = inject();
+    assert.equal(excess.res.statusCode, 503);
+    assert.match(excess.wire(), /retry-after: 1/i);
+    reading.req.emit('error', Object.assign(new Error('client reset'), { code: 'ECONNRESET' }));
+    await tick();
+    assert.equal(reading.res.statusCode, 400);
+    assert.equal(proxy.active(), 0);
+    const broken = inject();
+    broken.req.emit('error', new Error('read failure'));
+    await tick();
+    assert.equal(broken.res.statusCode, 500);
+    const aborted = inject();
+    aborted.req.emit('aborted');
+    await tick();
+    assert.equal(aborted.res.destroyed, true);
+    assert.doesNotMatch(aborted.wire(), /413/);
+    assert.equal(proxy.active(), 0);
+
+    cfg.listen.token = 'client-secret';
+    for (const path of ['/upload', '/status']) {
+      const denied = inject({}, path);
+      await tick();
+      assert.equal(denied.res.statusCode, 401);
+    }
+    const accepted = inject({ authorization: 'Bearer client-secret' }, '/status');
+    await tick();
+    assert.equal(accepted.res.statusCode, 200);
+    assert.deepEqual(accepted.req.rawHeaders, [], 'client credential is consumed locally');
+  } finally {
+    for (const req of requests) req.emit('aborted');
+    await tick();
+    await proxy.close(0);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('request limit configuration uses positive safe integers and refuses unsafe startup', () => {
+  for (const key of ['maxRequestBytes', 'maxConcurrentRequests'] as const) {
+    for (const value of [0, -1, 1.5, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+      const cfg = structuredClone(DEFAULT_CONFIG);
+      cfg.listen[key] = value;
+      assert.match(validateConfig(cfg).errors.join(' '), new RegExp('listen.' + key));
+    }
+  }
+  const cfg = testConfig({ listen: { host: '0.0.0.0' }, upstream: { headers: { Authorization: 'secret' } } });
+  assert.throws(() => createProxyServer(cfg, {
+    engine: passthrough(), counter: charCounter(),
+    state: new StateStore({ dir: null, configuredWindow: cfg.budget.window, counterId: 'test' }),
+    stats: new StatsWriter(null),
+  }), /listen.token/);
 });

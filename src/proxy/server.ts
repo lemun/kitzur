@@ -17,6 +17,7 @@ import { isAutoWindow, setDiscoveredWindows } from '../config/window.js';
 // unchanged; usage and the tokenize endpoint still calibrate.
 import type { LoopWatchdog } from '../diagnostics/runtime.js';
 import http from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
 import type { Config } from '../config/schema.js';
@@ -108,7 +109,6 @@ export interface ProxyServer {
   probe(): Promise<ProbeResult>;
 }
 
-const MAX_REQUEST_BYTES = 256 * 1024 * 1024;
 const MAX_JSON_TAP = 4 * 1024 * 1024;
 const JSON_CT = 'application/json';
 
@@ -120,6 +120,10 @@ function sendJson(res: ServerResponse, status: number, body: Buffer | string, ex
 
 export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer {
   const cfg = config;
+  if (!['127.0.0.1', '::1', 'localhost'].includes(cfg.listen.host)
+      && Object.keys(cfg.upstream.headers).length > 0 && cfg.listen.token === null) {
+    throw new Error('listen.token is required when listen.host is not loopback and upstream.headers is set');
+  }
   const now = deps.now ?? (() => new Date());
   const log = deps.log ?? (() => undefined);
   if (deps.counter.mode === 'remote') throw new Error('the proxy needs a local counter (exact or estimate); remote is a calibration source only');
@@ -145,6 +149,10 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   };
 
   const server = http.createServer({ noDelay: true }, (req, res) => {
+    if (inflight >= cfg.listen.maxConcurrentRequests) {
+      rejectUpload(req, res, 503, 'too many concurrent requests', 'server_busy', { 'retry-after': '1' });
+      return;
+    }
     // in flight until the response is done *and* its stats/calibration ran (the drain waits for both)
     inflight++;
     const requestId = String(status.requests + 1);
@@ -186,6 +194,23 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       sendJson(res, 403, errorBody('kitzur: this host name is not served (listen.allowedHosts)', 'permission_error', 'host_not_allowed'));
       return;
     }
+    if (cfg.listen.token !== null) {
+      const expected = Buffer.from('Bearer ' + cfg.listen.token);
+      const supplied = Buffer.from(req.headers.authorization ?? '');
+      if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+        rejectUpload(req, res, 401, 'a valid client Bearer token is required', 'invalid_client_token', { 'www-authenticate': 'Bearer' });
+        return;
+      }
+      // The proxy token authenticates the client only; never forward it to the upstream.
+      for (let i = req.rawHeaders.length - 2; i >= 0; i -= 2) {
+        if (req.rawHeaders[i]!.toLowerCase() === 'authorization') req.rawHeaders.splice(i, 2);
+      }
+    }
+    const length = req.headers['content-length'];
+    if (length !== undefined && BigInt(length) > BigInt(cfg.listen.maxRequestBytes)) {
+      rejectUpload(req, res, 413, 'request body too large', 'request_too_large');
+      return;
+    }
     const url = req.url ?? '/';
     if (!url.startsWith('/')) {
       // absolute-form (`GET http://other.host/… HTTP/1.1`) would hand a client-chosen authority to the
@@ -200,29 +225,57 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       return;
     }
     deps.watchdog?.phase(requestId, 'reading_body');
-    const body = await readRequest(req);
-    if (body === null) {
-      if (!res.headersSent && !req.destroyed) sendJson(res, 413, errorBody('kitzur: request body too large', 'invalid_request_error', 'request_too_large'));
-      return;
-    }
+    const body = await readRequest(req, res);
+    if (body === null) return;
     const tBody = performance.now();
     if (isChatCompletionsPath(req.method ?? '', pathname)) await handleChat(req, res, body, pathname, tBody, requestId);
     else await passthrough(req, res, body);
   }
 
-  function readRequest(req: IncomingMessage): Promise<Buffer | null> {
+  function rejectUpload(req: IncomingMessage, res: ServerResponse, code: number, message: string, kind: string, headers: Record<string, string> = {}): void {
+    // Stop consuming immediately. Flush the error, then destroy the request/socket rather than
+    // draining an unbounded upload. Connection: close prevents reuse with unread body bytes.
+    req.pause();
+    res.once('finish', () => req.destroy());
+    sendJson(res, code, errorBody('kitzur: ' + message, code >= 500 ? 'api_error' : 'invalid_request_error', kind), { connection: 'close', ...headers });
+  }
+
+  function readRequest(req: IncomingMessage, res: ServerResponse): Promise<Buffer | null> {
     return new Promise((resolve) => {
       const chunks: Buffer[] = [];
       let size = 0;
-      let over = false;
-      req.on('data', (d: Buffer) => {
+      let settled = false;
+      const done = (body: Buffer | null): void => {
+        if (settled) return;
+        settled = true;
+        req.removeListener('data', onData);
+        req.removeListener('end', onEnd);
+        req.removeListener('aborted', onAborted);
+        chunks.length = 0;
+        resolve(body);
+      };
+      const onData = (d: Buffer): void => {
         size += d.length;
-        if (size > MAX_REQUEST_BYTES) over = true;
-        else chunks.push(d);
+        if (size > cfg.listen.maxRequestBytes) {
+          rejectUpload(req, res, 413, 'request body too large', 'request_too_large');
+          done(null);
+        } else chunks.push(d);
+      };
+      const onEnd = (): void => done(Buffer.concat(chunks, size));
+      const onAborted = (): void => {
+        // The peer has gone away; there is no response channel left.
+        res.destroy();
+        done(null);
+      };
+      req.on('data', onData);
+      req.once('end', onEnd);
+      req.once('aborted', onAborted);
+      req.on('error', (err: NodeJS.ErrnoException) => {
+        if (settled) return;
+        if (req.destroyed || res.destroyed) res.destroy();
+        else rejectUpload(req, res, err.code === 'ECONNRESET' ? 400 : 500, 'request body read failed', 'request_read_error');
+        done(null);
       });
-      req.on('end', () => resolve(over ? null : Buffer.concat(chunks)));
-      req.on('error', () => resolve(null));
-      req.on('aborted', () => resolve(null));
     });
   }
 

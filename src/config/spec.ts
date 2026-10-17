@@ -41,6 +41,9 @@ const MAX_MS = 24 * 3600 * 1000;
 export const LEAF_SPECS: Readonly<Record<string, LeafSpec>> = Object.assign(Object.create(null) as Record<string, LeafSpec>, {
   'listen.host': str,
   'listen.port': int(0, 65535),
+  'listen.maxRequestBytes': int(1, Number.MAX_SAFE_INTEGER),
+  'listen.maxConcurrentRequests': int(1, Number.MAX_SAFE_INTEGER),
+  'listen.token': { t: 'str', nullable: true, nonEmpty: true },
   'listen.allowedHosts': strs,
 
   'upstream.origin': { t: 'str', nullable: true, format: 'origin' },
