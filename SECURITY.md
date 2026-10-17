@@ -9,6 +9,10 @@ header. This file lists exactly what it does with that.
 - **Listens** on `127.0.0.1:8270` by default (`listen.host`). Binding another interface is a config change.
 - **Host check.** Requests whose `Host` header is not in `listen.allowedHosts` (`127.0.0.1`, `localhost`, `::1`)
   are rejected. This blocks DNS-rebinding attacks from a web page in your browser.
+- **Browser requests.** A request with an `Origin` header, or with `Sec-Fetch-Site: cross-site`/`same-site`, gets 403
+  before any upstream call unless its origin is in `listen.allowedOrigins` (empty by default). `OPTIONS` is answered
+  locally with 403 and never forwarded, and chat requests need `Content-Type: application/json` (415 otherwise).
+  This hardens against browser cross-origin requests (CORS "simple" POSTs need no preflight).
 - **Talks to exactly one upstream**: `upstream.origin`. The client's request path is appended, but the host never
   comes from the request.
   - Optionally it also calls the gateway's tokenize endpoint (`tokenizer.endpoint`) on that same origin.

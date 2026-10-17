@@ -14,6 +14,8 @@ export interface Config {
     port: number;
     /** accepted Host header names (port ignored); ['*'] disables the DNS-rebinding guard */
     allowedHosts: string[];
+    /** browser origins (scheme://host[:port]) that may call the proxy; a request with any other Origin is refused */
+    allowedOrigins: string[];
   };
   upstream: {
     /** scheme://host[:port] of the gateway; the client's request path is appended unchanged */
@@ -204,7 +206,7 @@ export interface Config {
 
 /** Built-in defaults = the 100k/32k reference setup. */
 export const DEFAULT_CONFIG: Config = {
-  listen: { host: '127.0.0.1', port: 8270, allowedHosts: ['127.0.0.1', 'localhost', '[::1]', '::1'] },
+  listen: { host: '127.0.0.1', port: 8270, allowedHosts: ['127.0.0.1', 'localhost', '[::1]', '::1'], allowedOrigins: [] },
   upstream: {
     origin: null, timeoutMs: 900_000, idleTimeoutMs: 300_000, caFile: null, insecureTls: false,
     headers: {}, maxBodyBytes: null, keepAliveIdleMs: 4000,

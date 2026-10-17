@@ -40,6 +40,22 @@ import { budgetModeOf, serverLimits, budgetQuantities } from './budget.js';
 
 export const KITZUR_VERSION = '0.1.0';
 
+/**
+ * true when a request may be served despite browser context: no Origin header and no cross-site or
+ * same-site Sec-Fetch-Site, or an Origin listed in listen.allowedOrigins (compared case-insensitively).
+ */
+export function originAllowed(origin: string | undefined, fetchSite: string | string[] | undefined, allowed: readonly string[]): boolean {
+  const listed = origin !== undefined && allowed.some((a) => a.trim().toLowerCase() === origin.trim().toLowerCase());
+  if (origin !== undefined && !listed) return false;
+  const site = (Array.isArray(fetchSite) ? fetchSite.join(',') : fetchSite ?? '').toLowerCase();
+  return listed || !/\b(?:cross-site|same-site)\b/.test(site);
+}
+
+/** true for application/json, with or without parameters (charset=utf-8). */
+export function isJsonContentType(ct: string | undefined): boolean {
+  return ct !== undefined && ct.split(';')[0]!.trim().toLowerCase() === 'application/json';
+}
+
 /** Test-only fault injection (KITZUR_TEST_FAULTS=engine-throw:0.01): the engine throws on attempt 1. */
 export interface Faults {
   engineThrow: number;
@@ -186,6 +202,17 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       sendJson(res, 403, errorBody('kitzur: this host name is not served (listen.allowedHosts)', 'permission_error', 'host_not_allowed'));
       return;
     }
+    if (!originAllowed(req.headers.origin, req.headers['sec-fetch-site'], cfg.listen.allowedOrigins)) {
+      // a web page in a browser: CLI agents send no Origin. A CORS "simple" POST needs no preflight, so the
+      // check runs before any upstream call (which would carry Authorization and upstream.headers)
+      sendJson(res, 403, errorBody('kitzur: browser cross-origin requests are not served (listen.allowedOrigins)', 'permission_error', 'origin_not_allowed'));
+      return;
+    }
+    if (req.method === 'OPTIONS') {
+      // CORS preflight: answered here, never forwarded with the injected upstream headers
+      sendJson(res, 403, errorBody('kitzur: OPTIONS is not served', 'permission_error', 'method_not_allowed'));
+      return;
+    }
     const url = req.url ?? '/';
     if (!url.startsWith('/')) {
       // absolute-form (`GET http://other.host/… HTTP/1.1`) would hand a client-chosen authority to the
@@ -197,6 +224,10 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     const pathname = q < 0 ? url : url.slice(0, q);
     if (req.method === 'GET' && (pathname === '/status' || pathname === '/kitzur/status')) {
       sendJson(res, 200, JSON.stringify(snapshot(), null, 1));
+      return;
+    }
+    if (isChatCompletionsPath(req.method ?? '', pathname) && !isJsonContentType(req.headers['content-type'])) {
+      sendJson(res, 415, errorBody('kitzur: chat requests must have Content-Type application/json', 'invalid_request_error', 'unsupported_media_type'));
       return;
     }
     deps.watchdog?.phase(requestId, 'reading_body');

@@ -237,6 +237,40 @@ test('host check: only a port may follow the name (userinfo-like and junk suffix
   for (const h of ['localhost:8270', '[::1]:8270', '127.0.0.1', '::1']) assert.equal(hostAllowed(h, allowed), true, h);
 });
 
+test('browser cross-origin requests: Origin, cross-site Sec-Fetch-Site and OPTIONS get 403 before any upstream call; text/plain chat gets 415', { timeout: 30_000 }, async () => {
+  const up = await fakeUpstream((_h, res) => jsonRes(res, 200, { choices: [] }));
+  await withProxy(up, passthrough(), async (f) => {
+    const evil = { origin: 'https://evil.example' };
+    assert.equal((await request(f.port, { headers: { ...evil, 'content-type': 'text/plain' }, body: chatBody('hi') })).status, 403);
+    assert.equal((await request(f.port, { headers: evil, body: chatBody('hi') })).status, 403);
+    assert.equal((await request(f.port, { method: 'GET', path: '/v1/models', headers: { origin: 'null' } })).status, 403);
+    assert.equal((await request(f.port, { method: 'GET', path: '/status', headers: evil })).status, 403);
+    assert.equal((await request(f.port, { headers: { 'sec-fetch-site': 'cross-site' }, body: chatBody('hi') })).status, 403);
+    assert.equal((await request(f.port, { headers: { 'sec-fetch-site': 'same-site' }, body: chatBody('hi') })).status, 403);
+    assert.equal((await request(f.port, { method: 'OPTIONS', headers: { ...evil, 'access-control-request-method': 'POST' } })).status, 403);
+    assert.equal((await request(f.port, { method: 'OPTIONS', path: '/v1/models' })).status, 403);
+    const plain = await request(f.port, { headers: { 'content-type': 'text/plain' }, body: chatBody('hi') });
+    assert.equal(plain.status, 415);
+    assert.match(plain.text(), /unsupported_media_type/);
+    assert.equal(up.hits.length, 0, 'nothing reached the upstream');
+    // CLI clients send no Origin: unchanged
+    assert.equal((await request(f.port, { body: chatBody('hi') })).status, 200);
+    assert.equal((await request(f.port, { headers: { 'content-type': 'application/json; charset=utf-8', 'sec-fetch-site': 'none' }, body: chatBody('hi') })).status, 200);
+    assert.equal((await request(f.port, { method: 'GET', path: '/v1/models' })).status, 200);
+    assert.equal(up.hits.length, 3);
+  });
+});
+
+test('browser cross-origin requests: an origin in listen.allowedOrigins is served', { timeout: 30_000 }, async () => {
+  const up = await fakeUpstream((_h, res) => jsonRes(res, 200, { choices: [] }));
+  await withProxy(up, passthrough(), async (f) => {
+    const ok = { origin: 'http://localhost:3000', 'sec-fetch-site': 'same-site' };
+    assert.equal((await request(f.port, { headers: ok, body: chatBody('hi') })).status, 200);
+    assert.equal((await request(f.port, { headers: { origin: 'http://localhost:3001' }, body: chatBody('hi') })).status, 403);
+    assert.equal(up.hits.length, 1);
+  }, { config: { listen: { allowedOrigins: ['http://localhost:3000'] } } });
+});
+
 test('first-event hold: a server streaming only comments ends the hold after HOLD_MAX bytes (bounded memory), bytes unchanged', { timeout: 30_000 }, async () => {
   const comments = Array.from({ length: 40 }, (_, i) => `: ${'p'.repeat(60_000)} ${i}\n\n`);
   const up = await fakeUpstream(async (_h, res) => {

@@ -42,6 +42,7 @@ export const LEAF_SPECS: Readonly<Record<string, LeafSpec>> = Object.assign(Obje
   'listen.host': str,
   'listen.port': int(0, 65535),
   'listen.allowedHosts': strs,
+  'listen.allowedOrigins': strs,
 
   'upstream.origin': { t: 'str', nullable: true, format: 'origin' },
   'upstream.timeoutMs': int(1, MAX_MS),
