@@ -1,4 +1,3 @@
-import { modelWindow } from './window.js';
 // Budget quantities of DESIGN.md, computed from the config (plus the request's T_req, the learned
 // entry and, when known, the head size). Pure, no I/O.
 //
@@ -7,6 +6,7 @@ import { modelWindow } from './window.js';
 // and test/config/derived.test.ts pins the §3 preset table so a drift is caught.
 import type { Budget, ChatRequest, LearnedEntry } from '../types.js';
 import type { BudgetMode, Config } from './schema.js';
+import { modelWindow } from './window.js';
 
 /** `floor(x · fraction)` as DESIGN §3 defines it: with a 1e-9 epsilon (41,000 · 0.35 = 14,349.999… in IEEE). */
 export function floorFrac(x: number, fraction: number): number {

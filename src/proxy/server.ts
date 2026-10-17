@@ -1,4 +1,3 @@
-import { isAutoWindow, setDiscoveredWindows } from '../config/window.js';
 // The HTTP proxy (DESIGN.md, §8-§10). Routes:
 //   POST …/chat/completions (any prefix)  engine + recovery ladder (recovery.ts), streamed relay
 //   GET /status, GET /kitzur/status      JSON status (status.ts)
@@ -22,6 +21,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
 import { listenSecurityError } from '../config/listen.js';
 import type { Config } from '../config/schema.js';
+import { isAutoWindow, setDiscoveredWindows } from '../config/window.js';
 import type { ChatRequest, Engine, EngineResult, LearnedEntry, ProcessOptions, TokenCounter } from '../types.js';
 import type { RemoteTokenizer } from '../tokenize/remote.js';
 import type { TemplateProfile } from '../tokenize/template.js';
@@ -155,6 +155,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   if (deps.state.lastError) status.warn('state', deps.state.lastError);
 
   let discoveredWindows: Record<string, number> = {};
+  // models already warned about with window_auto_fallback: warn once per model, not per request
+  const fallbackWarned = new Set<string>();
   let inflight = 0;
   let concurrencyRejected = 0;
   let closing = false;
@@ -430,7 +432,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       if (isAutoWindow(cfg) && window !== undefined) entry.window = entry.window === null ? window : Math.min(entry.window, window);
       return entry;
     };
-    if (isAutoWindow(cfg) && !Object.hasOwn(discoveredWindows, creq.model ?? '')) {
+    if (isAutoWindow(cfg) && !Object.hasOwn(discoveredWindows, creq.model ?? '') && !fallbackWarned.has(creq.model ?? '')) {
+      fallbackWarned.add(creq.model ?? '');
       const message = `No context window discovered for model ${JSON.stringify(creq.model ?? '')}; using fallback ${cfg.budget.window}.`;
       status.warn('window_auto_fallback', message);
       log('warn', message);
