@@ -36,6 +36,7 @@ export interface Config {
     budgetMode: BudgetMode | null;
   };
   budget: {
+    /** Resolved numeric window. The loader accepts "auto" and retains that mode at runtime. */
     window: number;
     /** whether the server checks prompt + max_tokens (vLLM) or the prompt alone; null = from server.budgetMode/type (§3 precedence) */
     limitCountsMaxTokens: boolean | null;

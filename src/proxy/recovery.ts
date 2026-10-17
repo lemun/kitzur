@@ -98,7 +98,7 @@ export function applyTighten(e: LearnedEntry, rejectedRaw: number, cfg: Config, 
  * apply at once (no hysteresis).
  */
 export function learnFromOverflow(e: LearnedEntry, c: Classification, rejectedRaw: number, cfg: Config, mode: CounterKind, now: Date): LearnResult {
-  const v = validateNumbers(c, { configuredWindow: cfg.budget.window, rejectedRaw });
+  const v = validateNumbers(c, { configuredWindow: e.window ?? cfg.budget.window, rejectedRaw });
   let next = cloneEntry(e);
   let changed = false;
   const notes: string[] = [];

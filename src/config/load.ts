@@ -8,6 +8,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, resolve } from 'node:path';
+import { enableAutoWindow } from './window.js';
 import { DEFAULT_CONFIG, type Config } from './schema.js';
 import { parseJsonc } from './jsonc.js';
 import { loadPreset, presetsDir } from './presets.js';
@@ -130,6 +131,7 @@ const FALSE = new Set(['false', '0', 'no', 'off']);
  */
 export function parseRawValue(spec: LeafSpec, raw: string): unknown {
   const s = raw.trim();
+  if (spec.t === 'int' && spec.auto && ['auto', '"auto"'].includes(s)) return 'auto';
   const nullable = 'nullable' in spec && spec.nullable === true;
   if (nullable && s === 'null') return null;
   const json = (): unknown => {
@@ -295,6 +297,8 @@ export function loadConfig(opts: LoadOptions = {}): LoadedConfig {
     }
   }
 
+  const fallbackWindow = getPath(cfg, 'budget.window');
+
   // ---- file
   if (fileLayer) {
     applyLayer(cfg, prov, fileLayer, fileSource, fileBase, issues);
@@ -346,5 +350,6 @@ export function loadConfig(opts: LoadOptions = {}): LoadedConfig {
   }
 
   if (issues.length) throw new ConfigError(issues);
+  if (getPath(cfg, 'budget.window') === 'auto') enableAutoWindow(cfg as unknown as Config, typeof fallbackWindow === 'number' ? fallbackWindow : DEFAULT_CONFIG.budget.window);
   return { config: cfg as unknown as Config, provenance: prov, preset: presetName, configPath, layers, warnings };
 }

@@ -88,6 +88,13 @@ test('buildApp: the engine gets a local counter; the tokenize endpoint only reac
   assert.ok(logs.includes('kitzur: warn: hello\n'));
   assert.deepEqual(await app.listen(), { host: '127.0.0.1', port: 1 });
   assert.deepEqual(await app.probe(), { ok: true }, 'no probe on the server: nothing to check');
+  let recordedDiscovery = false;
+  Object.assign(app.server, {
+    upstream: { probe: async () => { throw new Error('startup must use the proxy probe'); } },
+    probe: async () => { recordedDiscovery = true; return { ok: true, status: 200 }; },
+  });
+  assert.deepEqual(await app.probe(), { ok: true, status: 200 });
+  assert.equal(recordedDiscovery, true, 'startup must populate proxy discovery and status');
   await app.close();
 });
 

@@ -1,3 +1,4 @@
+import { isAutoWindow, setDiscoveredWindows } from '../config/window.js';
 // The HTTP proxy (DESIGN.md, §8-§10). Routes:
 //   POST …/chat/completions (any prefix)  engine + recovery ladder (recovery.ts), streamed relay
 //   GET /status, GET /kitzur/status      JSON status (status.ts)
@@ -134,6 +135,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   if (deps.state.discarded.length) status.warn('learned_discarded', `${deps.state.discarded.length} learned entries discarded (window or counter changed)`);
   if (deps.state.lastError) status.warn('state', deps.state.lastError);
 
+  let discoveredWindows: Record<string, number> = {};
   let inflight = 0;
   let closing = false;
   const sockets = new Set<Socket>();
@@ -334,7 +336,19 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     const creq = parsed.value.req;
     const key = learnedKey(origin, creq.model);
     visible.model = creq.model ?? null;
-    quantities = budgetQuantities(cfg, deps.state.entry(key));
+    const learnedForModel = (): LearnedEntry => {
+      const entry = deps.state.entry(key);
+      const model = creq.model ?? '';
+      const window = Object.hasOwn(discoveredWindows, model) ? discoveredWindows[model] : undefined;
+      if (isAutoWindow(cfg) && window !== undefined) entry.window = entry.window === null ? window : Math.min(entry.window, window);
+      return entry;
+    };
+    if (isAutoWindow(cfg) && !Object.hasOwn(discoveredWindows, creq.model ?? '')) {
+      const message = `No context window discovered for model ${JSON.stringify(creq.model ?? '')}; using fallback ${cfg.budget.window}.`;
+      status.warn('window_auto_fallback', message);
+      log('warn', message);
+    }
+    quantities = budgetQuantities(cfg, learnedForModel());
     visible.tokens.trigger = quantities.trigger;
     setVisibleHeaders();
 
@@ -551,11 +565,18 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         if (r === creq && firstStats) visible.tokens.in = n;
         return n;
       },
-      learned: () => deps.state.entry(key),
+      learned: learnedForModel,
       saveLearned: (e: LearnedEntry) => {
         deps.watchdog?.phase(requestId, 'learning');
-        deps.state.set(key, e); // immediate memory update; async coalesced checkpoint
-        deps.engine.setLearned(key, e);
+        // Discovery is runtime metadata, not an overflow learned from this request. Keep it
+        // out of persisted entries so a restart can discover a larger active context.
+        const model = creq.model ?? '';
+        const served = Object.hasOwn(discoveredWindows, model) ? discoveredWindows[model] : undefined;
+        const stored = isAutoWindow(cfg) && e.window === served
+          ? { ...e, window: deps.state.entry(key).window }
+          : e;
+        deps.state.set(key, stored); // immediate memory update; async coalesced checkpoint
+        deps.engine.setLearned(key, stored);
       },
       process: (r: ChatRequest, o: ProcessOptions): EngineResult => {
         if (faults && o.attempt === 1 && (faults.random ?? Math.random)() < faults.engineThrow) throw new InjectedFault();
@@ -786,6 +807,21 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     snapshot,
     async probe() {
       const p = await upstream.probe();
+      discoveredWindows = p.discovered_window ?? {};
+      setDiscoveredWindows(cfg, discoveredWindows);
+      status.setDiscoveredWindows(discoveredWindows);
+      for (const [model, window] of Object.entries(discoveredWindows)) {
+        if (window !== cfg.budget.window) {
+          const message = `Model ${JSON.stringify(model)} reports context window ${window}; budget.window is ${cfg.budget.window}${isAutoWindow(cfg) ? ' (auto fallback); using the discovered window' : '; set budget.window=auto to use the discovered window'}.`;
+          status.warn(`window_mismatch:${model}`, message);
+          log('warn', message);
+        }
+      }
+      if (isAutoWindow(cfg) && !Object.keys(discoveredWindows).length) {
+        const message = `No upstream context window discovered; budget.window=auto uses fallback ${cfg.budget.window}.`;
+        status.warn('window_auto_fallback', message);
+        log('warn', message);
+      }
       status.setProbe({ ...p, at: now().toISOString() });
       if (!p.ok) status.warn('upstream_probe', p.tlsError ? `TLS verification failed: ${p.tlsError}` : `upstream probe failed: ${p.error ?? p.status}`);
       return p;

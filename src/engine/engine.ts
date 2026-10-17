@@ -144,7 +144,7 @@ export class LeanEngine implements Engine {
     const given = opts?.learned;
     const E = given && learnedValid(given, cfg, this.counter.id) ? given : this.learned(learnedKey(cfg, req));
     const tReq = requestedMaxTokens(req, cfg);
-    const bud = computeBudget(cfg, E, opts?.extraTighten ?? 0, tReq);
+    const bud = computeBudget(cfg, E, opts?.extraTighten ?? 0, tReq, req.model);
     const msgs = req.messages;
     this.lastTrace = null;
 

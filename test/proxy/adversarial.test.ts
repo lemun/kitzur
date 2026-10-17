@@ -337,6 +337,27 @@ test('host check: case, ports and IPv6 forms pass; look-alike names do not', asy
 
 // ---------------------------------------------------------------- HTTP-level ladder fuzz (real server, fake upstream)
 
+test('vLLM fuzz fixture fits initially but its required head exceeds the learned limit', async () => {
+  const { shrinkingEngine } = await import('./fake-engine.js');
+  const { bodyTokens, charCounter } = await import('./harness.js');
+  const { ErrorClassifier } = await import('../../src/proxy/errors.js');
+  const { learnFromOverflow } = await import('../../src/proxy/recovery.js');
+  const { defaultLearnedEntry } = await import('../../src/engine/learned.js');
+  const cfg = testConfig({ budget: { window: 6000, defaultMaxTokens: 500, planMaxTokens: 500 } });
+  const counter = charCounter();
+  const engine = shrinkingEngine(cfg, counter);
+  const req = { model: 'm1', messages: [{ role: 'system', content: 's'.repeat(6000) }, { role: 'user', content: 'goal' }], max_tokens: 500 };
+  const initial = engine.process(req, { attempt: 1 });
+  assert.equal(initial.action, 'passthrough');
+  const prompt = bodyTokens(req);
+  const classification = new ErrorClassifier(cfg.errors).classify({ status: 400, inStream: false, body: JSON.stringify({
+    object: 'error', message: `This model's maximum context length is 1000 tokens. However, you requested ${prompt + 500} tokens (${prompt} in the messages, 500 in the completion).`, code: 400,
+  }) });
+  const learned = learnFromOverflow(defaultLearnedEntry(cfg, counter.id), classification, prompt, cfg, 'estimate', new Date());
+  assert.equal(learned.entry.window, 1000);
+  assert.equal(engine.process(req, { attempt: 2, learned: learned.entry }).action, 'impossible');
+});
+
 test('HTTP fuzz: client-visible invariants of the ladder over random server styles, stream timings and configs', async () => {
   const { shrinkingEngine } = await import('./fake-engine.js');
   const { bodyTokens, charCounter, usageChunk } = await import('./harness.js');
@@ -361,7 +382,10 @@ test('HTTP fuzz: client-visible invariants of the ladder over random server styl
     const cfgOver = { budget: { window, defaultMaxTokens: 500, planMaxTokens: 500 }, errors: { maxRetries }, stream: { holdFirstEvent: hold, firstEventTimeoutMs: 60, injectIncludeUsage: inject } };
     const cfg = testConfig(cfgOver);
     const counter = charCounter();
-    const hidden = Math.floor(window * (0.4 + rnd() * 0.5));
+    const sampledHidden = Math.floor(window * (0.4 + rnd() * 0.5));
+    // Keep one irreducible overflow: learning smaller limits can recover every random vLLM case.
+    const irreducible = trial === 0;
+    const hidden = irreducible ? 1000 : sampledHidden;
     const byteLimit = 4000 + Math.floor(rnd() * 20_000);
     const successes = new Set<number>();
     const successBody = new Map<number, string>();
@@ -402,7 +426,7 @@ test('HTTP fuzz: client-visible invariants of the ladder over random server styl
       successBody.set(hit.n, b);
       return jsonRes(res, 200, b);
     });
-    const hist: ChatMessageLike[] = [{ role: 'system', content: 's'.repeat(40) }, { role: 'user', content: 'goal' }];
+    const hist: ChatMessageLike[] = [{ role: 'system', content: 's'.repeat(irreducible ? 6000 : 40) }, { role: 'user', content: 'goal' }];
     const turns = 3 + Math.floor(rnd() * 8);
     for (let i = 0; i < turns; i++) hist.push({ role: 'assistant', content: 'a'.repeat(200 + Math.floor(rnd() * 3000)) }, { role: 'user', content: 'u'.repeat(50 + Math.floor(rnd() * 3000)) });
     const clientUsage = stream && rnd() < 0.3;
@@ -413,6 +437,11 @@ test('HTTP fuzz: client-visible invariants of the ladder over random server styl
     try {
       const r = await request(f.port, { body: raw });
       const tag = `trial ${trial} style ${style} retries ${maxRetries} hold ${hold} inject ${inject} clientUsage ${clientUsage} stream ${stream} hits ${up.hits.length} status ${r.status}`;
+      if (irreducible) {
+        assert.ok(up.hits.length > 0, `${tag}: overflow must reach the upstream`);
+        assert.equal(r.status, 400, `${tag}: required head cannot fit the learned window`);
+        assert.equal(r.json().error.code, 'context_length_exceeded', tag);
+      }
       // upstream side: attempt count, sizes, original bytes
       assert.ok(up.hits.length <= maxRetries + 2, `${tag}: too many upstream calls`);
       const size = (h: { json: any }) => ({ raw: bodyTokens(h.json), bytes: requestBytes(h.json) });
