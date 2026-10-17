@@ -130,10 +130,20 @@ test('probe classifies HTTP answers and transport failures without requiring a l
     });
     let respond: (res: EventEmitter) => void;
     mock.method(net, 'createConnection', () => { process.nextTick(() => socket.emit('connect')); return socket; });
-    mock.method(http, 'request', (_options: unknown, callback: typeof respond) => { respond = callback; return req; });
+    const authorizations: unknown[] = [];
+    mock.method(http, 'request', (options: { headers: { authorization?: string } }, callback: typeof respond) => {
+      authorizations.push(options.headers.authorization);
+      respond = callback; return req;
+    });
     syncBuiltinESMExports();
     try {
       assert.equal(await probeInstance('127.0.0.1', 1234), expected, String(body || code));
+      if (expected === 'responsive') {
+        const cfg = defaultConfig(); cfg.listen.port = 1234; cfg.listen.token = 'CLIENT_SECRET';
+        const result = await doctor(cfg);
+        assert.equal(result.checks.find((c) => c.code === 'instance.responsive')?.status, 'ok');
+        assert.deepEqual(authorizations, [undefined, 'Bearer CLIENT_SECRET']);
+      }
       if (expected === 'other') {
         const cfg = defaultConfig(); cfg.listen.port = 1234;
         const result = await doctor(cfg);

@@ -4,6 +4,7 @@
 // output, a window that does not match its preset). Pure; file checks are opt-in (`checkFiles`).
 import { existsSync, statSync } from 'node:fs';
 import type { ErrorRule } from '../types.js';
+import { isLoopbackHost, listenSecurityError } from './listen.js';
 import type { Config } from './schema.js';
 import { budgetModeConflict, clampRange, computeBudget, planMaxTokens, snapshotRoom } from './derived.js';
 import { PRESET_TABLE } from './presets.js';
@@ -44,7 +45,7 @@ export function globToRegExp(glob: string): RegExp {
 function checkLeaf(path: string, spec: LeafSpec, v: unknown): string | null {
   if (path === 'budget.window' && v === 'auto') return null;
   // header values are credentials: never echo them
-  const bad = (): string => `${path}: expected ${describeSpec(spec)}, got ${spec.t === 'headers' ? typeName(v) : JSON.stringify(v)}`;
+  const bad = (): string => `${path}: expected ${describeSpec(spec)}, got ${(spec.t === 'headers' || path === 'listen.token') ? typeName(v) : JSON.stringify(v)}`;
   if (v === null) return 'nullable' in spec && spec.nullable ? null : bad();
   switch (spec.t) {
     case 'int':
@@ -300,7 +301,9 @@ export function validateConfig(cfg: Config, opts: ValidateOptions = {}): Validat
 
   // ---- operational warnings
   if (cfg.upstream.origin === null) warnings.push('upstream.origin is not set: serve refuses to start without it');
-  if (!['127.0.0.1', '::1', 'localhost'].includes(cfg.listen.host)) {
+  const securityError = listenSecurityError(cfg);
+  if (securityError) errors.push(securityError);
+  if (!isLoopbackHost(cfg.listen.host)) {
     warnings.push(`listen.host ${cfg.listen.host} is not loopback: the proxy forwards credentials; keep it on 127.0.0.1 unless you know why`);
   }
   if (cfg.listen.allowedHosts.includes('*')) warnings.push("listen.allowedHosts ['*'] disables the DNS-rebinding guard");

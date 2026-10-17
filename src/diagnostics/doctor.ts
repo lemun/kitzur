@@ -23,7 +23,7 @@ function detachedCommand(configPath?: string): string {
 }
 
 /** Distinguish an absent instance from one accepting TCP but unable to serve HTTP. */
-export async function probeInstance(host: string, port: number, timeoutMs = 3000): Promise<'absent' | 'responsive' | 'hung' | 'other'> {
+export async function probeInstance(host: string, port: number, timeoutMs = 3000, token: string | null = null): Promise<'absent' | 'responsive' | 'hung' | 'other'> {
   const started = Date.now();
   timeoutMs = Number.isFinite(timeoutMs) ? Math.max(1, Math.min(timeoutMs, 3000)) : 3000;
   const target = host === '0.0.0.0' ? '127.0.0.1' : host === '::' ? '::1' : host;
@@ -47,7 +47,7 @@ export async function probeInstance(host: string, port: number, timeoutMs = 3000
     const failed = (e: NodeJS.ErrnoException): void => {
       finish(e.code === 'ECONNRESET' || e.code === 'ETIMEDOUT' ? 'hung' : 'other');
     };
-    const req = request({ hostname: target, port, path: '/status', agent: false }, (res) => {
+    const req = request({ hostname: target, port, path: '/status', agent: false, headers: token === null ? {} : { authorization: 'Bearer ' + token } }, (res) => {
       res.on('error', failed);
       if (res.statusCode !== 200) { finish('other'); return; }
       let body = '';
@@ -153,7 +153,7 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
     } catch { add('stats.path', 'warn', 'Stats file path is not accessible.', 'Check directory permissions and configured path.'); }
   } else add('stats.path', 'ok', 'Stats output is disabled.');
 
-  const instance = await probeInstance(config.listen.host, config.listen.port, Math.min(opts.timeoutMs ?? 3000, 3000));
+  const instance = await probeInstance(config.listen.host, config.listen.port, Math.min(opts.timeoutMs ?? 3000, 3000), config.listen.token);
   if (instance === 'hung') {
     add('instance.responsive', 'error', 'Detected: a Kitzur process is listening but not responding. On Windows, a paused console (including QuickEdit selection) can freeze synchronous console writes.',
       `Restart detached with logs to a file. PowerShell: ${detachedCommand(opts.configPath)}`);

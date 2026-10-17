@@ -193,6 +193,9 @@ Columns: **Default**; **Meaning**; **If wrong**: what breaks; **Probe field**: t
 |---|---|---|---|---|
 | `listen.host` | `127.0.0.1` | Bind address. | A non-loopback address exposes the proxy, and the credentials it forwards, to the network. | – |
 | `listen.port` | `8270` | Listen port; `0` picks a free port (`serve` records the bound address in the server log). | A port in use: `serve` fails to start. The client's `baseURL` must use it. | – |
+| `listen.maxRequestBytes` | `67108864` | Maximum request body bytes (64 MiB), a positive safe integer. Oversized Content-Length is rejected before reading; chunked uploads are stopped as soon as they exceed it. | 413 and connection closed; an exactly-at-limit body is accepted. | – |
+| `listen.maxConcurrentRequests` | `16` | Maximum requests being read or processed, a positive safe integer. | Excess requests receive 503 with Retry-After: 1 and connection closed. | concurrency_rejected |
+| `listen.token` | `null` | Optional nonempty client Bearer token, required for non-loopback binds with upstream.headers set. Checked on every route, including status; consumed locally, never forwarded. Status and doctor use the configured token; status --url never sends it. | Missing or incorrect token: 401. Unsafe credentialed bind without a token: startup error. | – |
 | `listen.allowedHosts` | `["127.0.0.1","localhost","[::1]","::1"]` | Accepted `Host` header names (port ignored); blocks DNS rebinding. `["*"]` disables the check. | Too narrow: clients that use another name are refused. `*`: a web page can reach the proxy through DNS rebinding. | – |
 
 ### upstream

@@ -98,7 +98,8 @@ export function defaultConfig(): Config {
 export function parseSetArg(arg: string, source = 'cli:--set'): SetOp {
   const eq = arg.indexOf('=');
   // `upstream.headers.Authorization:Bearer …` (a typo for '='): the rest of the argument is a credential
-  const shown = /^\s*upstream\.headers\b/i.test(arg) ? '"upstream.headers…" (value not shown)' : JSON.stringify(arg);
+  const shown = /^\s*upstream\.headers\b/i.test(arg) ? '"upstream.headers…" (value not shown)'
+    : /^\s*listen\.token\b/i.test(arg) ? '"listen.token…" (value not shown)' : JSON.stringify(arg);
   if (eq <= 0) throw new ConfigError([`${source}: expected path=value, got ${shown}`]);
   return { path: arg.slice(0, eq).trim(), raw: arg.slice(eq + 1), source };
 }
@@ -199,7 +200,7 @@ function applySet(cfg: Record<string, unknown>, prov: Provenance, op: SetOp, bas
     try {
       value = parseRawValue(spec, op.raw);
     } catch (e) {
-      throw new Error(`${op.source}: ${op.path}: ${(e as Error).message}`);
+      throw new Error(`${op.source}: ${op.path}: ${owner === 'listen.token' ? 'invalid token value (value not shown)' : (e as Error).message}`);
     }
     if (spec.t === 'headers' && isPlainObject(value)) {
       const rec = getPath(cfg, owner);
