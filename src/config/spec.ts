@@ -70,6 +70,8 @@ export const LEAF_SPECS: Readonly<Record<string, LeafSpec>> = Object.assign(Obje
   'budget.maxTokensRestore.toTokens': intN(1, MAX_TOKENS),
   'budget.observedFixedPromptTokens': intN(0, MAX_TOKENS),
 
+  'client.inputLimit': intN(0, MAX_TOKENS),
+  'client.reservedTokens': intN(0, MAX_TOKENS),
   'client.compactionPointTokens': intN(1, MAX_TOKENS),
   'client.outputLimit': intN(1, MAX_TOKENS),
   'client.outputTokenMax': int(1, MAX_TOKENS),

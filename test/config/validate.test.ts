@@ -150,3 +150,17 @@ test('globToRegExp: * is the only wildcard', () => {
   assert.ok(!globToRegExp('a.b').test('axb'));
   assert.ok(globToRegExp('a(b)?').test('a(b)?'));
 });
+
+test('client input limit and reservation accept nullable nonnegative integers', () => {
+  for (const key of ['inputLimit', 'reservedTokens'] as const) {
+    assert.equal(DEFAULT_CONFIG.client[key], null);
+    for (const value of [null, 0, 5000]) {
+      const cfg = cfgWith(c => { c.client[key] = value; });
+      assert.ok(!errorsOf(cfg).some(e => e.startsWith(`client.${key}:`)));
+    }
+    for (const value of [-1, 0.5, Infinity, NaN]) {
+      const cfg = cfgWith(c => { c.client[key] = value; });
+      assert.ok(errorsOf(cfg).some(e => e.startsWith(`client.${key}:`)));
+    }
+  }
+});
