@@ -8,7 +8,7 @@ import { ROOT } from '../helpers.js';
 
 test('run-tests.mjs ends with a passed/failed/skipped totals line', () => {
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-run-tests-'));
-  writeFileSync(join(dir, 'a.test.js'), "import { test } from 'node:test';\n"
+  writeFileSync(join(dir, 'a.test.js'), "const { test } = require('node:test');\n"
     + "test('ok', () => {});\ntest('bad', () => { throw new Error('x'); });\ntest('later', { skip: true }, () => {});\n");
   const { NODE_TEST_CONTEXT: _, ...env } = process.env; // run as a top-level runner, not a child of this one
   const res = spawnSync(process.execPath, [join(ROOT, 'scripts', 'run-tests.mjs'), dir, '--test-reporter=dot'], { encoding: 'utf8', env });
