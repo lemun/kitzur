@@ -20,6 +20,7 @@ import http from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
+import { listenSecurityError } from '../config/listen.js';
 import type { Config } from '../config/schema.js';
 import type { ChatRequest, Engine, EngineResult, LearnedEntry, ProcessOptions, TokenCounter } from '../types.js';
 import type { RemoteTokenizer } from '../tokenize/remote.js';
@@ -120,10 +121,8 @@ function sendJson(res: ServerResponse, status: number, body: Buffer | string, ex
 
 export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer {
   const cfg = config;
-  if (!['127.0.0.1', '::1', 'localhost'].includes(cfg.listen.host)
-      && Object.keys(cfg.upstream.headers).length > 0 && cfg.listen.token === null) {
-    throw new Error('listen.token is required when listen.host is not loopback and upstream.headers is set');
-  }
+  const securityError = listenSecurityError(cfg);
+  if (securityError) throw new Error(securityError);
   const now = deps.now ?? (() => new Date());
   const log = deps.log ?? (() => undefined);
   if (deps.counter.mode === 'remote') throw new Error('the proxy needs a local counter (exact or estimate); remote is a calibration source only');
@@ -141,6 +140,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
 
   let discoveredWindows: Record<string, number> = {};
   let inflight = 0;
+  let concurrencyRejected = 0;
   let closing = false;
   const sockets = new Set<Socket>();
   const idleWaiters: Array<() => void> = [];
@@ -150,6 +150,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
 
   const server = http.createServer({ noDelay: true }, (req, res) => {
     if (inflight >= cfg.listen.maxConcurrentRequests) {
+      status.requests++;
+      concurrencyRejected++;
       rejectUpload(req, res, 503, 'too many concurrent requests', 'server_busy', { 'retry-after': '1' });
       return;
     }
@@ -183,6 +185,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       statsError: deps.stats.lastError,
       upstream: { origin, ...upstream.stats, endpoint: deps.remote ? deps.remote.stats() : null },
     }),
+    concurrency_rejected: concurrencyRejected,
     ...deps.watchdog?.snapshot(),
   });
 

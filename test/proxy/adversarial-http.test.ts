@@ -390,7 +390,6 @@ test('offline admission: size, concurrency, read errors, aborts, and client auth
   const inject = (headers: http.IncomingHttpHeaders = {}, path = '/upload') => {
     const socket = new net.Socket();
     const req = new http.IncomingMessage(socket);
-    req.method = 'POST';
     req.url = path;
     req.method = path === '/status' ? 'GET' : 'POST';
     req.rawHeaders = Object.entries(headers).flatMap(([key, value]) => [key, String(value)]);
@@ -424,6 +423,7 @@ test('offline admission: size, concurrency, read errors, aborts, and client auth
     const reading = inject();
     const excess = inject();
     assert.equal(excess.res.statusCode, 503);
+    assert.equal(proxy.snapshot()['concurrency_rejected'], 1);
     assert.match(excess.wire(), /retry-after: 1/i);
     reading.req.emit('error', Object.assign(new Error('client reset'), { code: 'ECONNRESET' }));
     await tick();

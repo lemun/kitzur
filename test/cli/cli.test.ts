@@ -1,4 +1,5 @@
-import { test } from 'node:test';
+import { EventEmitter } from 'node:events';
+import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -451,4 +452,38 @@ test('the built bin runs as a program (shebang, entry-point detection, exit code
   const sh = spawnSync('sh', ['-c', `"${process.execPath}" "${cli}" config show | head -1`], { encoding: 'utf8' });
   assert.equal(sh.stderr, '');
   assert.match(sh.stdout, /^# kitzur/);
+});
+
+test('client token is redacted from config output and malformed assignments', async () => {
+  for (const args of [[], ['--json']]) {
+    const r = await run(['config', 'show', ...args, '--set', 'listen.token=CLIENT_SECRET']);
+    assert.equal(r.code, 0);
+    assert.doesNotMatch(r.out + r.err, /CLIENT_SECRET/);
+    assert.match(r.out, /<set>/);
+  }
+  for (const assignment of ['listen.token="CLIENT_SECRET', 'listen.token:CLIENT_SECRET']) {
+    const r = await run(['config', 'show', '--set', assignment]);
+    assert.notEqual(r.code, 0);
+    assert.doesNotMatch(r.out + r.err, /CLIENT_SECRET/);
+  }
+});
+
+test('status authenticates the configured listener and keeps explicit URLs credential-free', async () => {
+  const authorizations: unknown[] = [];
+  mock.method(http, 'get', (_url: unknown, options: { headers: { authorization?: string } }, respond: (res: EventEmitter) => void) => {
+    authorizations.push(options.headers.authorization);
+    const req = Object.assign(new EventEmitter(), { destroy() {} });
+    process.nextTick(() => {
+      const res = Object.assign(new EventEmitter(), { statusCode: 200 });
+      respond(res);
+      res.emit('data', Buffer.from('{"name":"kitzur"}'));
+      res.emit('end');
+    });
+    return req;
+  });
+  try {
+    assert.equal((await run(['status', '--set', 'listen.token=CLIENT_SECRET'])).code, 0);
+    assert.equal((await run(['status', '--set', 'listen.token=CLIENT_SECRET', '--url', 'http://example.test/status'])).code, 0);
+    assert.deepEqual(authorizations, ['Bearer CLIENT_SECRET', undefined]);
+  } finally { mock.restoreAll(); }
 });

@@ -205,6 +205,7 @@ function maskUserinfo(v: unknown): unknown {
 /** A config value for display: header values and URL credentials masked, long strings shortened. */
 function display(path: string, v: unknown, full = false): string {
   if (path === 'upstream.headers' && isPlainObject(v)) v = Object.fromEntries(Object.keys(v).map((k) => [k, '<set>']));
+  if (path === 'listen.token' && v !== null) v = '<set>';
   if (path === 'upstream.origin') v = maskUserinfo(v);
   const s = JSON.stringify(v) ?? 'undefined';
   return !full && s.length > 100 ? `${s.slice(0, 90)}… (${s.length} chars)` : s;
@@ -212,6 +213,7 @@ function display(path: string, v: unknown, full = false): string {
 
 function maskedConfig(c: Config): Config {
   const m = structuredClone(c);
+  if (m.listen.token !== null) m.listen.token = '<set>';
   m.upstream.headers = Object.fromEntries(Object.keys(m.upstream.headers).map((k) => [k, '<set>']));
   m.upstream.origin = maskUserinfo(m.upstream.origin) as string | null;
   if (isAutoWindow(c)) (m.budget as unknown as Record<string, unknown>)['window'] = 'auto';
@@ -298,11 +300,11 @@ export function collectRequests(paths: string[], cwd: string): Array<{ label: st
   return out;
 }
 
-function httpGet(url: string, timeoutMs: number): Promise<{ status: number; body: string }> {
+function httpGet(url: string, timeoutMs: number, token: string | null = null): Promise<{ status: number; body: string }> {
   return new Promise((resolveP, reject) => {
     const u = new URL(url);
     const mod = u.protocol === 'https:' ? https : http;
-    const req = mod.get(u, { agent: false, timeout: timeoutMs }, (res) => {
+    const req = mod.get(u, { agent: false, timeout: timeoutMs, headers: token === null ? {} : { authorization: 'Bearer ' + token } }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (c: Buffer) => chunks.push(c));
       res.on('end', () => resolveP({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }));
@@ -532,13 +534,15 @@ async function cmdCount(argv: string[], io: CliIO): Promise<number> {
 async function cmdStatus(argv: string[], io: CliIO): Promise<number> {
   const p = parseArgs(argv, { ...CONFIG_OPTS, url: { type: 'string' }, json: { type: 'boolean' }, 'timeout-ms': { type: 'string' } });
   let url = p.values['url'] as string | undefined;
+  let token: string | null = null;
   if (!url) {
     const cfg = loadFromArgs(p, io).config;
+    token = cfg.listen.token;
     const host = cfg.listen.host === '0.0.0.0' || cfg.listen.host === '::' ? '127.0.0.1' : cfg.listen.host;
     url = `http://${fmtHost(host)}:${cfg.listen.port}/status`;
   }
   try {
-    const r = await httpGet(url, Number(p.values['timeout-ms'] ?? 5000));
+    const r = await httpGet(url, Number(p.values['timeout-ms'] ?? 5000), token);
     let body = r.body;
     try {
       const s = JSON.parse(r.body);
