@@ -168,3 +168,16 @@ test('doctor reads an OpenCode JSONC file and handles unreadable files safely', 
   assert.ok(missing.checks.some((c) => c.code === 'client.config'));
   assert.doesNotMatch(renderDoctor(missing), /SECRET_MISSING_FILE/);
 });
+
+test('doctor warns when upstream.headers is set without listen.token, without printing secrets', async () => {
+  const cfg = defaultConfig();
+  cfg.listen.port = 8787;
+  cfg.upstream.headers = { authorization: 'Bearer UPSTREAM_SECRET' };
+  const open = await doctor(cfg);
+  assert.equal(open.checks.find((c) => c.code === 'listen.token')?.status, 'warn');
+  assert.doesNotMatch(renderDoctor(open), /UPSTREAM_SECRET/);
+  cfg.listen.token = 'CLIENT_SECRET';
+  const closed = await doctor(cfg);
+  assert.equal(closed.checks.find((c) => c.code === 'listen.token'), undefined);
+  assert.doesNotMatch(renderDoctor(closed), /CLIENT_SECRET|UPSTREAM_SECRET/);
+});

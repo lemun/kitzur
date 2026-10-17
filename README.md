@@ -146,6 +146,11 @@ own compaction enabled as a fallback. Kilo uses a similar provider block in
 `kilo.json[c]`; its `max_tokens` behavior may need
 `budget.maxTokensRestore.enabled: true`. See [CONFIG.md](CONFIG.md).
 
+If the gateway credentials live in kitzur's `upstream.headers`, set `listen.token`
+too, so other local processes cannot use them through the proxy (see
+[SECURITY.md](SECURITY.md)). `apiKey` then carries that token, not the gateway key:
+`"apiKey": "{env:KITZUR_TOKEN}"`. `status` and `doctor` send the configured token.
+
 Check the running proxy from another terminal:
 
 ```sh

@@ -13,6 +13,14 @@ header. This file lists exactly what it does with that.
   before any upstream call unless its origin is in `listen.allowedOrigins` (empty by default). `OPTIONS` is answered
   locally with 403 and never forwarded, and chat requests need `Content-Type: application/json` (415 otherwise).
   This hardens against browser cross-origin requests (CORS "simple" POSTs need no preflight).
+- **Client token.** Without `listen.token`, anything that can connect to the listener can use the proxy: every
+  local process and, on a shared machine, every other user. When `upstream.headers` carries credentials, they all
+  get those credentials' access to the gateway (not the values themselves, which are never returned). Set
+  `listen.token` to require `Authorization: Bearer <token>` on every route, `/status` included (401 otherwise,
+  compared in constant time). The token is consumed locally, never forwarded, and never printed by logs,
+  `/status`, `config show` or `doctor`. `serve` and `doctor` warn when `upstream.headers` is set without a token;
+  a non-loopback `listen.host` with `upstream.headers` and no token refuses to start. Keep the token in a file
+  only you can read (for example the config file, mode `0600`).
 - **Talks to exactly one upstream**: `upstream.origin`. The client's request path is appended, but the host never
   comes from the request.
   - Optionally it also calls the gateway's tokenize endpoint (`tokenizer.endpoint`) on that same origin.
@@ -23,7 +31,7 @@ header. This file lists exactly what it does with that.
 
 ## What is forwarded
 
-- All client headers are forwarded to the upstream, `Authorization` included. Hop-by-hop headers are not, and
+- All client headers are forwarded to the upstream, `Authorization` included unless `listen.token` is set (it then carries the client token and is dropped). Hop-by-hop headers are not, and
   `accept-encoding` is forced to `identity`.
 - `upstream.headers` are added. They are never logged.
 - Request bodies are forwarded unchanged, or rewritten by the engine as `DESIGN.md` describes: summaries, stubs and
