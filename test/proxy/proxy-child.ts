@@ -21,7 +21,6 @@ const proxy = createProxyServer(cfg, {
   counter,
   state: new StateStore({ dir, configuredWindow: cfg.budget.window, counterId: counter.id }),
   stats: new StatsWriter(cfg.stats.path),
-  faults: null,
 });
 const { port } = await proxy.listen();
 installSignalHandlers(proxy, { drainMs: 5000 });

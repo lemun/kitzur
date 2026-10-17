@@ -4,7 +4,6 @@ import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ChatRequest } from '../../src/types.js';
-import { parseFaults } from '../../src/proxy/server.js';
 import { readLearnedState, learnedKey } from '../../src/proxy/state.js';
 import { classifyHttpError, classifyStreamError, OC_RETRY_RUNS } from './opencode-port.js';
 import { FakeEngine, passthroughEngine, result, shrinkingEngine } from './fake-engine.js';
@@ -503,16 +502,9 @@ test('guard_reject and impossible return the engine error without an upstream ca
   });
 });
 
-test('KITZUR_TEST_FAULTS engine-throw: the original only when it fits (I7)', async () => {
-  assert.deepEqual(parseFaults('engine-throw:0.01'), { engineThrow: 0.01 });
-  const a = parseFaults('engine-throw:0.5:42')!;
-  const b = parseFaults('engine-throw:0.5:42')!;
-  const seq = (f: typeof a) => Array.from({ length: 20 }, () => f.random!() < f.engineThrow);
-  assert.deepEqual(seq(a), seq(b), 'seeded faults are reproducible');
-  assert.equal(parseFaults('engine-throw:2'), null);
-  assert.equal(parseFaults(undefined), null);
+test('engine exceptions: the original only when it fits (I7)', async () => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, okCompletion()));
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(up, new FakeEngine(() => { throw new Error('injected failure'); }), async (f) => {
     const small = JSON.stringify(chatBody('small'));
     assert.equal((await request(f.port, { body: small })).status, 200);
     assert.equal(up.hits[0]!.body.toString(), small);
@@ -521,8 +513,8 @@ test('KITZUR_TEST_FAULTS engine-throw: the original only when it fits (I7)', asy
     assert.equal(big.json().error.code, 'context_length_exceeded');
     assert.equal(up.hits.length, 1);
     const recs = await waitRecords(f, 2);
-    assert.deepEqual(recs.map((r) => [r.action, r.guard]), [['guard_fallback', 'engine:InjectedFault'], ['guard_reject', 'engine:InjectedFault']]);
-  }, { faults: { engineThrow: 1 }, config: { budget: { window: 10_000, defaultMaxTokens: 1000 } } });
+    assert.deepEqual(recs.map((r) => [r.action, r.guard]), [['guard_fallback', 'engine:Error'], ['guard_reject', 'engine:Error']]);
+  }, { config: { budget: { window: 10_000, defaultMaxTokens: 1000 } } });
 });
 
 test('an unsafe-integer body is never rewritten ()', async () => {
@@ -854,4 +846,20 @@ test('chat diagnostics: passthrough, refusal and unparseable requests', async ()
     assert.equal(r.headers['x-kitzur-action'], 'refuse');
     assert.match(String(r.headers['x-kitzur-tokens']), /^\d+\/0\/\d+$/);
   });
+});
+
+test('the proxy leaves environment fault injection to the engine', async () => {
+  const previous = process.env['KITZUR_TEST_FAULTS'];
+  process.env['KITZUR_TEST_FAULTS'] = 'engine-throw:1:42';
+  try {
+    const up = await fakeUpstream((_h, res) => jsonRes(res, 200, okCompletion()));
+    await withProxy(up, passthroughEngine(), async (f) => {
+      await request(f.port, { body: chatBody('small') });
+      const records = await waitRecords(f, 1);
+      assert.notEqual(records[0]!.action, 'guard_fallback');
+    });
+  } finally {
+    if (previous === undefined) delete process.env['KITZUR_TEST_FAULTS'];
+    else process.env['KITZUR_TEST_FAULTS'] = previous;
+  }
 });

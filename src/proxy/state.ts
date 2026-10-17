@@ -5,12 +5,12 @@
 //
 // Learned entries update in memory immediately; persistence coalesces changes asynchronously.
 // A crash can lose up to five seconds of learning, never request correctness.
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeSync, appendFileSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from 'node:fs';
 import { mkdir, open, rename, unlink } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { LearnedEntry, LearnedState, Plan } from '../types.js';
+import type { LearnedEntry, LearnedState } from '../types.js';
 
 // ---------------------------------------------------------------- paths and files
 
@@ -304,45 +304,4 @@ export function resetState(dir: string, filter?: string): string[] {
   for (const k of gone) delete state.entries[k];
   if (gone.length) writeFileAtomic(path, JSON.stringify(state, null, 1) + '\n');
   return gone;
-}
-
-// ---------------------------------------------------------------- optional plan store persistence (§5.9)
-
-/**
- * Append-only plan log for `store.persist`: `<stateDir>/plans/<YYYY-MM-DD>.jsonl`, one
- * `{"key","plan"}` per line. Plans of another ENGINE_ALGO_VERSION never match because the version is
- * part of the plan key. Plans contain summaries (user content): SECURITY.md documents this.
- */
-export class PlanLog {
-  readonly dir: string;
-  constructor(stateDir: string, private readonly now: () => Date = () => new Date()) {
-    this.dir = join(stateDir, 'plans');
-  }
-
-  append(key: string, plan: Plan): void {
-    mkdirs(this.dir);
-    appendFileSync(join(this.dir, `${this.now().toISOString().slice(0, 10)}.jsonl`), JSON.stringify({ key, plan }) + '\n', { mode: 0o600 });
-  }
-
-  /** Every stored (key, plan), oldest file first; unreadable lines are skipped. */
-  *load(): Generator<[string, Plan]> {
-    if (!existsSync(this.dir)) return;
-    for (const f of readdirSync(this.dir).filter((n) => n.endsWith('.jsonl')).sort()) {
-      let text: string;
-      try {
-        text = readFileSync(join(this.dir, f), 'utf8');
-      } catch {
-        continue;
-      }
-      for (const line of text.split('\n')) {
-        if (!line) continue;
-        try {
-          const j = JSON.parse(line) as { key?: unknown; plan?: unknown };
-          if (typeof j.key === 'string' && typeof j.plan === 'object' && j.plan !== null) yield [j.key, j.plan as Plan];
-        } catch {
-          /* a torn last line after a crash */
-        }
-      }
-    }
-  }
 }

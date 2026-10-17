@@ -111,7 +111,7 @@ export async function loadModules(need: { proxy: boolean }): Promise<AppModules>
       } catch {
         /* persistence is best effort (store-file.ts ignores I/O errors too) */
       }
-      persistence = (await importExport<(o: { dir: string }) => unknown>('./engine/store-file.js', 'createFilePersistence'))({ dir });
+      persistence = (await importExport<(o: { dir: string; maxBytes: number; retentionDays: number }) => unknown>('./engine/store-file.js', 'createFilePersistence'))({ dir, maxBytes: config.store.maxBytes, retentionDays: config.store.retentionDays });
     }
     return new MemoryPlanStore({ maxPlans: config.store.maxPlans, maxBytes: config.store.maxBytes, persistence });
   };

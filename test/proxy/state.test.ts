@@ -6,10 +6,10 @@ import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { DEFAULT_CONFIG } from '../../src/config/schema.js';
 import {
-  PlanLog, StateStore, defaultStateDir, freshLearnedEntry, keyMatches, learnedKey, planningChanged, readLearnedState, resetState, showState, writeFileAtomic,
+  StateStore, defaultStateDir, freshLearnedEntry, keyMatches, learnedKey, planningChanged, readLearnedState, resetState, showState, writeFileAtomic,
 } from '../../src/proxy/state.js';
 import { applyAcceptedRatio, ceil1pct, correctionFor, judgeSample, p90, EndpointCalibrator } from '../../src/proxy/calibration.js';
-import type { LearnedEntry, Plan } from '../../src/types.js';
+import type { LearnedEntry } from '../../src/types.js';
 import type { RemoteTokenizer } from '../../src/tokenize/remote.js';
 import { createProfile } from '../../src/tokenize/template.js';
 import { testConfig } from './harness.js';
@@ -129,17 +129,6 @@ test('planningChanged covers the planning inputs and includeUsageRejected', () =
   assert.equal(planningChanged(e, { ...e, correction: 1.02 }), true);
   assert.equal(planningChanged(e, { ...e, includeUsageRejected: true }), true);
   assert.equal(planningChanged(undefined, e), false);
-});
-
-test('plan log: append-only JSONL per day, torn lines skipped', () => {
-  const dir = tmp();
-  const log = new PlanLog(dir, () => NOW);
-  const plan = { version: 2, engine: 'x', n: 3, hEnd: 1, cut: 1, summary: null, headRewrites: {}, rewrites: {}, compactions: 0, fit: 'ok', key: 'k1' } as Plan;
-  log.append('k1', plan);
-  log.append('k2', { ...plan, key: 'k2' });
-  writeFileSync(join(dir, 'plans', '2026-09-28.jsonl'), readFileSync(join(dir, 'plans', '2026-09-28.jsonl'), 'utf8') + '{"key":"k3","pl');
-  assert.deepEqual([...log.load()].map(([k]) => k), ['k1', 'k2']);
-  assert.ok(existsSync(join(dir, 'plans', '2026-09-28.jsonl')));
 });
 
 // ---------------------------------------------------------------- calibration ()
