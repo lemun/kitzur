@@ -45,6 +45,7 @@ export const LEAF_SPECS: Readonly<Record<string, LeafSpec>> = Object.assign(Obje
   'listen.maxConcurrentRequests': int(1, Number.MAX_SAFE_INTEGER),
   'listen.token': { t: 'str', nullable: true, nonEmpty: true },
   'listen.allowedHosts': strs,
+  'listen.allowedOrigins': strs,
 
   'upstream.origin': { t: 'str', nullable: true, format: 'origin' },
   'upstream.timeoutMs': int(1, MAX_MS),

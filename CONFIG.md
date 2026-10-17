@@ -64,7 +64,7 @@ none below the client's compaction point; `upstream.origin` with a path; a missi
   while `budget.defaultMaxTokens` kept the built-in 100k value (the classic `KITZUR_WINDOW=32000` alone);
 - an absolute `compaction.triggerTokens`/`targetTokens` that gets clamped;
 - a `budget` under a quarter of the window (`T_plan` reserves most of it, e.g. a 32k window with `defaultMaxTokens` 32000);
-- `upstream.origin` missing, a non-loopback `listen.host`, `allowedHosts ['*']` or empty, `insecureTls`, no tokenizer,
+- `upstream.origin` missing, a non-loopback `listen.host`, `allowedHosts ['*']` or empty, a non-empty `allowedOrigins`, `insecureTls`, no tokenizer,
   `ledger.mirrorPath` set (not implemented in v1).
 
 Each regex key is checked with the flags its consumer compiles it with: `ledger.correctionCues` and
@@ -197,6 +197,7 @@ Columns: **Default**; **Meaning**; **If wrong**: what breaks; **Probe field**: t
 | `listen.maxConcurrentRequests` | `16` | Maximum requests being read or processed, a positive safe integer. | Excess requests receive 503 with Retry-After: 1 and connection closed. | concurrency_rejected |
 | `listen.token` | `null` | Optional nonempty client Bearer token, required for non-loopback binds with upstream.headers set. Checked on every route, including status; consumed locally, never forwarded. Status and doctor use the configured token; status --url never sends it. | Missing or incorrect token: 401. Unsafe credentialed bind without a token: startup error. | – |
 | `listen.allowedHosts` | `["127.0.0.1","localhost","[::1]","::1"]` | Accepted `Host` header names (port ignored); blocks DNS rebinding. `["*"]` disables the check. | Too narrow: clients that use another name are refused. `*`: a web page can reach the proxy through DNS rebinding. | – |
+| `listen.allowedOrigins` | `[]` | Browser origins (`scheme://host[:port]`, exact match) that may call the proxy. A request with any other `Origin` header, or a `Sec-Fetch-Site` of `cross-site`/`same-site`, gets 403; CLI agents send neither. | An origin listed here: any page served from it can use the proxy and the credentials it forwards. | – |
 
 ### upstream
 

@@ -308,6 +308,9 @@ export function validateConfig(cfg: Config, opts: ValidateOptions = {}): Validat
   }
   if (cfg.listen.allowedHosts.includes('*')) warnings.push("listen.allowedHosts ['*'] disables the DNS-rebinding guard");
   else if (cfg.listen.allowedHosts.length === 0) warnings.push('listen.allowedHosts is empty: every request with a Host header is refused');
+  if (cfg.listen.allowedOrigins.length > 0) {
+    warnings.push(`listen.allowedOrigins lets web pages from ${cfg.listen.allowedOrigins.join(', ')} use the proxy and the upstream credentials`);
+  }
   if (cfg.upstream.insecureTls) warnings.push('upstream.insecureTls is on: the gateway certificate is not verified');
   if (!cfg.compaction.enabled) warnings.push('compaction.enabled is false: requests over the budget get the documented error instead of a compaction');
   if (cfg.tokenizer.mode === 'auto' && cfg.tokenizer.path === null) {
