@@ -3,6 +3,10 @@
 Branch: `feat/improvement-program`. Original main: `3f9afb8`.
 All four existing folders and ignored data are preserved.
 
+**Completed program:** all five scoped increments below have been merged and
+validated within their recorded limits. The next-phase work queue is separate and
+is not an incomplete item in this program: [NEXT-PHASE.md](NEXT-PHASE.md).
+
 - [x] Coding evaluation: matched minimal tool agent, executable grading, isolated
   workspaces/state, deterministic mock validation, repeat/variation reporting.
   User explicitly deferred live runs due unavailable model capacity; live validation
@@ -62,7 +66,9 @@ separate shadow records; never emit session IDs.
 
 Astra completion reviews approved evaluation, retention, doctor and report within
 their documented heuristic/trust/accounting scope; final integration checks now
-pass. No release, merge or live endpoint work is authorized.
+pass. **Historical status at the time of this note:** release, merge and live
+endpoint work had not been authorized. The merge has since completed; see the
+remote validation record below. Live endpoint/model runs remain deferred.
 
 Final deterministic mock evidence: `bench/coding/examples/mock-report.json`,
 engine 5, three tasks × two repetitions × two arms. Kitzur completes 6/6; the
@@ -92,10 +98,10 @@ unknown-attempt and hostile-action checks. Manifest SHA256:
 
 - Windows CI Node 20/22 and actual lifecycle validation completed successfully;
   linked remote results below provide platform evidence.
-- Run real-model paired repetitions using `bench/coding/README.md` after capacity
-  becomes available; mock success does not establish comprehension or savings.
-- Review draft PR #3 for merge: https://github.com/lemun/kitzur/pull/3.
-  The branch is pushed for review; no merge or release has been performed.
+- Real-model paired repetitions remain deferred until adequate model capacity and
+  hardware are available. Mock success does not establish comprehension or savings.
+- **Historical:** PR #3 was opened as a draft for review. It has since been merged;
+  the merge and post-merge validation are recorded below.
 
 ## Remote validation follow-up
 
@@ -158,9 +164,25 @@ graceful stop and uninstall retaining configuration.
 
 Both push- and PR-triggered workflows are retained for the final source revision.
 The checklist/doc-only follow-up records already-passed runtime evidence; live
-model evaluation remains the only deferred evaluation step.
+model evaluation remains deferred. No scheduler or automatic live run is configured.
 
 Astra independently reviewed the successful Windows logs and final source changes
 and approved Windows completion for runtime commit `2f6b1b4`. This establishes
 the tested per-user installation/lifecycle on GitHub Windows runners; it does not
 establish every Windows deployment environment or real-model task quality.
+
+## Merge and post-merge evidence
+
+2026-10-12: PR #3 was merged (merge commit `adb805f`). The post-merge GitHub
+Actions run completed green: https://github.com/lemun/kitzur/actions/runs/38248725982.
+This supersedes the earlier draft-PR and “no merge performed” status above. The
+next evaluation phase is queued in [NEXT-PHASE.md](NEXT-PHASE.md); live model work
+remains deferred until adequate hardware/capacity is available.
+
+PR #2 is closed: https://github.com/lemun/kitzur/pull/2. Initial release
+[v0.1.0](https://github.com/lemun/kitzur/releases/tag/v0.1.0) was published from
+merged commit `adb805f16c8620baa91e7a97a661294c9ca5ff6d` after Sol validation
+and Astra final review. Clean default archives include no private profile or
+tokenizer; combined archive checksums, 107-entry TAR/ZIP internal manifests, and
+isolated offline installed version/config/doctor/report checks passed. This was a
+GitHub release only; no npm registry publication or live endpoint/model run occurred.
