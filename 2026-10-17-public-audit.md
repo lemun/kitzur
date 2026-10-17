@@ -13,6 +13,7 @@ Report only: no source changed.
 | D1 | Docs | Medium | SECURITY.md says there is no per-request log line. Since `bae4742` there is one. |
 | D2 | Docs / CI | Medium | The README and Windows docs say CI runs Node 20 and 22, but `ci.yml` runs 22, 24 and 26. `engines` is still `>=20` (Node 20 is end-of-life and untested). |
 | F1 | First run | Low | The dev tokenizer download is the only step that needs a non-npm host. Where that host is blocked, `fetch-tokenizer.sh` fails with a bare curl error, which breaks the `&&` chain even though the tests skip cleanly without the tokenizer. |
+| F2 | Tests | Low | `test/proxy/state.test.ts:31` ("planning and sample writes coalesce off the request path") is timing-dependent: it waits a fixed 100 ms for a 30 ms debounced async write. It failed on this PR's `test (22)` CI job, which touches no code, while the same source is green on `main`. |
 | P1 | Private data | Low | No secrets, personal paths, emails or credentials were found anywhere. Two low-sensitivity items about internal process are listed in section 3. |
 
 ## 1. First-run experience on a clean machine
@@ -128,5 +129,6 @@ Patterns: home-directory paths (macOS, Linux and Windows forms), email addresses
 2. **proxy-request-limits**: configurable body limit, an in-flight byte budget, and early `destroy()` (S3).
 3. **proxy-client-token**: optional client token, plus a warning when `upstream.headers` is set without one (S2).
 4. **docs-public-refresh**: fix SECURITY.md:45, the README CI and Node lines (207-209), Windows ADMIN.md:69-72, the `journalctl` lines in `deploy/`, mark the tokenizer as optional in the requirements, explain `GATEWAY_API_KEY`, add a local-install step, add `version` to the command table, and decide on `engines` (Node 20 is end-of-life and no longer tested).
-5. **dev-tokenizer-hint**: make `fetch-tokenizer.sh` print "tests will skip tokenizer cases without it" on download failure, and have `run-tests.mjs` print a pass/skip summary line.
-6. **repo-hygiene**: switch the `staging.shop` fixtures to `.example`, trim internal notes from `IMPROVEMENT-PROGRAM.md`, and delete stale merged branches.
+5. **state-test-deflake**: in `test/proxy/state.test.ts:31`, poll until `s.writes === 1` (with a generous deadline) instead of a fixed `sleep(100)` (F2).
+6. **dev-tokenizer-hint**: make `fetch-tokenizer.sh` print "tests will skip tokenizer cases without it" on download failure, and have `run-tests.mjs` print a pass/skip summary line.
+7. **repo-hygiene**: switch the `staging.shop` fixtures to `.example`, trim internal notes from `IMPROVEMENT-PROGRAM.md`, and delete stale merged branches.
