@@ -1,13 +1,15 @@
 import { fileURLToPath } from 'node:url';
 import { createConnection } from 'node:net';
 import { request } from 'node:http';
-import { existsSync, statSync, accessSync, constants } from 'node:fs';
+import { existsSync, statSync, accessSync, constants, readFileSync } from 'node:fs';
 import { dirname, parse } from 'node:path';
 import { validateConfig } from '../config/validate.js';
 import { computeBudget } from '../config/derived.js';
 import type { Config } from '../config/schema.js';
 import { stateDirOf } from '../config/paths.js';
 import { loadTokenizer } from '../tokenize/tokenizer.js';
+import { parseJsonc } from '../config/jsonc.js';
+import { clientConfigChecks } from './client-config.js';
 import { Upstream } from '../proxy/upstream.js';
 
 export interface DoctorCheck { code: string; status: 'ok' | 'warn' | 'error'; message: string; fix?: string }
@@ -75,7 +77,7 @@ function nearestExistingDirectory(path: string): { path: string; blocked: boolea
 }
 
 /** Read-only local diagnostics. Network access is opt-in and uses the small models endpoint probe. */
-export async function doctor(config: Config, opts: { env?: Record<string, string | undefined>; upstreamCheck?: boolean; timeoutMs?: number; configPath?: string } = {}): Promise<DoctorResult> {
+export async function doctor(config: Config, opts: { env?: Record<string, string | undefined>; upstreamCheck?: boolean; timeoutMs?: number; configPath?: string; clientConfigPath?: string } = {}): Promise<DoctorResult> {
   const checks: DoctorCheck[] = [];
   const add = (code: string, status: DoctorCheck['status'], message: string, fix?: string): void => { checks.push({ code, status, message, ...(fix ? { fix } : {}) }); };
 
@@ -97,6 +99,11 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
     if (b.hard <= 1) add('budget.client_limits', 'error', `Client compaction point ${b.clientPoint} minus output allowance ${b.allowance} leaves no usable prompt budget.`, 'Adjust client.compactionPointTokens and client.outputAllowanceTokens.');
     else if (config.client.outputLimit !== null && b.planMaxTokens < config.client.outputLimit) add('budget.client_limits', 'warn', `Planned output limit ${b.planMaxTokens} is below the client output limit ${config.client.outputLimit}; long replies may be fitted down.`, 'Align budget.planMaxTokens/defaultMaxTokens with client.outputLimit.');
     else add('budget.client_limits', 'ok', 'Configured plan output and client limits are compatible.');
+  }
+
+  if (opts.clientConfigPath) {
+    try { checks.push(...clientConfigChecks(config, parseJsonc(readFileSync(opts.clientConfigPath, 'utf8')))); }
+    catch { add('client.config', 'error', 'Client configuration could not be read as JSON/JSONC.'); }
   }
 
   if (config.tokenizer.mode === 'estimate') add('tokenizer.mode', 'warn', 'Tokenizer mode is estimate; token counts use the configured character ratios.', 'Set tokenizer.mode to auto and configure tokenizer.path for exact local counts.');

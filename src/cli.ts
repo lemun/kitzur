@@ -171,7 +171,7 @@ const USAGE = `usage: kitzur <command> [options]
                                 plus a live-vs-fresh determinism check
   count <request.json>          exact token count of a request (per message, no content)
   status [--url URL] [--json]   Show a running instance’s status
-  doctor [--json] [--check-upstream] [--timeout-ms N]  read-only setup diagnostics
+  doctor [--client-config PATH] [--json] [--check-upstream] [--timeout-ms N]  read-only setup diagnostics
   report <stats.jsonl> [--json]  aggregate request stats; sizes only
   config init [--preset 100k] [--out FILE|-] [--force]
   config show [--changed] [--json]      effective config with the source of every value
@@ -329,7 +329,7 @@ async function importState(): Promise<{
 // ---------------------------------------------------------------- commands
 
 async function cmdDoctor(argv: string[], io: CliIO): Promise<number> {
-  const p = parseArgs(argv, { ...CONFIG_OPTS, json: { type: 'boolean' }, 'check-upstream': { type: 'boolean' }, 'timeout-ms': { type: 'string' } });
+  const p = parseArgs(argv, { ...CONFIG_OPTS, json: { type: 'boolean' }, 'client-config': { type: 'string' }, 'check-upstream': { type: 'boolean' }, 'timeout-ms': { type: 'string' } });
   if (p.positionals.length) throw new UsageError('doctor takes no positional arguments');
   const timeoutMs = p.values['timeout-ms'] === undefined ? 3000 : Number(p.values['timeout-ms']);
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000) throw new UsageError('--timeout-ms must be an integer from 1 to 10000');
@@ -341,7 +341,7 @@ async function cmdDoctor(argv: string[], io: CliIO): Promise<number> {
     io.stdout(p.values['json'] ? JSON.stringify(result, null, 2) + '\n' : renderDoctor(result) + '\n');
     return 2;
   }
-  const result = await doctor(loaded.config, { env: io.env, upstreamCheck: p.values['check-upstream'] === true, timeoutMs, configPath: loaded.configPath ?? undefined });
+  const result = await doctor(loaded.config, { env: io.env, upstreamCheck: p.values['check-upstream'] === true, timeoutMs, configPath: loaded.configPath ?? undefined, clientConfigPath: p.values['client-config'] as string | undefined });
   io.stdout(p.values['json'] ? JSON.stringify(result, null, 2) + '\n' : renderDoctor(result) + '\n');
   return result.exitCode;
 }

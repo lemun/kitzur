@@ -350,6 +350,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     }
     quantities = budgetQuantities(cfg, learnedForModel());
     visible.tokens.trigger = quantities.trigger;
+    const clientWarning = status.clientRequest(creq, clientSession, quantities.trigger);
+    if (clientWarning) log('warn', clientWarning);
     setVisibleHeaders();
 
     // ---------------------------------------------------------------- one upstream attempt
@@ -372,6 +374,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         visible.tokens.trigger = quantities.trigger;
         setVisibleHeaders();
       }
+      status.forwardedPrompt(creq.model, clientSession, a.original ? visible.tokens.in : a.result?.stats.tokensOut ?? visible.tokens.in);
       upstreamCalls++;
       dropRest(); // a retry: the previous attempt's error is not relayed
       if (a.n > 1) status.retries++;
@@ -738,6 +741,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     const e0 = deps.state.entry(c.key);
     const sent = r.sent;
     const usage = r.tap?.usage ?? null;
+    status.completionUsage(usage?.completion_tokens, budgetQuantities(cfg, e0).allowance);
     const budgetOf = (a: OutgoingAttempt): number => a.result?.stats?.budget?.budget ?? serverLimits(cfg, e0, a.extraTighten).budget;
     const learnSample = (counted: number, reported: number, source: 'usage' | 'endpoint', a: OutgoingAttempt): void => {
       const v = judgeSample({
@@ -757,6 +761,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       if (applied.correctionChanged) deps.engine.setLearned(c.key, applied.entry);
     };
     if (sent && r.final.type === 'relayed') {
+      status.forwardedPrompt(c.creq.model, c.clientSession, usage?.prompt_tokens ?? null);
       const reported = typeof usage?.prompt_tokens === 'number' ? usage.prompt_tokens : null;
       const counted = sent.size?.raw ?? NaN; // counted once, by attemptRecords above
       if (reported !== null) {
