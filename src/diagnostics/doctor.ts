@@ -1,3 +1,6 @@
+import { fileURLToPath } from 'node:url';
+import { createConnection } from 'node:net';
+import { request } from 'node:http';
 import { existsSync, statSync, accessSync, constants } from 'node:fs';
 import { dirname, parse } from 'node:path';
 import { validateConfig } from '../config/validate.js';
@@ -10,6 +13,57 @@ import { Upstream } from '../proxy/upstream.js';
 export interface DoctorCheck { code: string; status: 'ok' | 'warn' | 'error'; message: string; fix?: string }
 export interface DoctorResult { checks: DoctorCheck[]; exitCode: number }
 
+/** PowerShell quoting keeps paths containing spaces or apostrophes intact. */
+function detachedCommand(configPath?: string): string {
+  const quote = (value: string): string => `'${value.replaceAll("'", "''")}'`;
+  const args = `"${fileURLToPath(new URL('../cli.js', import.meta.url))}" serve${configPath ? ` --config "${configPath}"` : ''}`;
+  return `Start-Process -FilePath ${quote(process.execPath)} -ArgumentList ${quote(args)} -WindowStyle Hidden -RedirectStandardOutput "$env:TEMP\\kitzur-out.log" -RedirectStandardError "$env:TEMP\\kitzur-err.log"`;
+}
+
+/** Distinguish an absent instance from one accepting TCP but unable to serve HTTP. */
+export async function probeInstance(host: string, port: number, timeoutMs = 3000): Promise<'absent' | 'responsive' | 'hung' | 'other'> {
+  const started = Date.now();
+  timeoutMs = Number.isFinite(timeoutMs) ? Math.max(1, Math.min(timeoutMs, 3000)) : 3000;
+  const target = host === '0.0.0.0' ? '127.0.0.1' : host === '::' ? '::1' : host;
+  const listening = await new Promise<boolean>((resolve) => {
+    const socket = createConnection({ host: target, port });
+    const finish = (ok: boolean): void => { socket.destroy(); resolve(ok); };
+    socket.setTimeout(timeoutMs, () => finish(false));
+    socket.once('connect', () => finish(true));
+    socket.once('error', () => finish(false));
+  });
+  if (!listening) return 'absent';
+  return await new Promise((resolve) => {
+    let settled = false;
+    const finish = (value: 'responsive' | 'hung' | 'other'): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      req.destroy();
+      resolve(value);
+    };
+    const failed = (e: NodeJS.ErrnoException): void => {
+      finish(e.code === 'ECONNRESET' || e.code === 'ETIMEDOUT' ? 'hung' : 'other');
+    };
+    const req = request({ hostname: target, port, path: '/status', agent: false }, (res) => {
+      res.on('error', failed);
+      if (res.statusCode !== 200) { finish('other'); return; }
+      let body = '';
+      res.on('data', (chunk: Buffer) => {
+        body += chunk.toString();
+        if (body.length > 1024 * 1024) finish('other');
+      });
+      res.on('end', () => {
+        try { finish(JSON.parse(body)?.name === 'kitzur' ? 'responsive' : 'other'); }
+        catch { finish('other'); }
+      });
+    });
+    const timer = setTimeout(() => finish('hung'), Math.max(1, timeoutMs - (Date.now() - started)));
+    req.on('error', failed);
+    req.end();
+  });
+}
+
 function nearestExistingDirectory(path: string): { path: string; blocked: boolean } | null {
   let current = path;
   while (true) {
@@ -21,7 +75,7 @@ function nearestExistingDirectory(path: string): { path: string; blocked: boolea
 }
 
 /** Read-only local diagnostics. Network access is opt-in and uses the small models endpoint probe. */
-export async function doctor(config: Config, opts: { env?: Record<string, string | undefined>; upstreamCheck?: boolean; timeoutMs?: number } = {}): Promise<DoctorResult> {
+export async function doctor(config: Config, opts: { env?: Record<string, string | undefined>; upstreamCheck?: boolean; timeoutMs?: number; configPath?: string } = {}): Promise<DoctorResult> {
   const checks: DoctorCheck[] = [];
   const add = (code: string, status: DoctorCheck['status'], message: string, fix?: string): void => { checks.push({ code, status, message, ...(fix ? { fix } : {}) }); };
 
@@ -91,6 +145,15 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
       }
     } catch { add('stats.path', 'warn', 'Stats file path is not accessible.', 'Check directory permissions and configured path.'); }
   } else add('stats.path', 'ok', 'Stats output is disabled.');
+
+  const instance = await probeInstance(config.listen.host, config.listen.port, Math.min(opts.timeoutMs ?? 3000, 3000));
+  if (instance === 'hung') {
+    add('instance.responsive', 'error', 'Detected: a Kitzur process is listening but not responding. On Windows, a paused console (including QuickEdit selection) can freeze synchronous console writes.',
+      `Restart detached with logs to a file. PowerShell: ${detachedCommand(opts.configPath)}`);
+  } else if (instance === 'other') {
+    add('instance.responsive', 'warn', `Another service (or a Kitzur refusing this probe) answers on ${config.listen.port}.`,
+      'Check listen.host, listen.port, and allowed Host settings; inspect the service response before taking action.');
+  } else add('instance.responsive', 'ok', instance === 'responsive' ? 'Running instance answered GET /status.' : 'No running instance accepted a local TCP connection.');
 
   if (opts.upstreamCheck) {
     let upstream: Upstream | undefined;

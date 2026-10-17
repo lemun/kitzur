@@ -1,4 +1,8 @@
-import test from 'node:test';
+import test, { mock } from 'node:test';
+import http from 'node:http';
+import net from 'node:net';
+import { EventEmitter } from 'node:events';
+import { syncBuiltinESMExports } from 'node:module';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -76,4 +80,70 @@ test('doctor detects a regular file blocking a state directory without modifying
     assert.ok(result.checks.some((c) => c.code === 'stats.path' && c.status === 'error'));
     assert.equal((await import('node:fs')).readFileSync(blocker, 'utf8'), before);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('doctor treats refused probes and other HTTP services as warnings without restart advice', async () => {
+  for (const [status, body] of [[403, 'Host mismatch'], [503, '{}'], [200, 'not json'], [200, '{"name":"other"}'], [200, 'null']] as const) {
+    const server = createServer((_req, res) => { res.writeHead(status); res.end(body); });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const cfg = defaultConfig();
+      cfg.listen.port = (server.address() as { port: number }).port;
+      const result = await doctor(cfg);
+      const check = result.checks.find((c) => c.code === 'instance.responsive');
+      assert.equal(check?.status, 'warn', String(status));
+      assert.match(check?.message ?? '', /another service .*answers on/i);
+      assert.doesNotMatch(check?.fix ?? '', /Restart|Start-Process/);
+      assert.equal(result.exitCode, 0);
+    } finally { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); }
+  }
+});
+
+test('probe classifies HTTP answers and transport failures without requiring a listening socket', async () => {
+  const { probeInstance } = await import('../../src/diagnostics/doctor.js');
+  for (const [status, body, code, expected] of [
+    [200, '{"name":"kitzur"}', null, 'responsive'],
+    [403, 'Host mismatch', null, 'other'],
+    [503, '{}', null, 'other'],
+    [200, 'not json', null, 'other'],
+    [200, '{"name":"other"}', null, 'other'],
+    [200, 'null', null, 'other'],
+    [200, '', 'ECONNRESET', 'hung'],
+    [200, '', 'ETIMEDOUT', 'hung'],
+    [200, '', 'ECONNREFUSED', 'other'],
+    [200, '', 'HPE_INVALID_CONSTANT', 'other'],
+  ] as const) {
+    const socket = Object.assign(new EventEmitter(), { destroy() {}, setTimeout() {} });
+    const req = Object.assign(new EventEmitter(), {
+      destroy() {},
+      end() {
+        process.nextTick(() => {
+          if (code) req.emit('error', Object.assign(new Error(code), { code }));
+          else {
+            const res = Object.assign(new EventEmitter(), { statusCode: status });
+            respond(res);
+            res.emit('data', Buffer.from(body));
+            res.emit('end');
+          }
+        });
+      },
+    });
+    let respond: (res: EventEmitter) => void;
+    mock.method(net, 'createConnection', () => { process.nextTick(() => socket.emit('connect')); return socket; });
+    mock.method(http, 'request', (_options: unknown, callback: typeof respond) => { respond = callback; return req; });
+    syncBuiltinESMExports();
+    try {
+      assert.equal(await probeInstance('127.0.0.1', 1234), expected, String(body || code));
+      if (expected === 'other') {
+        const cfg = defaultConfig(); cfg.listen.port = 1234;
+        const result = await doctor(cfg);
+        const check = result.checks.find((c) => c.code === 'instance.responsive');
+        assert.equal(check?.status, 'warn');
+        assert.match(check?.message ?? '', /another service .*answers on 1234/i);
+        assert.doesNotMatch(check?.fix ?? '', /Restart|Start-Process/);
+        assert.equal(result.exitCode, 0);
+      }
+    }
+    finally { mock.restoreAll(); syncBuiltinESMExports(); }
+  }
 });

@@ -77,6 +77,7 @@ test('buildApp: the engine gets a local counter; the tokenize endpoint only reac
   assert.equal(ed.tokenizerSha256, null);
   assert.equal(seen['summaryCounter'], ed.counter, 'the summarizer counts with the engine counter');
   const pd = seen['proxyDeps'] as { engine: unknown; counter: unknown; remote: { style: string } | null; state: unknown; stats: unknown; log: (l: string, m: string) => void };
+  assert.equal((seen['proxyDeps'] as { watchdog?: unknown }).watchdog, undefined, 'custom loggers do not start a watchdog');
   assert.equal(pd.engine, engine);
   assert.equal(pd.counter, ed.counter);
   assert.equal(pd.remote?.style, 'vllm', 'the tokenize client is a calibration source for the proxy');
@@ -94,7 +95,7 @@ test('buildApp: the engine gets a local counter; the tokenize endpoint only reac
   });
   assert.deepEqual(await app.probe(), { ok: true, status: 200 });
   assert.equal(recordedDiscovery, true, 'startup must populate proxy discovery and status');
-  app.remote?.close();
+  await app.close();
 });
 
 test('buildEngine: the real engine modules load and process a request', async () => {
