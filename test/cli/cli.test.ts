@@ -98,6 +98,8 @@ test('main: every command answers --help / -h with its usage on stdout, exit 0',
   }
   const d = await run(['doctor', '--json', '--help']);
   assert.match(d.out, /doctor \[--client-config PATH\].*\n[\s\S]*-c, --config FILE/);
+  // doctor reads the config, so the config-options header names it
+  assert.match(d.out, /config options \([^)]*\bdoctor\b[^)]*\):/);
   const c = await run(['config', 'show', '--help']);
   assert.match(c.out, /config init[\s\S]*config import-eval[\s\S]*--force-keys/);
   for (const cmd of ['report', 'bench', 'version']) assert.doesNotMatch((await run([cmd, '-h'])).out, /config options/);

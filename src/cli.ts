@@ -183,7 +183,7 @@ const USAGE = `usage: kitzur <command> [options]
   bench [args...]                       run the benchmark suite (dist/bench/run-all.js)
   version
 
-config options (serve, replay, count, status, config show|validate, state):
+config options (serve, replay, count, status, doctor, config show|validate, state):
   -c, --config FILE      JSON config file (comments allowed)       also KITZUR_CONFIG;
                          default ~/.config/kitzur/kitzur.jsonc if it exists
   -p, --preset NAME      32k | 64k | 100k | 128k, or a preset file   also KITZUR_PRESET
