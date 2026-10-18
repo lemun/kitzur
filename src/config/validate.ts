@@ -168,6 +168,14 @@ export function checkErrorRule(r: unknown, where: string): string[] {
   return out;
 }
 
+/** Any local process (or user, on a shared machine) can use the upstream.headers credentials without a client token. */
+export function listenTokenWarning(cfg: Config): string | null {
+  const headers: unknown = cfg.upstream?.headers;
+  return typeof headers === 'object' && headers !== null && Object.keys(headers).length > 0 && cfg.listen?.token === null
+    ? 'upstream.headers is set and listen.token is not: every local process can use those credentials through the proxy; set listen.token'
+    : null;
+}
+
 /** The value's source, for messages: " (file:/x.json)" or '' for defaults. */
 function src(prov: Provenance | undefined, path: string): string {
   const s = prov?.[path];
@@ -303,11 +311,16 @@ export function validateConfig(cfg: Config, opts: ValidateOptions = {}): Validat
   if (cfg.upstream.origin === null) warnings.push('upstream.origin is not set: serve refuses to start without it');
   const securityError = listenSecurityError(cfg);
   if (securityError) errors.push(securityError);
+  const tokenWarning = listenTokenWarning(cfg);
+  if (tokenWarning && !securityError) warnings.push(tokenWarning);
   if (!isLoopbackHost(cfg.listen.host)) {
     warnings.push(`listen.host ${cfg.listen.host} is not loopback: the proxy forwards credentials; keep it on 127.0.0.1 unless you know why`);
   }
   if (cfg.listen.allowedHosts.includes('*')) warnings.push("listen.allowedHosts ['*'] disables the DNS-rebinding guard");
   else if (cfg.listen.allowedHosts.length === 0) warnings.push('listen.allowedHosts is empty: every request with a Host header is refused');
+  if (cfg.listen.allowedOrigins.length > 0) {
+    warnings.push(`listen.allowedOrigins lets web pages from ${cfg.listen.allowedOrigins.join(', ')} use the proxy and the upstream credentials`);
+  }
   if (cfg.upstream.insecureTls) warnings.push('upstream.insecureTls is on: the gateway certificate is not verified');
   if (!cfg.compaction.enabled) warnings.push('compaction.enabled is false: requests over the budget get the documented error instead of a compaction');
   if (cfg.tokenizer.mode === 'auto' && cfg.tokenizer.path === null) {

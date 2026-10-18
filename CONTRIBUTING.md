@@ -2,8 +2,10 @@
 
 Use Node.js 20 or newer. Run `npm ci`, `scripts/fetch-tokenizer.sh`, then `npm test`.
 The tokenizer download is development data and must stay untracked. Without it,
-tokenizer-dependent tests skip. See [bench/README.md](bench/README.md) for optional
-comparisons and fixture generation.
+tokenizer-dependent tests skip (CI runs them). Where the download host is blocked,
+`KITZUR_TOKENIZER_OPTIONAL=1 scripts/fetch-tokenizer.sh` reports the failure and
+exits 0. See [bench/README.md](bench/README.md) for optional comparisons and
+fixture generation.
 
 Keep runtime dependencies at zero. For behavior changes, include a focused regression
 test and update the relevant documentation. Preserve tool-call pairing, deterministic

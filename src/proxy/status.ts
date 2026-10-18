@@ -1,14 +1,13 @@
-import { firstText } from '../engine/message.js';
-import type { ChatRequest } from '../types.js';
-import { computeBudget } from '../config/derived.js';
-import { isAutoWindow } from '../config/window.js';
 // GET /status and /kitzur/status (DESIGN.md "Routes"): version, uptime, config summary, the §3
 // budget quantities, counter mode and correction, learned entries with their tightenLog, counters by
 // action, error kind, guard reason and replan, upstream_rejected_rewrite, usage_mismatch, active
 // warnings, sessions, latency p50/p99 and memory. Counters are in-process (they reset on restart);
 // the learned entries come from the state store.
 import type { Config } from '../config/schema.js';
-import type { LearnedEntry } from '../types.js';
+import { computeBudget } from '../config/derived.js';
+import { isAutoWindow } from '../config/window.js';
+import { firstText } from '../engine/message.js';
+import type { ChatRequest, LearnedEntry } from '../types.js';
 import { budgetQuantities } from './budget.js';
 
 /** A fixed-size ring of samples for percentiles. */

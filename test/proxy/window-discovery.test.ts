@@ -41,6 +41,15 @@ for (const [name, models, props, expected] of discoveryCases) {
   });
 }
 
+test('probe joins /props onto a prefixed upstream base path', async () => {
+  const upstream = await fakeUpstream((hit, res) => jsonRes(res, 200, hit.url === '/llm/props' ? { model_path: 'local.gguf', n_ctx: 32768 } : {}));
+  const u = new Upstream({ ...testConfig().upstream, origin: `${upstream.origin}/llm/` });
+  try {
+    assert.deepEqual((await u.probe()).discovered_window, { 'local.gguf': 32768 });
+    assert.deepEqual(upstream.hits.map((h) => h.url), ['/llm/v1/models', '/llm/props']);
+  } finally { u.close(); await upstream.close(); }
+});
+
 test('malformed or unavailable metadata does not fail a reachable probe', async () => {
   const upstream = await fakeUpstream((hit, res) => jsonRes(res, hit.url === '/props' ? 404 : 200, '{bad json'));
   const u = new Upstream({ ...testConfig().upstream, origin: upstream.origin });
@@ -78,7 +87,10 @@ for (const mode of ['auto', 100000] as const) {
         assert.equal(response.status, 200);
         await response.text();
       }
-      assert.equal(engine.calls.length, 3);
+      const again = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: 'unknown', messages: [{ role: 'user', content: 'hi' }], max_tokens: 100 }) });
+      await again.text();
+      assert.equal(engine.calls.length, 4);
+      assert.equal(log.filter((s) => s.startsWith('No context window discovered for model')).length, mode === 'auto' ? 1 : 0, 'window_auto_fallback warns once per model');
       assert.ok(Object.values(state.entries()).every((e) => e.window === null), 'discovery must not become persisted overflow learning');
       if (mode === 'auto') assert.ok((proxy.snapshot().warnings as Array<{ key: string }>).some((w) => w.key === 'window_auto_fallback'));
     } finally { await proxy.close(); await upstream.close(); }

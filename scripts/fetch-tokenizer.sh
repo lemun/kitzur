@@ -20,7 +20,12 @@ fi
 tmp=$(mktemp "$dir/tokenizer-download.XXXXXX")
 trap 'rm -f "$tmp"' EXIT HUP INT TERM
 curl -fL --retry 3 -o "$tmp" \
-  https://huggingface.co/Qwen/Qwen3.6-27B/resolve/6a9e13bd6fc8f0983b9b99948120bc37f49c13e9/tokenizer.json
+  https://huggingface.co/Qwen/Qwen3.6-27B/resolve/6a9e13bd6fc8f0983b9b99948120bc37f49c13e9/tokenizer.json || {
+  status=$?
+  echo 'development tokenizer download failed; it is optional: tests skip the tokenizer cases without it and CI runs them (set KITZUR_TOKENIZER_OPTIONAL=1 to exit 0 here)' >&2
+  [ "${KITZUR_TOKENIZER_OPTIONAL:-}" = 1 ] && exit 0
+  exit "$status"
+}
 verify "$tmp" || { echo 'development tokenizer checksum mismatch' >&2; exit 1; }
 mv "$tmp" "$file"
 echo "saved $file"
