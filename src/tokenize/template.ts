@@ -14,9 +14,22 @@
 import { createHash } from 'node:crypto';
 import type { ChatMessage, ChatRequest } from '../types.js';
 import type { ContentClass } from './estimate.js';
+import type { Tokenizer } from './tokenizer.js';
 import { parsePyJson, pyDumps, pyFloatRepr, PyFloat, type PyValue } from './pyjson.js';
 
 export type TemplateName = 'sim' | 'qwen3' | 'chatml' | 'generic';
+
+/** Text control tokens expected as atomic added tokens, rather than ordinary BPE text.
+ * XML tool delimiters are ordinary text; generic has no concrete chat serialization.
+ */
+export function templateTokenizerWarning(name: TemplateName, tokenizer: Pick<Tokenizer, 'addedTokens'>): string | null {
+  const required = name === 'generic' ? [] : ['<|im_start|>', '<|im_end|>'];
+  if (name === 'qwen3') required.push('<think>', '</think>');
+  const missing = required.filter(token => !tokenizer.addedTokens.has(token));
+  return missing.length
+    ? `Tokenizer for template '${name}' is missing special tokens: ${missing.join(', ')}; token counts may differ from the server. Use the model's matching tokenizer.json and template.`
+    : null;
+}
 
 /**
  * One span of a rendered piece. 'g' = template glue, 'c' = message content (its class is a hint for

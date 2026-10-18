@@ -46,8 +46,10 @@ All of it lives under `stateDir`, which defaults to `$XDG_STATE_HOME/kitzur` or 
 | `learned.json` | Per (gateway origin, model): learned window, tighten, calibration ratios, timestamps | No: numbers and the origin/model names only | on |
 | `plans/plans-<day>.jsonl` | Compaction plans: plan keys, cut indices and **summary text** | **Yes**: summaries quote user instructions, assistant notes, file paths and URLs | **off** (`store.persist: false`); the `plans/` directory is created owner-only (`0700`) |
 | `tokenizer-<sha>.lctk` | Compiled tokenizer cache | No | on when a tokenizer is configured |
-| `stats.path` (JSONL) | One record per request: sizes, token counts, actions, statuses, timings, a session hash | No: **sizes only, never content** | off unless set |
+| `stats.path` (JSONL) | One record per request: sizes, token counts, actions, statuses, timings, a session hash, and optional `client_session` (`x-session-id` / `x-sim-session`, stored verbatim, at most 128 characters) | **Client session IDs**, but no message content | off unless set |
 | `ledger.mirrorPath` | The rendered facts section | **Yes** | off (not implemented in v1: setting it writes nothing and warns at startup) |
+
+Avoid putting secrets or message content in client session IDs when enabling stats.
 
 With the defaults, kitzur writes **no user content to disk**. A restart then recomputes plans from the next
 request (deterministic, so the output is identical).

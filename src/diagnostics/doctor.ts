@@ -8,6 +8,7 @@ import { computeBudget } from '../config/derived.js';
 import type { Config } from '../config/schema.js';
 import { stateDirOf } from '../config/paths.js';
 import { loadTokenizer } from '../tokenize/tokenizer.js';
+import { templateTokenizerWarning } from '../tokenize/template.js';
 import { parseJsonc } from '../config/jsonc.js';
 import { clientConfigChecks } from './client-config.js';
 import { Upstream } from '../proxy/upstream.js';
@@ -82,7 +83,7 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
   const add = (code: string, status: DoctorCheck['status'], message: string, fix?: string): void => { checks.push({ code, status, message, ...(fix ? { fix } : {}) }); };
 
   try {
-    const validation = validateConfig(config, { checkFiles: true });
+    const validation = validateConfig(config, { checkFiles: true, checkTokenizer: false });
     if (!validation.errors.length) add('config.valid', 'ok', 'Configuration is valid.');
     else add('config.valid', 'error', `Configuration has ${validation.errors.length} validation error(s).`, 'Run `kitzur config validate` and correct the reported settings.');
     if (validation.warnings.length) add('config.warnings', 'warn', `Configuration has ${validation.warnings.length} warning(s).`, 'Review `kitzur config validate` output.');
@@ -113,6 +114,8 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
   else {
     try {
       const tok = loadTokenizer(config.tokenizer.path);
+      const warning = templateTokenizerWarning(config.tokenizer.template.name, tok);
+      if (warning) add('tokenizer.template', 'warn', warning);
       const n = tok.count('kitzur diagnostic');
       add(n > 0 ? 'tokenizer.load' : 'tokenizer.count', n > 0 ? 'ok' : 'error', n > 0 ? 'Tokenizer loaded and counted a sample locally.' : 'Tokenizer returned an empty count for a non-empty sample.', n > 0 ? undefined : 'Check tokenizer.json and use a supported tokenizer.');
     } catch {
