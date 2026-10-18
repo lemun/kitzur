@@ -8,6 +8,7 @@ import { computeBudget } from '../config/derived.js';
 import type { Config } from '../config/schema.js';
 import { stateDirOf } from '../config/paths.js';
 import { loadTokenizer } from '../tokenize/tokenizer.js';
+import { templateTokenizerWarning } from '../tokenize/template.js';
 import { parseJsonc } from '../config/jsonc.js';
 import { clientConfigChecks } from './client-config.js';
 import { Upstream } from '../proxy/upstream.js';
@@ -113,6 +114,8 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
   else {
     try {
       const tok = loadTokenizer(config.tokenizer.path);
+      const warning = templateTokenizerWarning(config.tokenizer.template.name, tok);
+      if (warning) add('tokenizer.template', 'warn', warning);
       const n = tok.count('kitzur diagnostic');
       add(n > 0 ? 'tokenizer.load' : 'tokenizer.count', n > 0 ? 'ok' : 'error', n > 0 ? 'Tokenizer loaded and counted a sample locally.' : 'Tokenizer returned an empty count for a non-empty sample.', n > 0 ? undefined : 'Check tokenizer.json and use a supported tokenizer.');
     } catch {

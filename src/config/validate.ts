@@ -3,6 +3,8 @@
 // startup warnings ( clamp unreachable,  one snapshot per epoch,  T_plan below the client's
 // output, a window that does not match its preset). Pure; file checks are opt-in (`checkFiles`).
 import { existsSync, statSync } from 'node:fs';
+import { loadTokenizer } from '../tokenize/tokenizer.js';
+import { templateTokenizerWarning } from '../tokenize/template.js';
 import type { ErrorRule } from '../types.js';
 import { isLoopbackHost, listenSecurityError } from './listen.js';
 import type { Config } from './schema.js';
@@ -19,7 +21,7 @@ export interface ValidationResult {
 export interface ValidateOptions {
   /** per-leaf sources (loadConfig); used in messages and in the preset-mismatch warning */
   provenance?: Provenance;
-  /** check that configured files exist (tokenizer.path, upstream.caFile) */
+  /** Check configured files and local tokenizer/template compatibility. */
   checkFiles?: boolean;
 }
 
@@ -339,6 +341,13 @@ export function validateConfig(cfg: Config, opts: ValidateOptions = {}): Validat
     if (missing(cfg.upstream.caFile)) errors.push(`upstream.caFile: file not found: ${cfg.upstream.caFile}${src(prov, 'upstream.caFile')}`);
     if (cfg.tokenizer.mode === 'auto' && missing(cfg.tokenizer.path)) {
       warnings.push(`tokenizer.path: file not found: ${cfg.tokenizer.path}${src(prov, 'tokenizer.path')}; counting falls back to the estimate`);
+    } else if (cfg.tokenizer.mode === 'auto' && cfg.tokenizer.path) {
+      try {
+        const warning = templateTokenizerWarning(cfg.tokenizer.template.name, loadTokenizer(cfg.tokenizer.path));
+        if (warning) warnings.push(warning);
+      } catch {
+        warnings.push('tokenizer.path: file could not be loaded as a supported tokenizer; counting falls back to the estimate');
+      }
     }
   }
   return { errors, warnings };
