@@ -115,6 +115,7 @@ test('clamp clause (): opt-in, strict_total, floor and client point', () => {
 
 test('client input limits agree in runtime and reporting budgets', async () => {
   const { computeBudget: reportBudget } = await import('../../src/config/derived.js');
+  const { serverLimits, budgetQuantities } = await import('../../src/proxy/budget.js');
   const cases: Array<[Record<string, number | null>, number]> = [
     [{ inputLimit: 66_000 }, 46_000],
     [{}, 68_000],
@@ -135,6 +136,11 @@ test('client input limits agree in runtime and reporting budgets', async () => {
     assert.equal(live.clientPoint, point, JSON.stringify(client));
     assert.equal(report.clientPoint, live.clientPoint);
     assert.equal(report.trigger, live.trigger);
+    const proxy = budgetQuantities(cfg, null);
+    const limits = serverLimits(cfg, null);
+    assert.equal(proxy.clientPoint, point, `proxy: ${JSON.stringify(client)}`);
+    assert.equal(limits.hard, live.hard, `server limits: ${JSON.stringify(client)}`);
+    assert.deepEqual([proxy.hard, proxy.trigger, proxy.target], [live.hard, live.trigger, live.target]);
     if (point > 0) assert.ok(live.trigger < point);
   }
 });
