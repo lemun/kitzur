@@ -39,7 +39,7 @@ the request or the agent loses the thread.
 - **Fits the window you actually serve.** Presets for 32k, 64k, 100k and 128k windows.
 - **Deterministic and local.** The same history and settings produce the same
   request; there is no summarizer model to run, pay for or wait on.
-- **Zero runtime dependencies.** Plain Node.js 20+, one HTTP hop on loopback.
+- **Zero runtime dependencies.** Plain Node.js 22+, one HTTP hop on loopback.
 - **Keeps the working set.** Tool calls stay paired with their results, and recent
   work is retained verbatim.
 - **Drop-in.** Change the agent's base URL; nothing else about the agent changes.
@@ -48,7 +48,7 @@ the request or the agent loses the thread.
 
 ## Quick start
 
-Requires **Node.js 20+** and a running OpenAI-compatible Chat Completions server. The
+Requires **Node.js 22+** and a running OpenAI-compatible Chat Completions server. The
 served model's `tokenizer.json` is recommended for exact counts: without it
 (`tokenizer.path: null`), `serve` still starts, logs a warning and counts with a
 conservative per-class estimate. Kitzur is built from source:

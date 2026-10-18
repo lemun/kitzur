@@ -12,7 +12,7 @@
   <key>Label</key>
   <string>com.github.lemun.kitzur</string>
 
-  <!-- Node >= 20. launchd's PATH is minimal, so PATH below adds the Homebrew locations; for nvm, mise or a
+  <!-- Node >= 22. launchd's PATH is minimal, so PATH below adds the Homebrew locations; for nvm, mise or a
        tarball install, put the absolute path of node here instead of /usr/bin/env node. -->
   <key>ProgramArguments</key>
   <array>

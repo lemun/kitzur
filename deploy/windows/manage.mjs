@@ -239,7 +239,7 @@ async function supervise() {
 }
 async function main() {
   if (process.platform !== 'win32' || !process.env.LOCALAPPDATA || !process.env.APPDATA) throw new SafeError('Windows per-user environment required.');
-  if (Number(process.versions.node.split('.')[0]) < 20) throw new SafeError('Node.js 20+ required; install your organisation-approved Node build.');
+  if (Number(process.versions.node.split('.')[0]) < 22) throw new SafeError('Node.js 22+ required; install your organisation-approved Node build.');
   const [action,...args] = process.argv.slice(2);
   if (action === 'install') return install(args);
   if (action === 'supervise') return supervise();

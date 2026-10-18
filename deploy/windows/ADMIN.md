@@ -5,7 +5,7 @@ it separately from the public package. Node.js and OpenCode are separate prerequ
 
 ## Prepare a profile
 
-1. Choose a supported Node.js 20+ build and pin the OpenCode client version. The included template uses
+1. Choose a supported Node.js 22+ build and pin the OpenCode client version. The included template uses
    the `@ai-sdk/openai-compatible` provider format documented in the
    [OpenCode provider guide](https://opencode.ai/docs/providers). Verify compatibility with the selected
    version. Use the system's normal PowerShell script policy; no scripts change policy or disable TLS.
