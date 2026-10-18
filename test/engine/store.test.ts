@@ -99,11 +99,11 @@ test('persistence scans each day once, keeps corruption totals and retains live 
   let clock = new Date('2026-09-28T12:00:00Z');
   const file = join(dir, 'plans-2026-09-28.jsonl');
   appendFileSync(file, JSON.stringify({ key: 'a', plan: plan(1) }) + '\ninvalid\n');
-  const read = fs.readFileSync;
+  const open = fs.openSync;
   let reads = 0;
-  const spy = mock.method(fs, 'readFileSync', (...args: Parameters<typeof read>) => {
+  const spy = mock.method(fs, 'openSync', (...args: Parameters<typeof open>) => {
     reads++;
-    return Reflect.apply(read, fs, args);
+    return Reflect.apply(open, fs, args);
   });
   syncBuiltinESMExports();
   try {
@@ -122,6 +122,48 @@ test('persistence scans each day once, keeps corruption totals and retains live 
   } finally {
     spy.mock.restore();
     syncBuiltinESMExports();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('persistence streams a daily file far larger than maxBytes without holding it in memory', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-plans-'));
+  const file = join(dir, 'plans-2026-09-28.jsonl');
+  try {
+    const maxBytes = 4096;
+    const total = 6000;
+    const rows: string[] = [];
+    for (let i = 0; i < total; i++) rows.push(JSON.stringify({ key: 'k' + i, plan: plan(i) }));
+    // a record bigger than the 1 MiB record cap sits in the middle, plus a torn trailing record
+    rows.splice(3000, 0, JSON.stringify({ key: 'huge', plan: plan(1, 'x'.repeat(2 * 1024 * 1024)) }));
+    fs.writeFileSync(file, rows.join('\n') + '\n{"key":"torn"');
+    assert.ok(fs.statSync(file).size > 100 * maxBytes, 'the file dwarfs the index cap');
+    const reads: number[] = [];
+    const read = fs.readSync;
+    const rspy = mock.method(fs, 'readSync', (...args: Parameters<typeof read>) => {
+      reads.push((args[1] as Buffer).length);
+      return Reflect.apply(read, fs, args);
+    });
+    const whole = mock.method(fs, 'readFileSync', () => { throw new Error('whole-file read'); });
+    syncBuiltinESMExports();
+    try {
+      const p = createFilePersistence({ dir, now: () => new Date('2026-09-28T12:00:00Z'), maxBytes });
+      const before = process.memoryUsage().arrayBuffers;
+      assert.deepEqual(p.load('k0'), plan(0), 'the earliest record is still found');
+      assert.deepEqual(p.load('k5999'), plan(5999));
+      assert.equal(p.load('huge'), undefined, 'oversized records are skipped, not buffered');
+      assert.equal(p.load('torn'), undefined);
+      assert.ok(p.bytes() <= maxBytes, 'resident index never exceeds the cap');
+      assert.ok(p.entries() < total / 10);
+      assert.equal(p.corruptLines(), 2, 'the oversized and the torn record are counted');
+      assert.ok(reads.length > 10 && Math.max(...reads) <= 64 * 1024, 'only fixed 64 KiB chunks are read');
+      assert.ok(process.memoryUsage().arrayBuffers - before < 8 * 1024 * 1024, 'no file-sized buffers are retained');
+    } finally {
+      rspy.mock.restore();
+      whole.mock.restore();
+      syncBuiltinESMExports();
+    }
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
