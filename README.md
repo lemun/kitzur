@@ -338,6 +338,21 @@ and the Windows [user guide](deploy/windows/USER.md) and [administrator guide](d
 
 </details>
 
+`kitzur status` shows a readable summary and the five latest requests; use
+`kitzur status --json` for the complete raw object. `/status` and `/kitzur/status`
+include `last_compaction: {at, in, out, trigger}` (initially `null`) and
+`recent_requests`, the latest 64 completed chat requests in completion order, each
+with `{action, tokens: {in, out, trigger}, model, ms}`. Unknown counts are `null`.
+This history is available even without a stats file and resets on restart.
+
+When the client sets an input limit (for example OpenCode `limit.input`), set
+`client.inputLimit` to match. Kitzur derives the client compaction point as
+`max(0, inputLimit − (reservedTokens ?? min(20000, capped output limit)))`.
+Use `client.reservedTokens` for an explicit reservation, including zero;
+`client.compactionPointTokens` overrides this calculation. For a 100000 context,
+66000 input and 32000 output, the client point is 46000 and Kitzur triggers below
+it. Without an input limit, existing context-minus-output behavior is preserved.
+See [CONFIG.md](CONFIG.md) for all budget settings.
 ## Documentation
 
 | Document | What it covers |

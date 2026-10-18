@@ -1,3 +1,4 @@
+import { clientCompactionPoint } from './client-point.js';
 // Budget quantities of DESIGN.md, computed from the config (plus the request's T_req, the learned
 // entry and, when known, the head size). Pure, no I/O.
 //
@@ -94,8 +95,7 @@ export function computeBudget(cfg: Config, inputs: BudgetInputs = {}): Budget {
   const tighten = Math.max(0, E?.tighten ?? 0) + Math.max(0, inputs.extraTighten ?? 0);
   const maxPrompt = E?.maxPrompt ?? null;
   const budget = Math.min(W - tPlan - margin, maxPrompt === null ? Infinity : maxPrompt - margin) - tighten;
-  const clientPoint =
-    cfg.client.compactionPointTokens ?? W - Math.min(cfg.client.outputLimit ?? tPlan, cfg.client.outputTokenMax);
+  const clientPoint = clientCompactionPoint(cfg, W, tPlan);
   const allowance = cfg.client.outputAllowanceTokens ?? Math.min(7000, Math.floor(tPlan / 2));
   const hard = Math.min(budget, clientPoint - allowance);
   const trigger = Math.min(cfg.compaction.triggerTokens ?? floorFrac(hard, cfg.compaction.triggerFraction), hard);
