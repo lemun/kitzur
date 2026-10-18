@@ -32,6 +32,14 @@ const cases: Array<{ seed: number; inv: string; checks: CheckOptions }> = [
   { seed: 8648, inv: 'retry-guard', checks: DEFAULT_CHECKS },
 ];
 
+test('frozen fuzz repros only link reserved example domains (RFC 2606)', () => {
+  for (const { seed } of cases) {
+    const hosts = JSON.stringify(load(seed)).match(/https?:\/\/[^/\s"\\)]+/g) ?? [];
+    assert.ok(hosts.length > 0);
+    for (const h of hosts) assert.match(h, /\.(example|test|invalid|localhost)(:\d+)?$/, `repro-${seed}: ${h}`);
+  }
+});
+
 for (const { seed, inv, checks } of cases) {
   test(`frozen fuzz repro ${seed} (${inv}): no invariant violation`, { skip }, () => {
     const r = load(seed);
