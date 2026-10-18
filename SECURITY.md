@@ -56,8 +56,10 @@ request (deterministic, so the output is identical).
 
 ## What is logged
 
-- Startup configuration (no header values, no URL credentials), warnings and errors. There is no per-request log
-  line: per-request actions and sizes go to `/status` and, when `stats.path` is set, the stats JSONL.
+- Startup configuration (no header values, no URL credentials), warnings and errors.
+- At the default `info` level, one content-free line per completed chat request: action, token counts, budget,
+  trigger, target, the model name and elapsed milliseconds (`logLevel: "warn"` suppresses it). More per-request
+  detail goes to `/status` and, when `stats.path` is set, the stats JSONL.
 - Config and request-file syntax errors (`serve`, `config`, `count`, `replay`) give the line and column only: they
   never quote the file, so a mistyped header value or a captured prompt is not echoed.
 - Upstream error bodies are classified in memory and returned to the client. They are **not** written to logs.

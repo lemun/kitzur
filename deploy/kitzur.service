@@ -2,7 +2,8 @@
 #
 #   cp kitzur.service ~/.config/systemd/user/ && systemctl --user daemon-reload
 #   systemctl --user enable --now kitzur
-#   journalctl --user -u kitzur -f            # logs (sizes and decisions only, never content)
+#   tail -f ~/.local/state/kitzur/logs/kitzur-$(date -u +%F).log   # serving logs (sizes and decisions, never content)
+#   journalctl --user -u kitzur               # only the startup line and fatal errors
 #   loginctl enable-linger "$USER"             # keep it running without a login session
 #
 # Paths assume the offline tarball was unpacked to ~/.local/lib/kitzur (deploy/README.md step 1).

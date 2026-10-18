@@ -66,10 +66,10 @@ Generated OpenCode context/output limits follow the effective preset/configurati
 this template and are rejected; configure such deployments through a separately reviewed client setup.
 
 CI builds the generic ZIP/npm archives on Linux with Python 3.12, then consumes both on Windows
-with Node 20 and 22. It exercises portable engine/ledger/tokenizer/diagnostic suites and the actual
+with Node 22, 24 and 26. It exercises portable engine/ledger/tokenizer/diagnostic suites and the actual
 PowerShell installer, configuration-preserving reinstall, background start/status/stop, safe diagnostics
 and an isolated startup shortcut under paths with spaces. Linux continues to run the full suite,
-including POSIX signal/mode and Unix path cases. Windows Node 20/22 artifact and installation/lifecycle checks passed in
+including POSIX signal/mode and Unix path cases. Windows artifact and installation/lifecycle checks (then on Node 20 and 22) passed in
 [GitHub CI](https://github.com/lemun/kitzur/actions/runs/38245999885) for the 0.1.0 release
 (see `CHANGELOG.md`).
 
