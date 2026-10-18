@@ -112,3 +112,35 @@ test('clamp clause (): opt-in, strict_total, floor and client point', () => {
   const bu = computeBudget(unreachable, E(unreachable), 0, 32_000);
   for (let c = bu.trigger + 1; c < bu.window; c += 97) assert.ok(!clampClause(unreachable, bu, c, false), `range empty at ${c}`);
 });
+
+test('client input limits agree in runtime and reporting budgets', async () => {
+  const { computeBudget: reportBudget } = await import('../../src/config/derived.js');
+  const { serverLimits, budgetQuantities } = await import('../../src/proxy/budget.js');
+  const cases: Array<[Record<string, number | null>, number]> = [
+    [{ inputLimit: 66_000 }, 46_000],
+    [{}, 68_000],
+    [{ reservedTokens: 9000 }, 68_000],
+    [{ inputLimit: 66_000, reservedTokens: 0 }, 66_000],
+    [{ inputLimit: 66_000, reservedTokens: 5000 }, 61_000],
+    [{ inputLimit: 0 }, 0],
+    [{ inputLimit: 10_000 }, 0],
+    [{ inputLimit: 66_000, outputLimit: 8000 }, 58_000],
+    [{ inputLimit: 66_000, outputLimit: 50_000, outputTokenMax: 12_000 }, 54_000],
+    [{ inputLimit: 66_000, outputLimit: null, outputTokenMax: 12_000 }, 54_000],
+    [{ inputLimit: 66_000, compactionPointTokens: 60_000 }, 60_000],
+  ];
+  for (const [client, point] of cases) {
+    const cfg = testConfig({ client });
+    const live = computeBudget(cfg, E(cfg), 0, 32_000);
+    const report = reportBudget(cfg);
+    assert.equal(live.clientPoint, point, JSON.stringify(client));
+    assert.equal(report.clientPoint, live.clientPoint);
+    assert.equal(report.trigger, live.trigger);
+    const proxy = budgetQuantities(cfg, null);
+    const limits = serverLimits(cfg, null);
+    assert.equal(proxy.clientPoint, point, `proxy: ${JSON.stringify(client)}`);
+    assert.equal(limits.hard, live.hard, `server limits: ${JSON.stringify(client)}`);
+    assert.deepEqual([proxy.hard, proxy.trigger, proxy.target], [live.hard, live.trigger, live.target]);
+    if (point > 0) assert.ok(live.trigger < point);
+  }
+});

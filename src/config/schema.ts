@@ -59,8 +59,10 @@ export interface Config {
     observedFixedPromptTokens: number | null;
   };
   client: {
-    /** where the agent compacts by itself (prompt+completion tokens); null = W - min(outputLimit ?? T_plan, outputTokenMax) */
+    /** where the agent compacts by itself (prompt+completion tokens); null = derived from inputLimit or window and capped output */
     compactionPointTokens: number | null;
+    inputLimit: number | null;
+    reservedTokens: number | null;
     outputLimit: number | null;
     /** the client's output cap (OPENCODE_/KILO_EXPERIMENTAL_OUTPUT_TOKEN_MAX, default 32000) */
     outputTokenMax: number;
@@ -224,7 +226,7 @@ export const DEFAULT_CONFIG: Config = {
     observedFixedPromptTokens: null,
   },
   client: {
-    compactionPointTokens: null, outputLimit: null, outputTokenMax: 32_000, outputAllowanceTokens: null,
+    compactionPointTokens: null, inputLimit: null, reservedTokens: null, outputLimit: null, outputTokenMax: 32_000, outputAllowanceTokens: null,
     toolOutputMaxBytes: 51_200,
     summaryMarkers: ['## Objective', '## Next Move'],
     compactionMarkers: ['What did we do so far?'],

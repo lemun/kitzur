@@ -81,7 +81,10 @@ T_plan      = budget.planMaxTokens ?? budget.defaultMaxTokens               (con
 W           = learned window ?? budget.window
 margin      = max(budget.safetyMarginTokens, ceil(budget.safetyMarginFraction · W))
 budget      = min(W − T_plan − margin, learned maxPrompt − margin) − tighten
-clientPoint = client.compactionPointTokens ?? (W − min(client.outputLimit ?? T_plan, client.outputTokenMax))
+cappedOutput = min(client.outputLimit ?? T_plan, client.outputTokenMax)
+clientPoint = client.compactionPointTokens ?? (client.inputLimit != null
+              ? max(0, client.inputLimit − (client.reservedTokens ?? min(20000, cappedOutput)))
+              : W − cappedOutput)
 allowance   = client.outputAllowanceTokens ?? min(7000, floor(T_plan / 2))
 hard        = min(budget, clientPoint − allowance)
 trigger     = min(compaction.triggerTokens ?? floor(hard · compaction.triggerFraction), hard)
@@ -161,7 +164,7 @@ OpenCode (`opencode.json[c]`, in the project, `~/.config/opencode/` or `.opencod
 ```
 
 - `limit.context`/`limit.output` equal the kitzur preset (`100k` ↔ 100000/32000, `32k` ↔ 32000/8000, …).
-  OpenCode then compacts at `context − min(output, 32000)`, which is `clientPoint`.
+  OpenCode then compacts at `context − min(output, 32000)`, which is `clientPoint` when no input limit is set. With `limit.input`, set `client.inputLimit` and mirror any explicit reservation in `client.reservedTokens`.
 - OpenCode sends `max_tokens = min(limit.output, 32000)` on every request and always asks for streamed usage
   (`stream_options.include_usage`), so `stream.injectIncludeUsage` stays off.
 - `OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX` changes the 32000: set `client.outputTokenMax` to the same value.
@@ -239,7 +242,9 @@ Columns: **Default**; **Meaning**; **If wrong**: what breaks; **Probe field**: t
 
 | Key | Default | Meaning | If wrong | Probe field |
 |---|---|---|---|---|
-| `client.compactionPointTokens` | `null` | Where the agent compacts by itself (last step's prompt + completion); `null` = `W − min(outputLimit ?? T_plan, outputTokenMax)`. | Above the client's real point: the agent's own LLM compaction fires and rewrites the goal and facts. Far below: kitzur compacts earlier than needed. | client config: OpenCode `usable` (`limit.context − maxOut`, or `limit.input − reserved`), Kilo `threshold_percent`; `compaction.auto: false` = the window |
+| `client.compactionPointTokens` | `null` | Where the agent compacts by itself (last step's prompt + completion); `null` = input-limit formula above when `client.inputLimit` is set, otherwise `W − min(outputLimit ?? T_plan, outputTokenMax)`. | Above the client's real point: the agent's own LLM compaction fires and rewrites the goal and facts. Far below: kitzur compacts earlier than needed. | client config: OpenCode `usable` (`limit.context − maxOut`, or `limit.input − reserved`), Kilo `threshold_percent`; `compaction.auto: false` = the window |
+| `client.inputLimit` | `null` | Client input limit (`limit.input`); when set, derive `clientPoint` as `max(0, inputLimit − reserved)`. Explicit `compactionPointTokens` wins. | Too high: client compacts first. | client config `limit.input` |
+| `client.reservedTokens` | `null` | Reservation below the input limit; `null` = `min(20000, cappedOutput)`. Zero is allowed. Ignored without `inputLimit`. | Too small: client compacts first. | client config `compaction.reserved` |
 | `client.outputLimit` | `null` | The client's configured output (`limit.output`). | Only the `clientPoint` default and the `T_plan` warning use it. | client config `limit.output` |
 | `client.outputTokenMax` | `32000` | The client's output cap (`OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX`, `KILO_…`). | Wrong `clientPoint` default (see above). | client config env |
 | `client.outputAllowanceTokens` | `null` | Headroom kept below `clientPoint` for the reply plus reasoning; `null` = `min(7000, floor(T_plan / 2))`. | Too small: a step that reasons long pushes prompt + completion past the client's point, and the client compacts. Too large: earlier compactions. | `min(T_plan, max(2000, p99 completion_tokens))` from `capture.jsonl`, else `summarize_capture.reported_completion_tokens.max` |
@@ -542,9 +547,17 @@ half; prompt-count validation still applies.
 Run `kitzur doctor --client-config opencode.json` to check an OpenCode JSON/JSONC
 provider against Kitzur's listen address, SDK, model limits and trigger. Use
 `@ai-sdk/openai-compatible` for Chat Completions; `@ai-sdk/openai` uses
-`/responses`, which Kitzur forwards untouched. The check reserves
-`min(limit.output, 32000)` from `limit.input` (or `limit.context`) and warns
-when the usable context is at or below Kitzur's trigger plus output allowance.
+`/responses`, which Kitzur forwards untouched. For a positive `limit.input`,
+the check calculates OpenCode's compaction point as
+`max(0, limit.input - (compaction.reserved ?? min(20000, maxOutputTokens)))`.
+Root `compaction.reserved` may explicitly be `0`. Without a positive input
+limit, the point is `max(0, limit.context - maxOutputTokens)`;
+`maxOutputTokens` is `min(limit.output, client.outputTokenMax)` (the configured
+OpenCode output cap, default `32000`). For example, context `100000`, input
+`66000` and output `32000` give a default compaction point of `46000`.
+The doctor warns “OpenCode compacts at X, Kitzur triggers at Y” when
+`Y >= X - output allowance`, including equality. It skips this comparison
+when root `compaction.auto` is `false` or `limit.context` is `0`.
 
 `/status` exposes `client_compactions`, `last_client_compaction` (previous
 forwarded prompt tokens and trigger), and `completion_tokens_p99`. A request

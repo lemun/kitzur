@@ -487,3 +487,17 @@ test('status authenticates the configured listener and keeps explicit URLs crede
     assert.deepEqual(authorizations, ['Bearer CLIENT_SECRET', undefined]);
   } finally { mock.restoreAll(); }
 });
+
+test('config show exposes input-limit client point and trigger', async () => {
+  const args = ['config', 'show', '--set', 'client.inputLimit=66000'];
+  const text = await run(args);
+  assert.equal(text.code, 0);
+  assert.match(text.out, /clientPoint +46000\n/);
+  assert.match(text.out, /trigger +39000\n/);
+  const json = await run([...args, '--json']);
+  assert.equal(json.code, 0);
+  const value = JSON.parse(json.out);
+  assert.equal(value.config.client.inputLimit, 66_000);
+  assert.equal(value.derived.clientPoint, 46_000);
+  assert.equal(value.derived.trigger, 39_000);
+});
