@@ -194,8 +194,11 @@ config options (serve, replay, count, status, config show|validate, state):
 Precedence: defaults < preset < config file < KITZUR_* env < command line. Every key: CONFIG.md.
 `;
 
-/** Commands that answer --help / -h with their usage (bench passes its arguments to the suite). */
-const HELP_COMMANDS = new Set(['serve', 'replay', 'count', 'status', 'doctor', 'report', 'config', 'state']);
+/** Commands that answer --help / -h with their usage (bench forwards help flags to the suite only after `--`). */
+const HELP_COMMANDS = new Set(['serve', 'replay', 'count', 'status', 'doctor', 'report', 'config', 'state', 'bench', 'version']);
+
+/** Commands that read no config, so their usage leaves out the config options. */
+const NO_CONFIG_COMMANDS = new Set(['report', 'bench', 'version']);
 
 /** One command's USAGE lines (with their continuation lines), plus the config options unless it reads no config. */
 function usageOf(cmd: string): string {
@@ -208,7 +211,7 @@ function usageOf(cmd: string): string {
     if (m) mine = m[1] === cmd;
     if (mine) own.push(l);
   }
-  const configOpts = cmd === 'report' ? '' : `\n${USAGE.slice(USAGE.indexOf('config options'))}`;
+  const configOpts = NO_CONFIG_COMMANDS.has(cmd) ? '' : `\n${USAGE.slice(USAGE.indexOf('config options'))}`;
   return `usage: kitzur ${cmd} [options]\n\n${own.join('\n')}\n${configOpts}`;
 }
 
