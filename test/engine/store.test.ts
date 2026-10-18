@@ -1,4 +1,6 @@
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readdirSync, readFileSync, appendFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -87,6 +89,39 @@ test('persistence bounds its index and loads retained days on demand', async () 
     await p.flush();
     assert.ok(readFileSync(join(dir, 'plans-2026-09-28.jsonl'), 'utf8').includes('new'));
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+
+test('persistence scans each day once, keeps corruption totals and retains live entries at midnight', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-plans-'));
+  let clock = new Date('2026-09-28T12:00:00Z');
+  const file = join(dir, 'plans-2026-09-28.jsonl');
+  appendFileSync(file, JSON.stringify({ key: 'a', plan: plan(1) }) + '\ninvalid\n');
+  const read = fs.readFileSync;
+  let reads = 0;
+  const spy = mock.method(fs, 'readFileSync', (...args: Parameters<typeof read>) => {
+    reads++;
+    return Reflect.apply(read, fs, args);
+  });
+  syncBuiltinESMExports();
+  try {
+    const p = createFilePersistence({ dir, now: () => clock, retentionDays: 2 });
+    assert.equal(p.load('missing'), undefined);
+    assert.equal(p.load('another-miss'), undefined);
+    assert.equal(reads, 1, 'repeated misses do not reread a parsed day');
+    assert.equal(p.corruptLines(), 1, 'corruption is counted once per parsed line');
+    clock = new Date('2026-09-29T12:00:00Z');
+    assert.deepEqual(p.load('a'), plan(1), 'midnight preserves unexpired cached plans');
+    assert.equal(reads, 1);
+    clock = new Date('2026-09-30T12:00:00Z');
+    assert.equal(p.load('a'), undefined, 'expired cached plans are removed');
+    assert.equal(p.corruptLines(), 1, 'a later miss preserves corruption diagnostics');
+    await p.flush();
+  } finally {
+    spy.mock.restore();
+    syncBuiltinESMExports();
     rmSync(dir, { recursive: true, force: true });
   }
 });

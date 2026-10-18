@@ -95,7 +95,14 @@ test('buildApp: the engine gets a local counter; the tokenize endpoint only reac
   });
   assert.deepEqual(await app.probe(), { ok: true, status: 200 });
   assert.equal(recordedDiscovery, true, 'startup must populate proxy discovery and status');
+  const shutdown: string[] = [];
+  app.server.close = async () => { shutdown.push('drained'); };
+  app.store.flush = async () => {
+    await Promise.resolve();
+    shutdown.push('persisted');
+  };
   await app.close();
+  assert.deepEqual(shutdown, ['drained', 'persisted'], 'shutdown awaits queued plans after draining requests');
 });
 
 test('buildEngine: the real engine modules load and process a request', async () => {

@@ -309,6 +309,8 @@ export interface LedgerRenderResult {
 // ---------------------------------------------------------------- store
 
 export interface PlanStore {
+  /** Wait for queued persistence writes, when supported. */
+  flush?(): Promise<void>;
   get(key: string): Plan | undefined;
   set(key: string, plan: Plan): void;
   /** number of plans in memory */

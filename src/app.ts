@@ -272,7 +272,10 @@ export async function buildApp(
       },
       async close(drainMs = 30_000) {
         try { await server.close(drainMs); }
-        finally { watchdog?.close(); log.info('stopped'); await runtimeLog?.close(); }
+        finally {
+          await es.store.flush?.();
+          watchdog?.close(); log.info('stopped'); await runtimeLog?.close();
+        }
       },
     };
   } catch (e) {

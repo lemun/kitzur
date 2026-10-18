@@ -391,6 +391,7 @@ Columns: **Default**; **Meaning**; **If wrong**: what breaks; **Probe field**: t
 |---|---|---|---|---|
 | `cache.prefixCaching` | `unknown` | Informational: the server has prefix caching (`on`, `off`, `unknown`). | – | `on` when `summarize_capture.cached_prompt_tokens` shows cached tokens |
 | `store.persist` | `false` | Persist plans to `<stateDir>/plans/` (saves CPU after a restart; results are identical without it). Plans contain summaries (user content). | – | – |
+| `store.retentionDays` | `14` | Retain persisted plans for this many UTC calendar days, including today; expired daily files are removed on store access. | Too low: extra recomputation after restarts. | – |
 | `store.maxPlans` | `4096` | Plan memo size (entries). | Too low: extra fold replays (CPU only). | – |
 | `store.maxBytes` | `67108864` | Plan memo size (bytes). | As above. | – |
 | `stateDir` | `null` | Learned state, plan store and tokenizer cache; `null` = `$XDG_STATE_HOME/kitzur` or `~/.local/state/kitzur`. | Shared between unrelated instances: learned windows leak between them. | – |
