@@ -84,7 +84,8 @@ Check it:
 
 ```sh
 systemctl --user status kitzur
-journalctl --user -u kitzur -f           # sizes and decisions only, never prompt content
+tail -f ~/.local/state/kitzur/logs/kitzur-$(date -u +%F).log   # serving logs: sizes and decisions, never prompt content
+journalctl --user -u kitzur              # the journal only gets the startup line and fatal errors
 kitzur status                            # GET /status: budget, counter mode, learned entries, counters
 ```
 

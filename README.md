@@ -48,8 +48,10 @@ the request or the agent loses the thread.
 
 ## Quick start
 
-Requires **Node.js 20+**, a running OpenAI-compatible Chat Completions server, and
-that model's `tokenizer.json`. Kitzur is built from source:
+Requires **Node.js 20+** and a running OpenAI-compatible Chat Completions server. The
+served model's `tokenizer.json` is recommended for exact counts: without it
+(`tokenizer.path: null`), `serve` still starts, logs a warning and counts with a
+conservative per-class estimate. Kitzur is built from source:
 
 ```sh
 git clone https://github.com/lemun/kitzur.git
@@ -70,6 +72,11 @@ the explicit form works everywhere:
 node dist/src/cli.js serve --config ~/.config/kitzur/kitzur.jsonc
 ```
 
+`serve` prints only `listening on …` (and fatal errors) to the terminal. Warnings, such as
+a missing tokenizer or an unreachable upstream, go to the rotating log file
+`~/.local/state/kitzur/logs/kitzur-YYYY-MM-DD.log` (UTC date; `$XDG_STATE_HOME/kitzur/logs/`
+when set). Add `--foreground` to echo them to the terminal.
+
 <p align="center">
   <img src="docs/assets/quickstart.gif" alt="Terminal recording: kitzur config init writes a 32k config, the config is pointed at a demo upstream and tokenizer, kitzur config validate passes, kitzur serve starts listening on 127.0.0.1:8270, and kitzur status reports zero requests." width="880">
   <br>
@@ -82,8 +89,18 @@ unchanged. For an upstream API at `http://127.0.0.1:8000/v1`, point the agent at
 **`http://127.0.0.1:8270/v1`**. Use the limits your server actually serves, and
 configure the agent with the same ones.
 
-The tokenizer is not bundled. `scripts/fetch-tokenizer.sh` downloads the
+The tokenizer is not bundled. `scripts/fetch-tokenizer.sh` (needs `curl`) downloads the
 Qwen3.6-27B tokenizer for development and tests; use your own model's for real work.
+
+To install a `kitzur` command instead of running from the checkout, pack the build and
+install the archive globally (or build the offline bundle with `scripts/pack-offline.sh`,
+see [deployment](deploy/README.md)):
+
+```sh
+npm pack                        # after npm run build; writes kitzur-<version>.tgz
+npm install -g ./kitzur-*.tgz
+kitzur version
+```
 
 ### Point your agent at the proxy
 
@@ -113,8 +130,11 @@ An OpenCode provider (`opencode.json`):
 }
 ```
 
-Replace `local-model` with the model ID your server exposes. Keep the client's own
-compaction enabled as a fallback. Kilo uses a similar provider block in
+Replace `local-model` with the model ID your server exposes. OpenCode sends `apiKey` as
+`Authorization: Bearer …`; without `listen.token`, Kitzur forwards that header to the
+upstream unchanged and never logs it. Set `GATEWAY_API_KEY` to your gateway's key if it
+needs one; if it needs none, any value works (OpenCode may require a non-empty key).
+Keep the client's own compaction enabled as a fallback. Kilo uses a similar provider block in
 `kilo.json[c]`; its `max_tokens` behavior may need `budget.maxTokensRestore.enabled: true`.
 See [CONFIG.md](CONFIG.md).
 
@@ -133,6 +153,11 @@ node dist/src/cli.js status          # readable summary and the five latest requ
 node dist/src/cli.js status --json   # the full /status object
 curl -s http://127.0.0.1:8270/status
 ```
+
+`status` finds the proxy through the same config as `serve` (`--config`, `KITZUR_CONFIG` or
+the default `~/.config/kitzur/kitzur.jsonc`). If the proxy runs on another port or from a
+config elsewhere, pass `-c FILE`. `--url http://127.0.0.1:PORT/status` skips the config, so it
+sends no `listen.token`; use `-c FILE` when the listener requires a token, or `--url` gets a 401.
 
 In the recording above, the agent sends a growing session against a 32k preset
 (trigger 20,000 tokens). The first three requests pass through; the fourth is
@@ -257,6 +282,7 @@ kitzur replay FILE|DIR               replay captured request bodies locally
 kitzur count request.json            count a request
 kitzur state show|reset              inspect or clear learned limits
 kitzur bench [--quick]               run benchmarks from a development checkout
+kitzur version                       print the installed version
 ```
 
 Status is available at `/status` and `/kitzur/status`. State defaults to
@@ -325,7 +351,8 @@ On **Linux**, create `~/.config/systemd/user/kitzur.service`:
 Description=Kitzur context compaction proxy
 
 [Service]
-ExecStart=/absolute/path/to/node /absolute/path/to/kitzur/dist/src/cli.js serve --config /absolute/path/to/kitzur.json
+Environment=KITZUR_CONFIG=%h/.config/kitzur/kitzur.jsonc
+ExecStart=/absolute/path/to/node /absolute/path/to/kitzur/dist/src/cli.js serve
 Restart=on-failure
 StandardOutput=append:%h/.local/state/kitzur/service-out.log
 StandardError=append:%h/.local/state/kitzur/service-err.log
@@ -334,7 +361,10 @@ StandardError=append:%h/.local/state/kitzur/service-err.log
 WantedBy=default.target
 ```
 
-Create `~/.local/state/kitzur` first, then run `systemctl --user daemon-reload`
+The config path is set with `KITZUR_CONFIG`, as in the shipped
+[deploy/kitzur.service](deploy/kitzur.service) and the launchd template, so all three read it
+the same way and `ExecStart` only changes for the `node` path. The two output files get only
+the startup line and fatal errors. Create `~/.local/state/kitzur` first, then run `systemctl --user daemon-reload`
 and `systemctl --user enable --now kitzur`. See [CONFIG.md](CONFIG.md) for logging
 settings and `/status` health counters.
 
@@ -378,9 +408,9 @@ scripts/fetch-tokenizer.sh
 npm test
 ```
 
-Tests that require the development tokenizer skip when it is absent. CI downloads
-it and runs the full suite on Linux Node 20 and 22, plus portable suites and
-packaged CLI/installation lifecycle checks on Windows Node 20 and 22.
+`scripts/fetch-tokenizer.sh` needs `curl`. Tests that require the development tokenizer
+skip when it is absent. CI downloads it and runs the full suite on Linux Node 22, 24 and 26 (with and without the tokenizer),
+plus portable suites and packaged CLI/installation lifecycle checks on Windows Node 22, 24 and 26.
 Gobstopper comparisons require a separately built gobstopper; an external Python
 reference harness and virtual environment are optional and used only for the parity
 cross-check.

@@ -1,6 +1,6 @@
 # Contributing
 
-Use Node.js 20 or newer. Run `npm ci`, `scripts/fetch-tokenizer.sh`, then `npm test`.
+Use Node.js 20 or newer. Run `npm ci`, `scripts/fetch-tokenizer.sh` (needs `curl`), then `npm test`.
 The tokenizer download is development data and must stay untracked. Without it,
 tokenizer-dependent tests skip (CI runs them). Where the download host is blocked,
 `KITZUR_TOKENIZER_OPTIONAL=1 scripts/fetch-tokenizer.sh` reports the failure and
