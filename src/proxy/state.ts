@@ -5,36 +5,14 @@
 //
 // Learned entries update in memory immediately; persistence coalesces changes asynchronously.
 // A crash can lose up to five seconds of learning, never request correctness.
-import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from 'node:fs';
 import { mkdir, open, rename, unlink } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
-import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { LearnedEntry, LearnedState } from '../types.js';
+import { mkdirs } from '../util.js';
 
 // ---------------------------------------------------------------- paths and files
-
-/** $XDG_STATE_HOME/kitzur, else ~/.local/state/kitzur. */
-export function defaultStateDir(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string {
-  const x = env['XDG_STATE_HOME'];
-  return x && x.startsWith('/') ? join(x, 'kitzur') : join(home, '.local', 'state', 'kitzur');
-}
-
-/** mkdir -p, one level at a time (bounded depth). */
-export function mkdirs(dir: string): void {
-  const missing: string[] = [];
-  for (let d = dir; !existsSync(d); d = dirname(d)) {
-    missing.push(d);
-    if (dirname(d) === d || missing.length > 64) break;
-  }
-  for (let i = missing.length - 1; i >= 0; i--) {
-    try {
-      mkdirSync(missing[i]!);
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
-    }
-  }
-}
 
 /** Writes `data` to `path` atomically: unique temp file in the same dir, fsync, rename. */
 export function writeFileAtomic(path: string, data: string | Buffer): void {
@@ -86,10 +64,7 @@ export async function writeFileAtomicAsync(path: string, data: string): Promise<
 
 // ---------------------------------------------------------------- entries
 
-/** The learned-state key of a request: `${origin}|${model}` (). */
-export function learnedKey(origin: string, model: unknown): string {
-  return `${origin}|${typeof model === 'string' ? model : ''}`;
-}
+export { learnedKey } from '../engine/learned.js';
 
 /** A new, empty entry: nothing learned, correction 1. */
 export function freshLearnedEntry(configuredWindow: number, counterId: string): LearnedEntry {

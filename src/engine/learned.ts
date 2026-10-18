@@ -31,9 +31,19 @@ export function learnedValid(e: LearnedEntry, cfg: Config, counterId: string): b
   return e.configuredWindow === cfg.budget.window && e.counterId === counterId;
 }
 
-/** `${origin}|${model}`: the learned-state key of a request (§8, ). */
-export function learnedKey(cfg: Config, req: ChatRequest): string {
-  return `${cfg.upstream.origin ?? ''}|${typeof req.model === 'string' ? req.model : ''}`;
+/**
+ * `${origin}|${model}`: the learned-state key of a request (§8, ). The origin is normalised (URL
+ * origin plus path without trailing slashes) so `http://H:80/v1/` and `http://h/v1` share one entry.
+ */
+export function learnedKey(origin: string | null, model: unknown): string {
+  let o = origin ?? '';
+  try {
+    const u = new URL(o);
+    o = u.origin + u.pathname.replace(/\/+$/, '');
+  } catch {
+    /* not a URL: used as is */
+  }
+  return `${o}|${typeof model === 'string' ? model : ''}`;
 }
 
 /** Correction as an integer percentage: ceil to 1%, never below 100 (§4: correction ≥ 1). */

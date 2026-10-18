@@ -1,15 +1,26 @@
 // File locations derived from the config and the environment (DESIGN.md "State dir").
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, posix, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Config } from './schema.js';
 
-/** The state dir: config stateDir, else $XDG_STATE_HOME/kitzur (absolute XDG only), else ~/.local/state/kitzur. */
-export function stateDirOf(cfg: Pick<Config, 'stateDir'>, env: Record<string, string | undefined> = process.env, home = homedir()): string {
-  if (cfg.stateDir) return cfg.stateDir;
+/**
+ * The default state dir: $XDG_STATE_HOME/kitzur (absolute XDG only), else on Windows
+ * %LOCALAPPDATA%\Kitzur\state, else ~/.local/state/kitzur.
+ */
+export function defaultStateDir(env: Record<string, string | undefined> = process.env, home = homedir(), platform: NodeJS.Platform = process.platform): string {
+  const p = platform === 'win32' ? win32 : posix;
   const x = env['XDG_STATE_HOME'];
-  return x && x.startsWith('/') ? join(x, 'kitzur') : join(home, '.local', 'state', 'kitzur');
+  if (x && p.isAbsolute(x)) return p.join(x, 'kitzur');
+  const local = env['LOCALAPPDATA'];
+  if (platform === 'win32' && local && win32.isAbsolute(local)) return win32.join(local, 'Kitzur', 'state');
+  return p.join(home, '.local', 'state', 'kitzur');
+}
+
+/** The state dir: config stateDir, else defaultStateDir. */
+export function stateDirOf(cfg: Pick<Config, 'stateDir'>, env: Record<string, string | undefined> = process.env, home = homedir(), platform: NodeJS.Platform = process.platform): string {
+  return cfg.stateDir || defaultStateDir(env, home, platform);
 }
 
 let pkg: { name: string; version: string; root: string } | null = null;

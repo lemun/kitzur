@@ -21,6 +21,8 @@ import { digestOf, sha256Hex } from './canonical.js';
 import { classifyContent, estimateText, rawEstimate, textStats, type CharsPerToken } from './estimate.js';
 import { createProfile, GLUE_TOKENS, partsText, type Part, type ProfileOptions, type RenderLayout, type TemplateName, type TemplateProfile } from './template.js';
 import type { RemoteTokenizer } from './remote.js';
+import { Lru } from '../engine/lru.js';
+import { escapeRe } from '../util.js';
 
 export interface CounterOptions {
   mode: CounterMode;
@@ -60,33 +62,6 @@ export interface Counter extends TokenCounter {
   clear(): void;
 }
 
-class Lru<V> {
-  private readonly m = new Map<string, V>();
-  constructor(private readonly cap: number) {}
-  get(k: string): V | undefined {
-    const v = this.m.get(k);
-    if (v !== undefined) {
-      this.m.delete(k);
-      this.m.set(k, v);
-    }
-    return v;
-  }
-  has(k: string): boolean {
-    return this.m.has(k);
-  }
-  set(k: string, v: V): void {
-    if (this.m.has(k)) this.m.delete(k);
-    this.m.set(k, v);
-    if (this.m.size > this.cap) this.m.delete(this.m.keys().next().value as string);
-  }
-  get size(): number {
-    return this.m.size;
-  }
-  clear(): void {
-    this.m.clear();
-  }
-}
-
 /** A counted piece: n tokens; s/e = its text starts/ends with an added token; z = empty. */
 interface Entry {
   n: number;
@@ -100,7 +75,6 @@ const TEMPLATE_TOKENS = [
   '<|im_start|>', '<|im_end|>', '<|endoftext|>', '<think>', '</think>', '<tool_call>', '</tool_call>',
   '<tool_response>', '</tool_response>', '<|vision_start|>', '<|vision_end|>', '<|image_pad|>', '<|video_pad|>',
 ];
-const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\/-]/g, '\\$&');
 const TEMPLATE_TOKEN_RE = new RegExp(TEMPLATE_TOKENS.map(escapeRe).join('|'), 'g');
 /** Unlisted template glue (tags, role names, newlines) is denser than prose: ~3 chars/token on Qwen. */
 const GLUE_CHARS_PER_TOKEN = 3;
@@ -156,11 +130,11 @@ export function createCounter(opts: CounterOptions): Counter {
     measures: 0, pieceHits: 0, pieceMisses: 0, tokenizedChars: 0, jointRecounts: 0,
     remoteHits: 0, remoteMisses: 0, remoteFetched: 0, entries: 0,
   };
-  const exactCache = new Lru<Entry>(cap);
-  const exactByText = new Lru<Entry>(cap);
-  const estCache = new Lru<number>(cap);
-  const remoteCache = new Lru<number>(cap);
-  const remoteByText = new Lru<number>(cap);
+  const exactCache = new Lru<string, Entry>(cap);
+  const exactByText = new Lru<string, Entry>(cap);
+  const estCache = new Lru<string, number>(cap);
+  const remoteCache = new Lru<string, number>(cap);
+  const remoteByText = new Lru<string, number>(cap);
   const msgDigest = new WeakMap<object, string>();
   const toolsDigest = new WeakMap<object, string>();
 
@@ -379,8 +353,8 @@ export function createCounter(opts: CounterOptions): Counter {
   }
 
   // ------------------------------------------------------------ remote prefetch
-  const remoteText = new Lru<number>(Math.min(cap, 50_000));
-  const textCache = new Lru<number>(4096);
+  const remoteText = new Lru<string, number>(Math.min(cap, 50_000));
+  const textCache = new Lru<string, number>(4096);
   async function prefetch(req: ChatRequest): Promise<void> {
     try {
       if (!remote || remote.down()) return;

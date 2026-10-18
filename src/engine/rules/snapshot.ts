@@ -86,9 +86,11 @@ export function parseOpenTabs(text: string): OpenTab[] {
   return out;
 }
 
+const LINE_VALUE_RE = new Map<string, RegExp>();
 const lineValue = (text: string, key: string): string | null => {
+  let re = LINE_VALUE_RE.get(key);
   // `[^\\S\\n]*` keeps the indentation on one line (with /m, `^\\s*` is quadratic on runs of blank lines)
-  const re = new RegExp(`^[^\\S\\n]*- ${key}:[ \\t]*(.*)$`, 'm');
+  if (!re) LINE_VALUE_RE.set(key, (re = new RegExp(`^[^\\S\\n]*- ${key}:[ \\t]*(.*)$`, 'm')));
   const m = re.exec(text);
   return m ? m[1]!.trim() : null;
 };

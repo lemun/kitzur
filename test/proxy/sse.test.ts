@@ -151,6 +151,19 @@ test('relay: strip removes only the choices:[] usage chunk; the tap sees the las
   }
 });
 
+test('relay: keys spelled with JSON unicode escapes are still parsed (usage, strip, finish_reason)', () => {
+  const stream = 'data: {"choices":[{"delta":{},"finish\\u005freason":"stop"}]}\n\n' +
+    'data: {"choices":[],"us\\u0061ge":{"prompt_tokens":77}}\n\n';
+  const r = new SseRelay({ hold: true, strip: true, committed: false });
+  const out = Buffer.concat(r.onChunk(B(stream)).writes).toString();
+  r.onEnd();
+  assert.equal(r.usage?.prompt_tokens, 77);
+  assert.equal(r.finishReason, 'stop');
+  assert.equal(r.stripped, 1);
+  assert.equal(out.includes('"choices":[]'), false);
+  assert.equal(r.complete, true);
+});
+
 test('relay: end of body without events commits; incomplete streams are detected', () => {
   const r = new SseRelay({ hold: true, strip: false, committed: false });
   r.onChunk(B(': only a comment\n\n'));

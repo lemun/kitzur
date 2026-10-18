@@ -11,7 +11,7 @@ const counter = estimateCounter();
 
 test('learned entries are keyed per origin|model and invalidated by window or counter ()', () => {
   const cfg = testConfig({ upstream: { origin: 'http://gw:8000' } });
-  assert.equal(learnedKey(cfg, { model: 'qwen', messages: [] }), 'http://gw:8000|qwen');
+  assert.equal(learnedKey(cfg.upstream.origin, 'qwen'), 'http://gw:8000|qwen');
   const e = defaultLearnedEntry(cfg, counter.id);
   assert.ok(learnedValid(e, cfg, counter.id));
   assert.ok(!learnedValid({ ...e, configuredWindow: 64_000 }, cfg, counter.id));
