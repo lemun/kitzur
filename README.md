@@ -156,7 +156,8 @@ curl -s http://127.0.0.1:8270/status
 
 `status` finds the proxy through the same config as `serve` (`--config`, `KITZUR_CONFIG` or
 the default `~/.config/kitzur/kitzur.jsonc`). If the proxy runs on another port or from a
-config elsewhere, pass `-c FILE` or `--url http://127.0.0.1:PORT/status`.
+config elsewhere, pass `-c FILE`. `--url http://127.0.0.1:PORT/status` skips the config, so it
+sends no `listen.token`; use `-c FILE` when the listener requires a token, or `--url` gets a 401.
 
 In the recording above, the agent sends a growing session against a 32k preset
 (trigger 20,000 tokens). The first three requests pass through; the fourth is

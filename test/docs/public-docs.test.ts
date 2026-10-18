@@ -37,6 +37,12 @@ test('the README Linux unit takes its config the way deploy/kitzur.service does'
   assert.ok(read('deploy/kitzur.service').includes(line));
 });
 
+test('the README status hint warns that --url skips the listen token', () => {
+  const doc = read('README.md');
+  assert.match(doc, /pass `-c FILE`/);
+  assert.match(doc, /`--url[^`]*` skips the config, so it\s+sends no `listen\.token`/);
+});
+
 test('relative links in the public docs resolve', () => {
   for (const f of ['README.md', 'SECURITY.md', 'CONTRIBUTING.md', 'deploy/README.md', 'deploy/windows/ADMIN.md']) {
     for (const [, target] of read(f).matchAll(/\]\(([^)\s]+)\)/g)) {
