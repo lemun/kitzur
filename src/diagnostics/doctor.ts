@@ -83,7 +83,7 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
   const add = (code: string, status: DoctorCheck['status'], message: string, fix?: string): void => { checks.push({ code, status, message, ...(fix ? { fix } : {}) }); };
 
   try {
-    const validation = validateConfig(config, { checkFiles: true });
+    const validation = validateConfig(config, { checkFiles: true, checkTokenizer: false });
     if (!validation.errors.length) add('config.valid', 'ok', 'Configuration is valid.');
     else add('config.valid', 'error', `Configuration has ${validation.errors.length} validation error(s).`, 'Run `kitzur config validate` and correct the reported settings.');
     if (validation.warnings.length) add('config.warnings', 'warn', `Configuration has ${validation.warnings.length} warning(s).`, 'Review `kitzur config validate` output.');

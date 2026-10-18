@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defaultConfig } from '../../src/config/load.js';
 import { validateConfig } from '../../src/config/validate.js';
 import { doctor } from '../../src/diagnostics/doctor.js';
+import { loadTokenizerCached, defaultTokenizerCachePath } from '../../src/tokenize/load.js';
 import { ROOT } from '../helpers.js';
 
 // Minimal byte-level BPE: no development tokenizer download is needed.
@@ -29,10 +30,17 @@ test('validation and doctor warn about missing template tokens, without rejectin
   try {
     const cfg = defaultConfig();
     cfg.tokenizer.path = join(dir, 'tokenizer.json');
+    cfg.stateDir = dir;
     const qwen = ['<|im_start|>', '<|im_end|>', '<think>', '</think>'];
     writeFileSync(cfg.tokenizer.path, fixture(qwen.filter(t => t !== '<|im_start|>')));
     const result = validateConfig(cfg, { checkFiles: true });
     assert.deepEqual(result.errors, []);
+    const cached = loadTokenizerCached(cfg.tokenizer.path, null, { stateDir: dir });
+    assert.equal(cached.fromCache, true, 'validation populates the default compiled cache');
+    assert.ok(existsSync(defaultTokenizerCachePath(dir, cached.sha256)));
+    cfg.tokenizer.cachePath = join(dir, 'custom.lctk');
+    validateConfig(cfg, { checkFiles: true });
+    assert.equal(loadTokenizerCached(cfg.tokenizer.path, cfg.tokenizer.cachePath).fromCache, true, 'validation honors the explicit cache path');
     assert.ok(result.warnings.some(w => /qwen3.*<\|im_start\|>/.test(w)), result.warnings.join('\n'));
     assert.ok(!validateConfig(cfg).warnings.some(w => /missing.*tokens/.test(w)), 'file checks are opt-in');
     const report = await doctor(cfg);
@@ -40,6 +48,10 @@ test('validation and doctor warn about missing template tokens, without rejectin
     assert.equal(warning?.status, 'warn');
     assert.match(warning?.message ?? '', /qwen3.*<\|im_start\|>/);
     assert.equal(report.exitCode, 0);
+    const compatible = structuredClone(cfg);
+    compatible.tokenizer.template.name = 'generic';
+    const compatibleReport = await doctor(compatible);
+    assert.deepEqual(report.checks.filter(c => c.code === 'config.warnings'), compatibleReport.checks.filter(c => c.code === 'config.warnings'), 'template mismatch is reported only by tokenizer.template');
     writeFileSync(cfg.tokenizer.path, fixture(qwen));
     assert.ok(!validateConfig(cfg, { checkFiles: true }).warnings.some(w => /missing.*tokens/.test(w)));
     assert.equal((await doctor(cfg)).checks.find(c => c.code === 'tokenizer.template'), undefined);
