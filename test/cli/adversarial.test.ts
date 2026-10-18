@@ -55,10 +55,11 @@ test('store.persist: the plan directory (summaries = user content) is owner-only
     const l = loadConfig({ env: {}, object: { stateDir, store: { persist: true }, tokenizer: { mode: 'estimate' } } });
     const old = process.umask(0o022);
     try {
-      const { engine } = await buildEngine(l.config, { env: {} });
+      const { engine, store } = await buildEngine(l.config, { env: {} });
       const msgs: Array<{ role: string; content: string }> = [{ role: 'system', content: 's' }, { role: 'user', content: 'USER-SECRET goal' }];
       for (let i = 0; i < 80; i++) msgs.push({ role: 'assistant', content: `step ${i} ` + 'x'.repeat(4000) }, { role: 'user', content: `go on ${i}` });
       engine.process({ model: 'm', messages: msgs as never, max_tokens: 1000 }, { attempt: 1 });
+      await store.flush?.();
     } finally {
       process.umask(old);
     }

@@ -7,26 +7,28 @@ import { sha256Hex } from './canonical.js';
 export interface Faults {
   /** probability that the pipeline throws */
   engineThrow: number;
+  seed?: string;
 }
 
-/** Parses `engine-throw:0.01[,other:…]`. */
+/** Parses `engine-throw:0.01[:seed][,other:…]`. */
 export function parseFaults(spec: string | null | undefined): Faults | null {
   if (!spec) return null;
   let engineThrow = 0;
+  let seed: string | undefined;
   for (const item of spec.split(',')) {
-    const [name, value] = item.split(':');
+    const [name, value, salt] = item.split(':');
     if (name?.trim() === 'engine-throw') {
       const p = Number(value);
-      if (Number.isFinite(p) && p > 0) engineThrow = Math.min(1, p);
+      if (Number.isFinite(p) && p > 0) { engineThrow = Math.min(1, p); seed = salt; }
     }
   }
-  return engineThrow > 0 ? { engineThrow } : null;
+  return engineThrow > 0 ? { engineThrow, ...(seed === undefined ? {} : { seed }) } : null;
 }
 
 /** True when this request should throw: sha256(key ‖ attempt) mapped to [0, 1) is below p. */
 export function shouldThrow(f: Faults | null, key: string, attempt: number): boolean {
   if (!f || f.engineThrow <= 0) return false;
-  const h = sha256Hex(`fault|${key}|${attempt}`);
+  const h = sha256Hex(`fault|${key}|${attempt}${f.seed === undefined ? '' : `|${f.seed}`}`);
   return parseInt(h.slice(0, 12), 16) / 2 ** 48 < f.engineThrow;
 }
 

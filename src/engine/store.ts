@@ -12,6 +12,7 @@ export interface PlanPersistence {
   /** plan stored under `key`, if any (the first call may load the files lazily) */
   load(key: string): Plan | undefined;
   append(key: string, plan: Plan): void;
+  flush?(): Promise<void>;
 }
 
 export interface MemoryStoreOptions {
@@ -68,6 +69,10 @@ export class MemoryPlanStore implements PlanStore {
     if (this.m.get(key) === plan) return;
     this.put(key, plan);
     this.o.persistence?.append(key, plan);
+  }
+
+  async flush(): Promise<void> {
+    await this.o.persistence?.flush?.();
   }
 
   size(): number {

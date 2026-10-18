@@ -368,3 +368,16 @@ test('eager stubs (ablation): a newly superseded snapshot is stubbed without a c
   }
   assert.ok(stubbed);
 });
+
+test('seeded engine faults occur at the configured rate and reproduce', () => {
+  const cfg = presetConfig('32k');
+  const sample = () => {
+    const e = mk(cfg, estimateCounter(), { faults: 'engine-throw:0.5:42' });
+    return Array.from({ length: 1000 }, (_, i) =>
+      e.process(req([sys, user(`sample ${i}`)]), { attempt: 1 }).reason === 'engine:fault');
+  };
+  const a = sample();
+  assert.deepEqual(a, sample());
+  const rate = a.filter(Boolean).length / a.length;
+  assert.ok(rate > 0.45 && rate < 0.55, `observed rate ${rate}`);
+});

@@ -1,4 +1,6 @@
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readdirSync, readFileSync, appendFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -31,7 +33,7 @@ test('memory store: LRU order, entry cap, byte cap, never empty', () => {
   assert.ok(tiny.get('b'));
 });
 
-test('file persistence: JSONL per day, lazy load, later lines win, corrupt lines ignored', () => {
+test('file persistence: JSONL per day, lazy load, later lines win, corrupt lines ignored', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-plans-'));
   try {
     const now = () => new Date(Date.UTC(2026, 8, 28, 12));
@@ -40,6 +42,7 @@ test('file persistence: JSONL per day, lazy load, later lines win, corrupt lines
     s1.set('a', plan(1));
     s1.set('b', plan(2, 'S'));
     s1.set('b', plan(3, 'S2'));
+    await p1.flush();
     const files = readdirSync(join(dir, 'plans'));
     assert.deepEqual(files, ['plans-2026-09-28.jsonl']);
     const lines = readFileSync(join(dir, 'plans', files[0]!), 'utf8').trim().split('\n');
@@ -57,6 +60,109 @@ test('file persistence: JSONL per day, lazy load, later lines win, corrupt lines
     // a missing directory behaves as empty and never throws
     const p3 = createFilePersistence({ dir: join(dir, 'nope', 'deeper') });
     assert.equal(p3.load('x'), undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('persistence bounds its index and loads retained days on demand', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-plans-'));
+  try {
+    const now = () => new Date('2026-09-28T12:00:00Z');
+    for (const day of ['01', '27', '28']) {
+      appendFileSync(join(dir, `plans-2026-09-${day}.jsonl`), JSON.stringify({ key: day, plan: plan(Number(day)) }) + '\n');
+    }
+    const p = createFilePersistence({ dir, now, maxBytes: 400, retentionDays: 2 });
+    assert.equal(p.entries(), 0, 'diagnostics do not load files');
+    assert.deepEqual(p.load('28'), plan(28));
+    assert.equal(p.entries(), 1, 'older days are not loaded on a recent hit');
+    assert.deepEqual(p.load('27'), plan(27));
+    assert.ok(p.bytes() <= 400);
+    assert.equal(p.load('01'), undefined, 'expired plans cannot be reused');
+    await p.flush();
+    assert.deepEqual(readdirSync(dir), ['plans-2026-09-27.jsonl', 'plans-2026-09-28.jsonl']);
+    const tiny = createFilePersistence({ dir, now, maxBytes: 1 });
+    assert.deepEqual(tiny.load('28'), plan(28), 'oversized disk hits can be returned without caching');
+    assert.equal(tiny.entries(), 0);
+    p.append('new', plan(30));
+    assert.equal(readFileSync(join(dir, 'plans-2026-09-28.jsonl'), 'utf8').includes('new'), false, 'append is deferred');
+    await p.flush();
+    assert.ok(readFileSync(join(dir, 'plans-2026-09-28.jsonl'), 'utf8').includes('new'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+
+test('persistence scans each day once, keeps corruption totals and retains live entries at midnight', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-plans-'));
+  let clock = new Date('2026-09-28T12:00:00Z');
+  const file = join(dir, 'plans-2026-09-28.jsonl');
+  appendFileSync(file, JSON.stringify({ key: 'a', plan: plan(1) }) + '\ninvalid\n');
+  const open = fs.openSync;
+  let reads = 0;
+  const spy = mock.method(fs, 'openSync', (...args: Parameters<typeof open>) => {
+    reads++;
+    return Reflect.apply(open, fs, args);
+  });
+  syncBuiltinESMExports();
+  try {
+    const p = createFilePersistence({ dir, now: () => clock, retentionDays: 2 });
+    assert.equal(p.load('missing'), undefined);
+    assert.equal(p.load('another-miss'), undefined);
+    assert.equal(reads, 1, 'repeated misses do not reread a parsed day');
+    assert.equal(p.corruptLines(), 1, 'corruption is counted once per parsed line');
+    clock = new Date('2026-09-29T12:00:00Z');
+    assert.deepEqual(p.load('a'), plan(1), 'midnight preserves unexpired cached plans');
+    assert.equal(reads, 1);
+    clock = new Date('2026-09-30T12:00:00Z');
+    assert.equal(p.load('a'), undefined, 'expired cached plans are removed');
+    assert.equal(p.corruptLines(), 1, 'a later miss preserves corruption diagnostics');
+    await p.flush();
+  } finally {
+    spy.mock.restore();
+    syncBuiltinESMExports();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('persistence streams a daily file far larger than maxBytes without holding it in memory', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-plans-'));
+  const file = join(dir, 'plans-2026-09-28.jsonl');
+  try {
+    const maxBytes = 4096;
+    const total = 6000;
+    const rows: string[] = [];
+    for (let i = 0; i < total; i++) rows.push(JSON.stringify({ key: 'k' + i, plan: plan(i) }));
+    // a record bigger than the 1 MiB record cap sits in the middle, plus a torn trailing record
+    rows.splice(3000, 0, JSON.stringify({ key: 'huge', plan: plan(1, 'x'.repeat(2 * 1024 * 1024)) }));
+    fs.writeFileSync(file, rows.join('\n') + '\n{"key":"torn"');
+    assert.ok(fs.statSync(file).size > 100 * maxBytes, 'the file dwarfs the index cap');
+    const reads: number[] = [];
+    const read = fs.readSync;
+    const rspy = mock.method(fs, 'readSync', (...args: Parameters<typeof read>) => {
+      reads.push((args[1] as Buffer).length);
+      return Reflect.apply(read, fs, args);
+    });
+    const whole = mock.method(fs, 'readFileSync', () => { throw new Error('whole-file read'); });
+    syncBuiltinESMExports();
+    try {
+      const p = createFilePersistence({ dir, now: () => new Date('2026-09-28T12:00:00Z'), maxBytes });
+      const before = process.memoryUsage().arrayBuffers;
+      assert.deepEqual(p.load('k0'), plan(0), 'the earliest record is still found');
+      assert.deepEqual(p.load('k5999'), plan(5999));
+      assert.equal(p.load('huge'), undefined, 'oversized records are skipped, not buffered');
+      assert.equal(p.load('torn'), undefined);
+      assert.ok(p.bytes() <= maxBytes, 'resident index never exceeds the cap');
+      assert.ok(p.entries() < total / 10);
+      assert.equal(p.corruptLines(), 2, 'the oversized and the torn record are counted');
+      assert.ok(reads.length > 10 && Math.max(...reads) <= 64 * 1024, 'only fixed 64 KiB chunks are read');
+      assert.ok(process.memoryUsage().arrayBuffers - before < 8 * 1024 * 1024, 'no file-sized buffers are retained');
+    } finally {
+      rspy.mock.restore();
+      whole.mock.restore();
+      syncBuiltinESMExports();
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
