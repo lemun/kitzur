@@ -7,7 +7,7 @@ The Windows ZIP supports per-user install, login startup, graceful stop and safe
 # Installing kitzur as a user service (offline)
 
 kitzur has no runtime dependencies: the offline bundle is the compiled `dist/src`, the presets, this
-directory and the docs. It needs Node.js 20 or newer and nothing else. No step below uses the network.
+directory and the docs. It needs Node.js 22 or newer and nothing else. No step below uses the network.
 
 ## 0. Build the bundle (on a machine with the repository)
 

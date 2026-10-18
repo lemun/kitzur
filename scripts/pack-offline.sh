@@ -62,7 +62,7 @@ Built in ${out}:
   ${name}.tgz              $(du -h "$out/${name}.tgz" | cut -f1)   npm package
   SHA256SUMS
 
-On the offline host (Node.js >= 20; nothing is downloaded):
+On the offline host (Node.js >= 22; nothing is downloaded):
   sha256sum -c --ignore-missing SHA256SUMS
   mkdir -p ~/.local/lib && tar -xzf ${name}-offline.tar.gz -C ~/.local/lib
   mv ~/.local/lib/${name} ~/.local/lib/kitzur && (cd ~/.local/lib/kitzur && sha256sum -c SHA256SUMS)

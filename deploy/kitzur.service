@@ -33,7 +33,7 @@ Environment=KITZUR_CONFIG=%h/.config/kitzur/kitzur.jsonc
 #
 # HTTP_PROXY / HTTPS_PROXY / NO_PROXY are NOT honoured: kitzur connects to upstream.origin directly.
 
-# Node >= 20. If node is not on the user manager's PATH (nvm, mise, a tarball install), put its absolute
+# Node >= 22. If node is not on the user manager's PATH (nvm, mise, a tarball install), put its absolute
 # path here, e.g. %h/.local/share/mise/installs/node/20/bin/node
 ExecStart=/usr/bin/env node %h/.local/lib/kitzur/dist/src/cli.js serve
 

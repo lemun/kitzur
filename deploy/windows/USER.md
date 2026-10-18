@@ -1,7 +1,7 @@
 # Install Kitzur on Windows
 
 Your administrator supplies a Windows ZIP, its trusted manifest SHA256, a profile,
-the approved tokenizer (inside the ZIP or separately) and Node.js 20+ / a pinned OpenCode build.
+the approved tokenizer (inside the ZIP or separately) and Node.js 22+ / a pinned OpenCode build.
 Use the organisation's normal script policy. No administrator rights are needed for Kitzur itself.
 
 1. Verify the ZIP SHA256 against the administrator's trusted value with
