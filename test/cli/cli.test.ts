@@ -171,6 +171,17 @@ test('config init: --upstream and --tokenizer are written into the file', () =>
     assert.match((await run(['config', 'init', '--upstream', 'http://gw:1', '-o', '-'])).out, /"origin": "http:\/\/gw:1"/);
   }));
 
+test('config init: a ~/ tokenizer stays as given and empty values count as absent', () =>
+  withTmp(async (dir) => {
+    const a = await run(['config', 'init', '--upstream', 'http://gw:1', '--tokenizer', '~/tok.json', '--out', 'a.jsonc'], { cwd: dir });
+    assert.equal(a.code, 0, a.err);
+    assert.match(readFileSync(join(dir, 'a.jsonc'), 'utf8'), /"path": "~\/tok\.json"/);
+    const b = await run(['config', 'init', '--upstream', '', '--tokenizer', '', '--out', 'b.jsonc'], { cwd: dir });
+    assert.equal(b.code, 0, b.err);
+    assert.match(b.out, /set upstream\.origin and tokenizer\.path/);
+    assert.match(readFileSync(join(dir, 'b.jsonc'), 'utf8'), /"path": null/);
+  }));
+
 test('config file discovery: XDG_CONFIG_HOME, then APPDATA on Windows, then HOME; never without an environment', () =>
   withTmp(async (dir) => {
     const has = (want: string) => (f: string) => f === want;

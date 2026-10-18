@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the offline bundle (DESIGN.md "Deploy and packaging"):
 #   <out>/kitzur-<version>.tgz                 npm pack of a clean build (install with npm, offline)
-#   <out>/kitzur-<version>-offline.tar.gz      the vendored tarball: dist/src, presets, deploy, docs, LICENSE,
+#   <out>/kitzur-<version>-offline.tar.gz      the vendored tarball: dist/src, presets, deploy (systemd unit, launchd plist), docs, LICENSE,
 #                                               package.json and a SHA256SUMS manifest of every file
 #   <out>/SHA256SUMS                            checksums of the two archives
 # kitzur has no runtime dependencies, so nothing else needs vendoring. The build is compiled fresh into a
@@ -32,7 +32,7 @@ cp -R "$tmp/build/src" "$stage/dist/src"
 chmod +x "$stage/dist/src/cli.js"
 cp -R presets LICENSES "$stage/"
 mkdir -p "$stage/deploy/windows"
-cp deploy/README.md deploy/kitzur.service "$stage/deploy/"
+cp deploy/README.md deploy/kitzur.service deploy/com.github.lemun.kitzur.plist "$stage/deploy/"
 cp deploy/windows/*.ps1 deploy/windows/manage.mjs deploy/windows/*.md deploy/windows/opencode.template.json deploy/windows/profile.example.json "$stage/deploy/windows/"
 cp package.json "$stage/"
 missing=()

@@ -5,7 +5,7 @@ import { DEFAULT_CONFIG } from './schema.js';
 /** Values `config init` can fill in from the command line (written as given; null in the file when absent). */
 export interface InitValues {
   upstream?: string;
-  /** absolute, or relative to the written file */
+  /** written as given: an absolute path, or one starting with `~/` (the config loader expands it); the CLI makes other paths absolute first */
   tokenizer?: string;
 }
 

@@ -94,6 +94,7 @@ On macOS, install `com.github.lemun.kitzur.plist` as a launchd user agent instea
 `~`, so the template uses `__HOME__`:
 
 ```sh
+mkdir -p ~/Library/LaunchAgents
 sed "s|__HOME__|$HOME|g" ~/.local/lib/kitzur/deploy/com.github.lemun.kitzur.plist \
   > ~/Library/LaunchAgents/com.github.lemun.kitzur.plist
 launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.github.lemun.kitzur.plist
@@ -101,7 +102,6 @@ launchctl print "gui/$(id -u)/com.github.lemun.kitzur" | grep -E 'state|last exi
 kitzur status
 ```
 
-If the bundle does not include the template, copy it from the repository's `deploy/` directory.
 launchd's `PATH` is minimal: the template adds `/opt/homebrew/bin` and `/usr/local/bin`; for nvm, mise or
 a tarball install, replace `/usr/bin/env node` with the absolute path of `node`. Fatal startup errors go
 to `~/Library/Logs/kitzur.log`, routine logs to `~/.local/state/kitzur/logs`. Unlike the systemd unit,

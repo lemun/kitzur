@@ -13,7 +13,7 @@ All notable changes to Kitzur are recorded here. The format follows
 - Config file discovery: without `--config` or `KITZUR_CONFIG`, `serve` and the other config-reading
   commands use `$XDG_CONFIG_HOME/kitzur/kitzur.jsonc` (else `~/.config/kitzur/kitzur.jsonc`, or
   `%APPDATA%\kitzur\kitzur.jsonc` on Windows) when that file exists.
-- A macOS launchd template, `deploy/com.github.lemun.kitzur.plist`, documented in `deploy/README.md`.
+- A macOS launchd template, `deploy/com.github.lemun.kitzur.plist`, documented in `deploy/README.md` and shipped in the offline bundle.
 - The context window is learned from the upstream (`/v1/models` `max_model_len`, llama.cpp `n_ctx`), with a
   warning when it disagrees with the configured window.
 - Client input-limit budgeting (`client.inputLimit`, `client.reservedTokens`), applied the same way in

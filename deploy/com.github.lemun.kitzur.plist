@@ -26,7 +26,7 @@
   <dict>
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
-    <!-- Created with: kitzur config init --out ~/.config/kitzur/kitzur.jsonc (also found without this line). -->
+    <!-- Created with: kitzur config init, writing to ~/.config/kitzur/kitzur.jsonc (also found without this line). -->
     <key>KITZUR_CONFIG</key>
     <string>__HOME__/.config/kitzur/kitzur.jsonc</string>
     <!-- TLS to an https gateway signed by a custom CA (or set upstream.caFile in the config):

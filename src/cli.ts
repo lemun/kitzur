@@ -572,10 +572,11 @@ async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
   switch (sub) {
     case 'init': {
       const p = parseArgs(rest, { preset: { type: 'string', short: 'p' }, out: { type: 'string', short: 'o' }, force: { type: 'boolean' }, upstream: { type: 'string' }, tokenizer: { type: 'string' } });
+      const tokenizerArg = p.values['tokenizer'] as string | undefined;
       const text = renderInitConfig((p.values['preset'] as string | undefined) ?? '100k', {
         upstream: p.values['upstream'] as string | undefined,
-        // relative to the shell's directory, not to the written file's
-        tokenizer: p.values['tokenizer'] === undefined ? undefined : resolve(io.cwd, p.values['tokenizer'] as string),
+        // a `~/` path is kept for the config loader; others are relative to the shell's directory, not to the written file's
+        tokenizer: tokenizerArg === undefined || tokenizerArg === '' ? undefined : tokenizerArg.startsWith('~/') ? tokenizerArg : resolve(io.cwd, tokenizerArg),
       });
       const out = (p.values['out'] as string | undefined) ?? 'kitzur.config.jsonc';
       if (out === '-') {
@@ -590,7 +591,7 @@ async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
       // the README's `--out ~/.config/kitzur/kitzur.jsonc` on a fresh host: the directory does not exist yet
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, text);
-      const todo = [p.values['upstream'] ? '' : 'upstream.origin', p.values['tokenizer'] ? '' : 'tokenizer.path'].filter(Boolean);
+      const todo = [p.values['upstream'] ? '' : 'upstream.origin', tokenizerArg ? '' : 'tokenizer.path'].filter(Boolean);
       io.stdout(`wrote ${path}\nnext: ${todo.length ? `set ${todo.join(' and ')}, then: ` : ''}kitzur config validate --config ${out}\n`);
       return 0;
     }

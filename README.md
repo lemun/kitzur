@@ -61,11 +61,13 @@ node dist/src/cli.js config init --preset 100k --out ~/.config/kitzur/kitzur.jso
 ```
 
 `--upstream` is the server's `scheme://host[:port]` and `--tokenizer` the served model's
-`tokenizer.json` (both can also be edited in the generated file later). Then start the proxy; it reads
-`~/.config/kitzur/kitzur.jsonc` when no `--config` is given:
+`tokenizer.json` (both can also be edited in the generated file later). Then start the proxy with that file.
+Without `--config` (and without `KITZUR_CONFIG`), `serve` looks for `kitzur.jsonc` in
+`$XDG_CONFIG_HOME/kitzur/` when that variable is set to an absolute path, else in `~/.config/kitzur/`;
+the explicit form works everywhere:
 
 ```sh
-node dist/src/cli.js serve
+node dist/src/cli.js serve --config ~/.config/kitzur/kitzur.jsonc
 ```
 
 <p align="center">
