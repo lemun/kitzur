@@ -2,8 +2,15 @@
 import { PRESET_TABLE } from './presets.js';
 import { DEFAULT_CONFIG } from './schema.js';
 
+/** Values `config init` can fill in from the command line (written as given; null in the file when absent). */
+export interface InitValues {
+  upstream?: string;
+  /** written as given: an absolute path, or one starting with `~/` (the config loader expands it); the CLI makes other paths absolute first */
+  tokenizer?: string;
+}
+
 /** The starting config text for a preset (default 100k). Throws on an unknown preset name. */
-export function renderInitConfig(preset = '100k'): string {
+export function renderInitConfig(preset = '100k', values: InitValues = {}): string {
   const p = PRESET_TABLE[preset];
   if (!p) throw new Error(`unknown preset '${preset}' (available: ${Object.keys(PRESET_TABLE).join(', ')})`);
   const port = DEFAULT_CONFIG.listen.port;
@@ -20,7 +27,7 @@ export function renderInitConfig(preset = '100k'): string {
     // REQUIRED: scheme://host[:port] of the OpenAI-compatible gateway, with no path. The client's request
     // path is appended unchanged, so point the client's baseURL at http://127.0.0.1:${port}/<gateway path>
     // (for example http://127.0.0.1:${port}/v1).
-    "origin": null
+    "origin": ${values.upstream ? JSON.stringify(values.upstream) : 'null'}
     // An internal CA:          , "caFile": "/etc/ssl/certs/internal-ca.pem"
     // A request size limit:    , "maxBodyBytes": 1048576
   },
@@ -35,7 +42,7 @@ export function renderInitConfig(preset = '100k'): string {
   "tokenizer": {
     // The served model's HF tokenizer.json, for exact counting (a relative path is relative to this
     // file). null = the per-content-class estimate (CONFIG.md "Counting").
-    "path": null,
+    "path": ${values.tokenizer ? JSON.stringify(values.tokenizer) : 'null'},
     // qwen3 | chatml | generic (sim only against the benchmark mock)
     "template": { "name": "qwen3" }
   },

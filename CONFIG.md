@@ -23,7 +23,9 @@ built-in defaults  <  preset  <  config file  <  KITZUR_* environment  <  comman
 - **Preset**: `--preset 32k|64k|100k|128k` (or a path to a preset file), `KITZUR_PRESET`, or a top-level
   `"preset": "32k"` in the config file (the command line and the environment win over the file's key).
   The preset layer is applied right after the defaults, so the config file overrides it.
-- **Config file**: `--config FILE` or `KITZUR_CONFIG`. JSON with `//` and `/* */` comments and trailing
+- **Config file**: `--config FILE` or `KITZUR_CONFIG`; with neither, `$XDG_CONFIG_HOME/kitzur/kitzur.jsonc`
+  (an absolute `XDG_CONFIG_HOME` only), else `%APPDATA%\kitzur\kitzur.jsonc` on Windows, else
+  `~/.config/kitzur/kitzur.jsonc`, if that file exists. JSON with `//` and `/* */` comments and trailing
   commas. Keys starting with `$` (`$schema`, `$comment`) are ignored. An unknown key is an error with a
   "did you mean" hint. Relative paths in the file (`tokenizer.path`, `upstream.caFile`, `stateDir`,
   `stats.path`, `tokenizer.cachePath`, `ledger.mirrorPath`) are relative to the file's directory; `~/` is `$HOME`.
@@ -43,7 +45,7 @@ Commands:
 
 | Command | What it does |
 |---|---|
-| `kitzur config init [--preset 100k] [--out FILE\|-]` | writes a commented starting config (`kitzur.config.jsonc`) |
+| `kitzur config init [--preset 100k] [--upstream URL] [--tokenizer FILE] [--out FILE\|-]` | writes a commented starting config (`kitzur.config.jsonc`), with `upstream.origin` and `tokenizer.path` filled in when given (a relative `--tokenizer` is resolved against the working directory) |
 | `kitzur config show [--changed] [--json]` | the effective value of every key with its source (`default`, `preset:32k`, `file:…`, `env:KITZUR_WINDOW`, `cli:--set`), plus the derived budget; header values are masked |
 | `kitzur config validate [--json]` | errors (exit 2) and startup warnings; also checks that `upstream.caFile` exists |
 | `kitzur config import-eval <results…>` | gateway probe results → config + provenance sidecar ([below](#gateway-probes-import)) |

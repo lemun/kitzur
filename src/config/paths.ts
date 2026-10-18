@@ -45,3 +45,21 @@ export function packageInfo(): { name: string; version: string; root: string } {
   }
   return (pkg = { name: 'kitzur', version: '0.0.0-unknown', root: dirname(fileURLToPath(import.meta.url)) });
 }
+
+/**
+ * The config file `serve` and the other config-reading commands use when neither --config nor KITZUR_CONFIG
+ * is given: $XDG_CONFIG_HOME/kitzur/kitzur.jsonc (absolute XDG only), else on Windows
+ * %APPDATA%\kitzur\kitzur.jsonc, else $HOME/.config/kitzur/kitzur.jsonc. Read from `env` only, so a caller
+ * with an empty environment never picks up the user's file. null when no candidate exists.
+ */
+export function defaultConfigPath(env: Record<string, string | undefined> = process.env, platform: NodeJS.Platform = process.platform, exists: (f: string) => boolean = existsSync): string | null {
+  const p = platform === 'win32' ? win32 : posix;
+  const x = env['XDG_CONFIG_HOME'];
+  let dir: string | null = null;
+  if (x && p.isAbsolute(x)) dir = p.join(x, 'kitzur');
+  else if (platform === 'win32' && env['APPDATA'] && win32.isAbsolute(env['APPDATA'])) dir = win32.join(env['APPDATA'], 'kitzur');
+  else if (env['HOME'] && p.isAbsolute(env['HOME'])) dir = p.join(env['HOME'], '.config', 'kitzur');
+  if (!dir) return null;
+  const f = p.join(dir, 'kitzur.jsonc');
+  return exists(f) ? f : null;
+}

@@ -38,10 +38,12 @@ kitzur version
 ```sh
 mkdir -p ~/.config/kitzur ~/.local/share/kitzur
 cp tokenizer.json ~/.local/share/kitzur/tokenizer.json
-kitzur config init --preset 100k --out ~/.config/kitzur/kitzur.jsonc
+kitzur config init --preset 100k --out ~/.config/kitzur/kitzur.jsonc \
+  --upstream https://gw.example --tokenizer ~/.local/share/kitzur/tokenizer.json
 ```
 
-Edit `~/.config/kitzur/kitzur.jsonc`:
+`kitzur serve` and the other commands read `~/.config/kitzur/kitzur.jsonc` (`$XDG_CONFIG_HOME/kitzur/` if
+set) when no `--config` or `KITZUR_CONFIG` is given. Review `~/.config/kitzur/kitzur.jsonc`:
 - `upstream.origin`: the gateway as `scheme://host[:port]`, **without** its path (`https://gw.example`);
 - `tokenizer.path`: `~/.local/share/kitzur/tokenizer.json`;
 - `server.type`, if known (`vllm`, `sglang`, `llamacpp`, `tgi`, `ollama`, `lmstudio`, `litellm`);
@@ -85,6 +87,27 @@ systemctl --user status kitzur
 journalctl --user -u kitzur -f           # sizes and decisions only, never prompt content
 kitzur status                            # GET /status: budget, counter mode, learned entries, counters
 ```
+
+### macOS (launchd)
+
+On macOS, install `com.github.lemun.kitzur.plist` as a launchd user agent instead. launchd does not expand
+`~`, so the template uses `__HOME__`:
+
+```sh
+mkdir -p ~/Library/LaunchAgents
+sed "s|__HOME__|$HOME|g" ~/.local/lib/kitzur/deploy/com.github.lemun.kitzur.plist \
+  > ~/Library/LaunchAgents/com.github.lemun.kitzur.plist
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.github.lemun.kitzur.plist
+launchctl print "gui/$(id -u)/com.github.lemun.kitzur" | grep -E 'state|last exit'
+kitzur status
+```
+
+launchd's `PATH` is minimal: the template adds `/opt/homebrew/bin` and `/usr/local/bin`; for nvm, mise or
+a tarball install, replace `/usr/bin/env node` with the absolute path of `node`. Fatal startup errors go
+to `~/Library/Logs/kitzur.log`, routine logs to `~/.local/state/kitzur/logs`. Unlike the systemd unit,
+launchd also restarts after a config error (exit 2), every 10 seconds, until the config is fixed.
+Restart with `launchctl kickstart -k "gui/$(id -u)/com.github.lemun.kitzur"`; stop and uninstall with
+`launchctl bootout "gui/$(id -u)/com.github.lemun.kitzur"` and remove the plist.
 
 ## 4. Point the agent at it
 

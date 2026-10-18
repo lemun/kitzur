@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  kitzur as a macOS launchd user agent. Installation: deploy/README.md "macOS (launchd)".
+
+  launchd does not expand ~ or $HOME: replace __HOME__ with your home directory, for example
+    sed "s|__HOME__|$HOME|g" com.github.lemun.kitzur.plist > ~/Library/LaunchAgents/com.github.lemun.kitzur.plist
+  Paths assume the offline tarball was unpacked to ~/.local/lib/kitzur (deploy/README.md step 1).
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.github.lemun.kitzur</string>
+
+  <!-- Node >= 20. launchd's PATH is minimal, so PATH below adds the Homebrew locations; for nvm, mise or a
+       tarball install, put the absolute path of node here instead of /usr/bin/env node. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/env</string>
+    <string>node</string>
+    <string>__HOME__/.local/lib/kitzur/dist/src/cli.js</string>
+    <string>serve</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <!-- Created with: kitzur config init, writing to ~/.config/kitzur/kitzur.jsonc (also found without this line). -->
+    <key>KITZUR_CONFIG</key>
+    <string>__HOME__/.config/kitzur/kitzur.jsonc</string>
+    <!-- TLS to an https gateway signed by a custom CA (or set upstream.caFile in the config):
+    <key>NODE_EXTRA_CA_CERTS</key>
+    <string>/path/to/custom-ca.pem</string>
+    -->
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <!-- Restart after a failure, not after a clean stop. launchd cannot exempt exit 2 (a config error):
+       it retries every ThrottleInterval seconds until the config is fixed, so check the log below. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <!-- SIGTERM (launchctl bootout) drains in-flight streams for up to 30 s, then flushes state and stats. -->
+  <key>ExitTimeOut</key>
+  <integer>45</integer>
+
+  <!-- Routine logs go to the state dir (~/.local/state/kitzur/logs); fatal startup errors reach stderr. -->
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/kitzur.log</string>
+  <key>Umask</key>
+  <integer>63</integer>
+</dict>
+</plist>

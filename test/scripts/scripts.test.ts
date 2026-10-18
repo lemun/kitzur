@@ -32,3 +32,20 @@ test('fetch-tokenizer.sh explains a failed download and never leaves a partial f
   assert.match(optional.stderr, /download failed/);
   assert.deepEqual(readdirSync(join(dir, 'bench', '.cache')), []);
 });
+
+// the packer uses GNU tar (--sort) and sha256sum, as on the Linux build host
+function hasGnuTools(): boolean {
+  return process.platform !== 'win32' && /GNU tar/.test(spawnSync('tar', ['--version'], { encoding: 'utf8' }).stdout ?? '')
+    && spawnSync('sha256sum', ['--version'], { encoding: 'utf8' }).status === 0;
+}
+
+test('pack-offline.sh ships the launchd plist and the systemd unit that deploy/README.md tells the installer to use', { skip: !hasGnuTools() }, () => {
+  const out = mkdtempSync(join(tmpdir(), 'kitzur-pack-'));
+  const res = spawnSync('bash', [join(ROOT, 'scripts', 'pack-offline.sh'), out], { encoding: 'utf8', cwd: ROOT });
+  assert.equal(res.status, 0, res.stderr);
+  const bundle = readdirSync(out).find((f) => f.endsWith('-offline.tar.gz'));
+  assert.ok(bundle, 'the vendored tarball is built');
+  const listing = spawnSync('tar', ['-tzf', join(out, bundle)], { encoding: 'utf8' }).stdout.split('\n');
+  for (const f of ['deploy/README.md', 'deploy/kitzur.service', 'deploy/com.github.lemun.kitzur.plist'])
+    assert.ok(listing.some((l) => l.endsWith(`/${f}`)), `${f} is in the bundle`);
+});

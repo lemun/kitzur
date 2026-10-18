@@ -56,14 +56,18 @@ git clone https://github.com/lemun/kitzur.git
 cd kitzur
 npm ci
 npm run build
-node dist/src/cli.js config init --preset 100k --out ~/.config/kitzur/kitzur.jsonc
+node dist/src/cli.js config init --preset 100k --out ~/.config/kitzur/kitzur.jsonc \
+  --upstream http://127.0.0.1:8000 --tokenizer /path/to/tokenizer.json
 ```
 
-Edit the generated file to set `upstream.origin` (for example
-`http://127.0.0.1:8000`) and `tokenizer.path`, then start the proxy:
+`--upstream` is the server's `scheme://host[:port]` and `--tokenizer` the served model's
+`tokenizer.json` (both can also be edited in the generated file later). Then start the proxy with that file.
+Without `--config` (and without `KITZUR_CONFIG`), `serve` looks for `kitzur.jsonc` in
+`$XDG_CONFIG_HOME/kitzur/` when that variable is set to an absolute path, else in `~/.config/kitzur/`;
+the explicit form works everywhere:
 
 ```sh
-node dist/src/cli.js serve -c ~/.config/kitzur/kitzur.jsonc
+node dist/src/cli.js serve --config ~/.config/kitzur/kitzur.jsonc
 ```
 
 <p align="center">
@@ -306,12 +310,13 @@ can freeze older versions that write synchronously to the console. `kitzur docto
 checks the configured local listener and reports a process that accepts TCP but
 cannot answer `/status` within three seconds.
 
-On **macOS**, use a LaunchAgent in `~/Library/LaunchAgents/` with `ProgramArguments`
-set to the absolute Node path, the absolute `dist/src/cli.js` path, `serve`,
-`--config`, and your absolute config path. Set `RunAtLoad` to true and configure
-`StandardOutPath` and `StandardErrorPath` to files in an existing writable directory.
-Load it with `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/your.kitzur.plist`.
-The rotating server log remains in the configured state directory.
+On **macOS**, start from the LaunchAgent template
+[deploy/com.github.lemun.kitzur.plist](deploy/com.github.lemun.kitzur.plist): replace
+`__HOME__` with your home directory and the `dist/src/cli.js` path with your checkout's,
+copy it to `~/Library/LaunchAgents/`, and load it with
+`launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.github.lemun.kitzur.plist`
+([details](deploy/README.md#macos-launchd)). The rotating server log remains in the
+configured state directory.
 
 On **Linux**, create `~/.config/systemd/user/kitzur.service`:
 
@@ -362,7 +367,8 @@ See [CONFIG.md](CONFIG.md) for all budget settings.
 | [SECURITY.md](SECURITY.md) | Threat model, privacy and vulnerability reporting |
 | [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md) | Setup diagnostics and session reports |
 | [bench/README.md](bench/README.md) | Benchmark methodology and reproduction |
-| [deploy/README.md](deploy/README.md) | Packaging and the systemd user service |
+| [deploy/README.md](deploy/README.md) | Packaging, the systemd user service and the macOS launchd agent |
+| [CHANGELOG.md](CHANGELOG.md) | Notable changes per release |
 
 ## Contributing
 
