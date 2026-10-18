@@ -48,4 +48,7 @@ test('pack-offline.sh ships the launchd plist and the systemd unit that deploy/R
   const listing = spawnSync('tar', ['-tzf', join(out, bundle)], { encoding: 'utf8' }).stdout.split('\n');
   for (const f of ['deploy/README.md', 'deploy/kitzur.service', 'deploy/com.github.lemun.kitzur.plist'])
     assert.ok(listing.some((l) => l.endsWith(`/${f}`)), `${f} is in the bundle`);
+  // docs text ships; the README demo media (docs/assets) does not
+  assert.ok(listing.some((l) => l.endsWith('/docs/DIAGNOSTICS.md')), 'docs/DIAGNOSTICS.md is in the bundle');
+  assert.deepEqual(listing.filter((l) => l.includes('/docs/assets')), []);
 });
