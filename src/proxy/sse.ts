@@ -340,8 +340,9 @@ export class SseRelay {
     this.events++;
     let strip = false;
     if (ev.data === '[DONE]') this.done = true;
-    // a chunk without either key has nothing to record or strip: skip the parse (most content deltas)
-    else if (ev.data !== null && (ev.data.includes('usage') || ev.data.includes('finish_reason'))) {
+    // a chunk without either key (and no \u escape that could spell one) has nothing to record or strip:
+    // skip the parse (most content deltas)
+    else if (ev.data !== null && (ev.data.includes('usage') || ev.data.includes('finish_reason') || ev.data.includes('\\u'))) {
       try {
         const info = inspectChunk(JSON.parse(ev.data) as unknown);
         if (info.usage) this.usage = info.usage;
