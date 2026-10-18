@@ -151,7 +151,7 @@ and `kitzur status` summarizes the proxy from another terminal:
 ```sh
 node dist/src/cli.js status          # readable summary and the five latest requests
 node dist/src/cli.js status --json   # the full /status object
-curl -s http://127.0.0.1:8270/status
+curl -s http://127.0.0.1:8270/status -H 'Authorization: Bearer <listen.token>'   # header only if listen.token is set
 ```
 
 `status` finds the proxy through the same config as `serve` (`--config`, `KITZUR_CONFIG` or
