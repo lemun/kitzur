@@ -12,7 +12,9 @@ export function clientConfigChecks(cfg: Config, input: unknown): DoctorCheck[] {
   const warn = (code: string, message: string): void => { checks.push({ code: 'client.' + code, status: 'warn', message }); };
   const local = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0', '[::]']);
   const hostMatches = (host: string): boolean => host === cfg.listen.host || local.has(host) && local.has(cfg.listen.host);
-  const providers = Object.values(object(object(input).provider)).map(object);
+  const root = object(input);
+  const compaction = object(root.compaction);
+  const providers = Object.values(object(root.provider)).map(object);
   const matches = providers.filter((p) => {
     try {
       const u = new URL(String(object(p.options).baseURL));
@@ -32,6 +34,7 @@ export function clientConfigChecks(cfg: Config, input: unknown): DoctorCheck[] {
     if (!models.length) warn('context', 'Provider models are missing limit.context.');
     for (const model of models) {
       const limit = object(model.limit);
+      if (limit.context === 0) continue;
       if (!positive(limit.context)) {
         warn('context', 'A provider model is missing a positive limit.context.');
         continue;
@@ -40,10 +43,15 @@ export function clientConfigChecks(cfg: Config, input: unknown): DoctorCheck[] {
         warn('output', 'A provider model is missing a positive limit.output; OpenCode usable context cannot be verified.');
         continue;
       }
-      const reserved = Math.min(limit.output, 32000);
-      const usable = (positive(limit.input) ? limit.input : limit.context) - reserved;
-      if (usable <= b.trigger + b.allowance)
-        warn('usable', `OpenCode usable context ${usable} <= Kitzur trigger ${b.trigger} + allowance ${b.allowance}; the client may compact first.`);
+      if (compaction.auto === false) continue;
+      const maxOutputTokens = Math.min(limit.output, cfg.client.outputTokenMax);
+      const reserved = typeof compaction.reserved === 'number' && Number.isFinite(compaction.reserved) && compaction.reserved >= 0
+        ? compaction.reserved : Math.min(20_000, maxOutputTokens);
+      const usable = positive(limit.input)
+        ? Math.max(0, limit.input - reserved)
+        : Math.max(0, limit.context - maxOutputTokens);
+      if (b.trigger >= usable - b.allowance)
+        warn('usable', `OpenCode compacts at ${usable}, Kitzur triggers at ${b.trigger} (output allowance ${b.allowance}); the client may compact first.`);
     }
   }
   if (!checks.length) checks.push({ code: 'client.compatible', status: 'ok', message: 'OpenCode provider routing and usable context are compatible.' });

@@ -1,9 +1,10 @@
-import { modelWindow } from '../config/window.js';
+import { clientCompactionPoint } from '../config/client-point.js';
 // Budget quantities (DESIGN.md): T_req, T_plan, W, margin, budget, clientPoint, allowance, hard,
 // trigger, target, the byte limit, the server budget mode (with its precedence, ), serverFits (),
 // the step's fit predicate with the opt-in clamp clause (), and the forwarded max_tokens ().
 import type { Budget, ChatRequest, LearnedEntry } from '../types.js';
 import type { BudgetMode, Config } from '../config/schema.js';
+import { modelWindow } from '../config/window.js';
 
 /** floor(x · fraction) as DESIGN §3 defines it: Math.floor(x * f + 1e-9) (41,000 · 0.35 = 14,350). */
 export const ffloor = (x: number, f: number): number => Math.floor(x * f + 1e-9);
@@ -52,7 +53,7 @@ export function computeBudget(cfg: Config, E: LearnedEntry, extraTighten: number
   const byPrompt = E.maxPrompt === null ? Infinity : E.maxPrompt - margin;
   const budget = Math.min(W - tPlan - margin, byPrompt) - tighten;
   const c = cfg.client;
-  const clientPoint = c.compactionPointTokens ?? W - Math.min(c.outputLimit ?? tPlan, c.outputTokenMax);
+  const clientPoint = clientCompactionPoint(cfg, W, tPlan);
   const allowance = c.outputAllowanceTokens ?? Math.min(7000, Math.floor(tPlan / 2));
   const hard = Math.min(budget, clientPoint - allowance);
   const k = cfg.compaction;

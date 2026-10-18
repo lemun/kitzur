@@ -18,6 +18,8 @@ export interface Config {
     token: string | null;
     /** accepted Host header names (port ignored); ['*'] disables the DNS-rebinding guard */
     allowedHosts: string[];
+    /** browser origins (scheme://host[:port]) that may call the proxy; a request with any other Origin is refused */
+    allowedOrigins: string[];
   };
   upstream: {
     /** scheme://host[:port] of the gateway; the client's request path is appended unchanged */
@@ -57,8 +59,10 @@ export interface Config {
     observedFixedPromptTokens: number | null;
   };
   client: {
-    /** where the agent compacts by itself (prompt+completion tokens); null = W - min(outputLimit ?? T_plan, outputTokenMax) */
+    /** where the agent compacts by itself (prompt+completion tokens); null = derived from inputLimit or window and capped output */
     compactionPointTokens: number | null;
+    inputLimit: number | null;
+    reservedTokens: number | null;
     outputLimit: number | null;
     /** the client's output cap (OPENCODE_/KILO_EXPERIMENTAL_OUTPUT_TOKEN_MAX, default 32000) */
     outputTokenMax: number;
@@ -208,7 +212,7 @@ export interface Config {
 
 /** Built-in defaults = the 100k/32k reference setup. */
 export const DEFAULT_CONFIG: Config = {
-  listen: { host: '127.0.0.1', port: 8270, maxRequestBytes: 64 * 1024 * 1024, maxConcurrentRequests: 16, token: null, allowedHosts: ['127.0.0.1', 'localhost', '[::1]', '::1'] },
+  listen: { host: '127.0.0.1', port: 8270, maxRequestBytes: 64 * 1024 * 1024, maxConcurrentRequests: 16, token: null, allowedHosts: ['127.0.0.1', 'localhost', '[::1]', '::1'], allowedOrigins: [] },
   upstream: {
     origin: null, timeoutMs: 900_000, idleTimeoutMs: 300_000, caFile: null, insecureTls: false,
     headers: {}, maxBodyBytes: null, keepAliveIdleMs: 4000,
@@ -222,7 +226,7 @@ export const DEFAULT_CONFIG: Config = {
     observedFixedPromptTokens: null,
   },
   client: {
-    compactionPointTokens: null, outputLimit: null, outputTokenMax: 32_000, outputAllowanceTokens: null,
+    compactionPointTokens: null, inputLimit: null, reservedTokens: null, outputLimit: null, outputTokenMax: 32_000, outputAllowanceTokens: null,
     toolOutputMaxBytes: 51_200,
     summaryMarkers: ['## Objective', '## Next Move'],
     compactionMarkers: ['What did we do so far?'],

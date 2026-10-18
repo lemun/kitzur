@@ -40,7 +40,7 @@ test('file persistence: JSONL per day, lazy load, later lines win, corrupt lines
     s1.set('a', plan(1));
     s1.set('b', plan(2, 'S'));
     s1.set('b', plan(3, 'S2'));
-    await p1.flush();
+    await s1.flush();
     const files = readdirSync(join(dir, 'plans'));
     assert.deepEqual(files, ['plans-2026-09-28.jsonl']);
     const lines = readFileSync(join(dir, 'plans', files[0]!), 'utf8').trim().split('\n');

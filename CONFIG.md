@@ -64,7 +64,7 @@ none below the client's compaction point; `upstream.origin` with a path; a missi
   while `budget.defaultMaxTokens` kept the built-in 100k value (the classic `KITZUR_WINDOW=32000` alone);
 - an absolute `compaction.triggerTokens`/`targetTokens` that gets clamped;
 - a `budget` under a quarter of the window (`T_plan` reserves most of it, e.g. a 32k window with `defaultMaxTokens` 32000);
-- `upstream.origin` missing, a non-loopback `listen.host`, `allowedHosts ['*']` or empty, `insecureTls`, no tokenizer,
+- `upstream.origin` missing, a non-loopback `listen.host`, `allowedHosts ['*']` or empty, a non-empty `allowedOrigins`, `insecureTls`, no tokenizer,
   `ledger.mirrorPath` set (not implemented in v1).
 
 Each regex key is checked with the flags its consumer compiles it with: `ledger.correctionCues` and
@@ -81,7 +81,10 @@ T_plan      = budget.planMaxTokens ?? budget.defaultMaxTokens               (con
 W           = learned window ?? budget.window
 margin      = max(budget.safetyMarginTokens, ceil(budget.safetyMarginFraction · W))
 budget      = min(W − T_plan − margin, learned maxPrompt − margin) − tighten
-clientPoint = client.compactionPointTokens ?? (W − min(client.outputLimit ?? T_plan, client.outputTokenMax))
+cappedOutput = min(client.outputLimit ?? T_plan, client.outputTokenMax)
+clientPoint = client.compactionPointTokens ?? (client.inputLimit != null
+              ? max(0, client.inputLimit − (client.reservedTokens ?? min(20000, cappedOutput)))
+              : W − cappedOutput)
 allowance   = client.outputAllowanceTokens ?? min(7000, floor(T_plan / 2))
 hard        = min(budget, clientPoint − allowance)
 trigger     = min(compaction.triggerTokens ?? floor(hard · compaction.triggerFraction), hard)
@@ -161,7 +164,7 @@ OpenCode (`opencode.json[c]`, in the project, `~/.config/opencode/` or `.opencod
 ```
 
 - `limit.context`/`limit.output` equal the kitzur preset (`100k` ↔ 100000/32000, `32k` ↔ 32000/8000, …).
-  OpenCode then compacts at `context − min(output, 32000)`, which is `clientPoint`.
+  OpenCode then compacts at `context − min(output, 32000)`, which is `clientPoint` when no input limit is set. With `limit.input`, set `client.inputLimit` and mirror any explicit reservation in `client.reservedTokens`.
 - OpenCode sends `max_tokens = min(limit.output, 32000)` on every request and always asks for streamed usage
   (`stream_options.include_usage`), so `stream.injectIncludeUsage` stays off.
 - `OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX` changes the 32000: set `client.outputTokenMax` to the same value.
@@ -195,8 +198,9 @@ Columns: **Default**; **Meaning**; **If wrong**: what breaks; **Probe field**: t
 | `listen.port` | `8270` | Listen port; `0` picks a free port (`serve` records the bound address in the server log). | A port in use: `serve` fails to start. The client's `baseURL` must use it. | – |
 | `listen.maxRequestBytes` | `67108864` | Maximum request body bytes (64 MiB), a positive safe integer. Oversized Content-Length is rejected before reading; chunked uploads are stopped as soon as they exceed it. | 413 and connection closed; an exactly-at-limit body is accepted. | – |
 | `listen.maxConcurrentRequests` | `16` | Maximum requests being read or processed, a positive safe integer. | Excess requests receive 503 with Retry-After: 1 and connection closed. | concurrency_rejected |
-| `listen.token` | `null` | Optional nonempty client Bearer token, required for non-loopback binds with upstream.headers set. Checked on every route, including status; consumed locally, never forwarded. Status and doctor use the configured token; status --url never sends it. | Missing or incorrect token: 401. Unsafe credentialed bind without a token: startup error. | – |
+| `listen.token` | `null` | Optional nonempty client Bearer token, required for non-loopback binds with upstream.headers set. Checked on every route, including status; consumed locally, never forwarded. Status and doctor use the configured token; status --url never sends it. | Missing or incorrect token: 401. Unsafe credentialed bind without a token: startup error. upstream.headers without a token on loopback: startup and doctor warning. | – |
 | `listen.allowedHosts` | `["127.0.0.1","localhost","[::1]","::1"]` | Accepted `Host` header names (port ignored); blocks DNS rebinding. `["*"]` disables the check. | Too narrow: clients that use another name are refused. `*`: a web page can reach the proxy through DNS rebinding. | – |
+| `listen.allowedOrigins` | `[]` | Browser origins (`scheme://host[:port]`, exact match) that may call the proxy. A request with any other `Origin` header, or a `Sec-Fetch-Site` of `cross-site`/`same-site`, gets 403; CLI agents send neither. | An origin listed here: any page served from it can use the proxy and the credentials it forwards. | – |
 
 ### upstream
 
@@ -238,7 +242,9 @@ Columns: **Default**; **Meaning**; **If wrong**: what breaks; **Probe field**: t
 
 | Key | Default | Meaning | If wrong | Probe field |
 |---|---|---|---|---|
-| `client.compactionPointTokens` | `null` | Where the agent compacts by itself (last step's prompt + completion); `null` = `W − min(outputLimit ?? T_plan, outputTokenMax)`. | Above the client's real point: the agent's own LLM compaction fires and rewrites the goal and facts. Far below: kitzur compacts earlier than needed. | client config: OpenCode `usable` (`limit.context − maxOut`, or `limit.input − reserved`), Kilo `threshold_percent`; `compaction.auto: false` = the window |
+| `client.compactionPointTokens` | `null` | Where the agent compacts by itself (last step's prompt + completion); `null` = input-limit formula above when `client.inputLimit` is set, otherwise `W − min(outputLimit ?? T_plan, outputTokenMax)`. | Above the client's real point: the agent's own LLM compaction fires and rewrites the goal and facts. Far below: kitzur compacts earlier than needed. | client config: OpenCode `usable` (`limit.context − maxOut`, or `limit.input − reserved`), Kilo `threshold_percent`; `compaction.auto: false` = the window |
+| `client.inputLimit` | `null` | Client input limit (`limit.input`); when set, derive `clientPoint` as `max(0, inputLimit − reserved)`. Explicit `compactionPointTokens` wins. | Too high: client compacts first. | client config `limit.input` |
+| `client.reservedTokens` | `null` | Reservation below the input limit; `null` = `min(20000, cappedOutput)`. Zero is allowed. Ignored without `inputLimit`. | Too small: client compacts first. | client config `compaction.reserved` |
 | `client.outputLimit` | `null` | The client's configured output (`limit.output`). | Only the `clientPoint` default and the `T_plan` warning use it. | client config `limit.output` |
 | `client.outputTokenMax` | `32000` | The client's output cap (`OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX`, `KILO_…`). | Wrong `clientPoint` default (see above). | client config env |
 | `client.outputAllowanceTokens` | `null` | Headroom kept below `clientPoint` for the reply plus reasoning; `null` = `min(7000, floor(T_plan / 2))`. | Too small: a step that reasons long pushes prompt + completion past the client's point, and the client compacts. Too large: earlier compactions. | `min(T_plan, max(2000, p99 completion_tokens))` from `capture.jsonl`, else `summarize_capture.reported_completion_tokens.max` |
@@ -390,6 +396,7 @@ Columns: **Default**; **Meaning**; **If wrong**: what breaks; **Probe field**: t
 |---|---|---|---|---|
 | `cache.prefixCaching` | `unknown` | Informational: the server has prefix caching (`on`, `off`, `unknown`). | – | `on` when `summarize_capture.cached_prompt_tokens` shows cached tokens |
 | `store.persist` | `false` | Persist plans to `<stateDir>/plans/` (saves CPU after a restart; results are identical without it). Plans contain summaries (user content). | – | – |
+| `store.retentionDays` | `14` | Retain persisted plans for this many UTC calendar days, including today; expired daily files are removed on store access. | Too low: extra recomputation after restarts. | – |
 | `store.maxPlans` | `4096` | Plan memo size (entries). | Too low: extra fold replays (CPU only). | – |
 | `store.maxBytes` | `67108864` | Plan memo size (bytes). | As above. | – |
 | `stateDir` | `null` | Learned state, plan store and tokenizer cache; `null` = `$XDG_STATE_HOME/kitzur` or `~/.local/state/kitzur`. | Shared between unrelated instances: learned windows leak between them. | – |
@@ -540,9 +547,17 @@ half; prompt-count validation still applies.
 Run `kitzur doctor --client-config opencode.json` to check an OpenCode JSON/JSONC
 provider against Kitzur's listen address, SDK, model limits and trigger. Use
 `@ai-sdk/openai-compatible` for Chat Completions; `@ai-sdk/openai` uses
-`/responses`, which Kitzur forwards untouched. The check reserves
-`min(limit.output, 32000)` from `limit.input` (or `limit.context`) and warns
-when the usable context is at or below Kitzur's trigger plus output allowance.
+`/responses`, which Kitzur forwards untouched. For a positive `limit.input`,
+the check calculates OpenCode's compaction point as
+`max(0, limit.input - (compaction.reserved ?? min(20000, maxOutputTokens)))`.
+Root `compaction.reserved` may explicitly be `0`. Without a positive input
+limit, the point is `max(0, limit.context - maxOutputTokens)`;
+`maxOutputTokens` is `min(limit.output, client.outputTokenMax)` (the configured
+OpenCode output cap, default `32000`). For example, context `100000`, input
+`66000` and output `32000` give a default compaction point of `46000`.
+The doctor warns “OpenCode compacts at X, Kitzur triggers at Y” when
+`Y >= X - output allowance`, including equality. It skips this comparison
+when root `compaction.auto` is `false` or `limit.context` is `0`.
 
 `/status` exposes `client_compactions`, `last_client_compaction` (previous
 forwarded prompt tokens and trigger), and `completion_tokens_p99`. A request

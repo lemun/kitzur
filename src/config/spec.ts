@@ -45,6 +45,7 @@ export const LEAF_SPECS: Readonly<Record<string, LeafSpec>> = Object.assign(Obje
   'listen.maxConcurrentRequests': int(1, Number.MAX_SAFE_INTEGER),
   'listen.token': { t: 'str', nullable: true, nonEmpty: true },
   'listen.allowedHosts': strs,
+  'listen.allowedOrigins': strs,
 
   'upstream.origin': { t: 'str', nullable: true, format: 'origin' },
   'upstream.timeoutMs': int(1, MAX_MS),
@@ -70,6 +71,8 @@ export const LEAF_SPECS: Readonly<Record<string, LeafSpec>> = Object.assign(Obje
   'budget.maxTokensRestore.toTokens': intN(1, MAX_TOKENS),
   'budget.observedFixedPromptTokens': intN(0, MAX_TOKENS),
 
+  'client.inputLimit': intN(0, MAX_TOKENS),
+  'client.reservedTokens': intN(0, MAX_TOKENS),
   'client.compactionPointTokens': intN(1, MAX_TOKENS),
   'client.outputLimit': intN(1, MAX_TOKENS),
   'client.outputTokenMax': int(1, MAX_TOKENS),

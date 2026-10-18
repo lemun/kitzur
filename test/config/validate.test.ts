@@ -150,3 +150,29 @@ test('globToRegExp: * is the only wildcard', () => {
   assert.ok(!globToRegExp('a.b').test('axb'));
   assert.ok(globToRegExp('a(b)?').test('a(b)?'));
 });
+
+test('client input limit and reservation accept nullable nonnegative integers', () => {
+  for (const key of ['inputLimit', 'reservedTokens'] as const) {
+    assert.equal(DEFAULT_CONFIG.client[key], null);
+    for (const value of [null, 0, 5000]) {
+      const cfg = cfgWith(c => { c.client[key] = value; });
+      assert.ok(!errorsOf(cfg).some(e => e.startsWith(`client.${key}:`)));
+    }
+    for (const value of [-1, 0.5, Infinity, NaN]) {
+      const cfg = cfgWith(c => { c.client[key] = value; });
+      assert.ok(errorsOf(cfg).some(e => e.startsWith(`client.${key}:`)));
+    }
+  }
+});
+
+test('validate: upstream.headers without listen.token warns on loopback; a token or the non-loopback error replaces it', () => {
+  const tokenWarnings = (c: Config): string[] => warningsOf(c).filter((w) => /listen\.token/.test(w));
+  assert.equal(tokenWarnings(cfgWith(() => {})).length, 0);
+  const open = tokenWarnings(cfgWith((c) => (c.upstream.headers = { authorization: 'Bearer UPSTREAM_SECRET' })));
+  assert.equal(open.length, 1);
+  assert.doesNotMatch(open[0]!, /UPSTREAM_SECRET/);
+  assert.equal(tokenWarnings(cfgWith((c) => { c.upstream.headers = { authorization: 'x' }; c.listen.token = 'CLIENT_SECRET'; })).length, 0);
+  const exposed = cfgWith((c) => { c.upstream.headers = { authorization: 'x' }; c.listen.host = '0.0.0.0'; });
+  assert.equal(tokenWarnings(exposed).length, 0);
+  assert.ok(errorsOf(exposed).some((e) => /listen\.token is required/.test(e)));
+});

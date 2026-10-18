@@ -1,4 +1,4 @@
-import { modelWindow } from './window.js';
+import { clientCompactionPoint } from './client-point.js';
 // Budget quantities of DESIGN.md, computed from the config (plus the request's T_req, the learned
 // entry and, when known, the head size). Pure, no I/O.
 //
@@ -7,6 +7,7 @@ import { modelWindow } from './window.js';
 // and test/config/derived.test.ts pins the §3 preset table so a drift is caught.
 import type { Budget, ChatRequest, LearnedEntry } from '../types.js';
 import type { BudgetMode, Config } from './schema.js';
+import { modelWindow } from './window.js';
 
 /** `floor(x · fraction)` as DESIGN §3 defines it: with a 1e-9 epsilon (41,000 · 0.35 = 14,349.999… in IEEE). */
 export function floorFrac(x: number, fraction: number): number {
@@ -94,8 +95,7 @@ export function computeBudget(cfg: Config, inputs: BudgetInputs = {}): Budget {
   const tighten = Math.max(0, E?.tighten ?? 0) + Math.max(0, inputs.extraTighten ?? 0);
   const maxPrompt = E?.maxPrompt ?? null;
   const budget = Math.min(W - tPlan - margin, maxPrompt === null ? Infinity : maxPrompt - margin) - tighten;
-  const clientPoint =
-    cfg.client.compactionPointTokens ?? W - Math.min(cfg.client.outputLimit ?? tPlan, cfg.client.outputTokenMax);
+  const clientPoint = clientCompactionPoint(cfg, W, tPlan);
   const allowance = cfg.client.outputAllowanceTokens ?? Math.min(7000, Math.floor(tPlan / 2));
   const hard = Math.min(budget, clientPoint - allowance);
   const trigger = Math.min(cfg.compaction.triggerTokens ?? floorFrac(hard, cfg.compaction.triggerFraction), hard);

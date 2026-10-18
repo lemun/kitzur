@@ -231,9 +231,15 @@ test('variant: client compaction points (Kilo threshold_percent, limit.input + r
   const model = ((first['provider'] as J)['gw'] as J)['models'] as J;
   (model['local-model'] as J)['limit'] = { context: 100000, input: 90000, output: 32000 };
   first['compaction'] = { auto: true, reserved: 12000 };
-  assert.equal(mapEvalResults(R).provenance['client.compactionPointTokens']?.value, 78_000, 'input − reserved');
+  res = mapEvalResults(R);
+  assert.equal(res.provenance['client.compactionPointTokens']?.value, 78_000, 'input − reserved');
+  assert.deepEqual([res.provenance['client.inputLimit']?.value, res.provenance['client.inputLimit']?.confidence], [90_000, 'client-config']);
+  assert.deepEqual([res.provenance['client.reservedTokens']?.value, res.provenance['client.reservedTokens']?.confidence], [12_000, 'client-config']);
+  assert.deepEqual([getPath(loadWritten(res), 'client.inputLimit'), getPath(loadWritten(res), 'client.reservedTokens')], [90_000, 12_000]);
   first['compaction'] = { auto: true };
-  assert.equal(mapEvalResults(R).provenance['client.compactionPointTokens']?.value, 70_000, 'input − min(20000, maxOut)');
+  res = mapEvalResults(R);
+  assert.equal(res.provenance['client.compactionPointTokens']?.value, 70_000, 'input − min(20000, maxOut)');
+  assert.equal(res.provenance['client.reservedTokens'], undefined, 'no reserved: not written');
   first['compaction'] = { auto: false };
   res = mapEvalResults(R);
   assert.equal(res.provenance['client.compactionPointTokens']?.value, 100_000, 'auto=false: the client never compacts');

@@ -2,6 +2,7 @@
 // rejection resend (), for the max_tokens_too_large retry value and for the near-budget test of
 // ambiguous errors (§8). Normally these come from EngineResult.stats.budget; this module computes the
 // same numbers from config and the learned entry so the proxy never depends on an engine result.
+import { clientCompactionPoint } from '../config/client-point.js';
 import type { Config, BudgetMode } from '../config/schema.js';
 import type { LearnedEntry } from '../types.js';
 
@@ -58,7 +59,7 @@ export function serverLimits(cfg: Config, e: LearnedEntry | null, extraTighten =
   const budget0 = W - tPlan - margin;
   const budget = Math.min(budget0, (e?.maxPrompt ?? Infinity) - margin) - tighten;
   const c = cfg.client;
-  const clientPoint = c.compactionPointTokens ?? W - Math.min(c.outputLimit ?? tPlan, c.outputTokenMax);
+  const clientPoint = clientCompactionPoint(cfg, W, tPlan);
   const allowance = c.outputAllowanceTokens ?? Math.min(7000, Math.floor(tPlan / 2));
   return { mode: budgetModeOf(cfg), window: W, margin, tighten, planMaxTokens: tPlan, budget0, budget, hard: Math.min(budget, clientPoint - allowance) };
 }
@@ -90,7 +91,7 @@ export interface BudgetQuantities extends ServerLimits {
 export function budgetQuantities(cfg: Config, e: LearnedEntry | null): BudgetQuantities {
   const lim = serverLimits(cfg, e);
   const c = cfg.client;
-  const clientPoint = c.compactionPointTokens ?? lim.window - Math.min(c.outputLimit ?? lim.planMaxTokens, c.outputTokenMax);
+  const clientPoint = clientCompactionPoint(cfg, lim.window, lim.planMaxTokens);
   const allowance = c.outputAllowanceTokens ?? Math.min(7000, Math.floor(lim.planMaxTokens / 2));
   const k = cfg.compaction;
   const trigger = Math.min(k.triggerTokens ?? floorFrac(lim.hard, k.triggerFraction), lim.hard);

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, unlinkSync, readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { DEFAULT_CONFIG } from '../../src/config/schema.js';
 import {
   StateStore, defaultStateDir, freshLearnedEntry, keyMatches, learnedKey, planningChanged, readLearnedState, resetState, showState, writeFileAtomic,
@@ -11,7 +12,8 @@ import { applyAcceptedRatio, ceil1pct, correctionFor, judgeSample, p90, Endpoint
 import type { LearnedEntry } from '../../src/types.js';
 import type { RemoteTokenizer } from '../../src/tokenize/remote.js';
 import { createProfile } from '../../src/tokenize/template.js';
-import { testConfig, sleep } from './harness.js';
+import { testConfig } from './harness.js';
+import { waitFor } from './helpers.js';
 
 const tmp = (): string => mkdtempSync(join(tmpdir(), 'kitzur-state-'));
 const NOW = new Date('2026-09-28T12:00:00Z');
@@ -34,7 +36,7 @@ test('planning and sample writes coalesce off the request path', async () => {
   s.set('k', { ...s.entry('k'), window: 89_000 });
   assert.equal(existsSync(join(dir, 'learned.json')), false, 'set must not touch disk');
   s.set('k', { ...s.entry('k'), samples: 3 });
-  await sleep(100);
+  await waitFor(() => s.writes !== 0);
   assert.equal(s.writes, 1);
   assert.equal(readLearnedState(join(dir, 'learned.json')).state.entries['k']?.samples, 3);
   await s.close();
@@ -49,7 +51,8 @@ test('planning changes expedite an existing sample checkpoint', async () => {
       const writes = s.writes;
       s.set('k', { ...s.entry('k'), ...patch });
       assert.equal(s.writes, writes, 'set stays asynchronous');
-      await sleep(450);
+      // well under the 5 s default debounce, so this still proves the checkpoint was expedited
+      await waitFor(() => isDeepStrictEqual(readLearnedState(join(dir, 'learned.json')).state.entries['k'], s.entry('k')), 2500);
       assert.deepEqual(readLearnedState(join(dir, 'learned.json')).state.entries['k'], s.entry('k'));
     }
   } finally { await s.close(); }
