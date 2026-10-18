@@ -546,9 +546,17 @@ half; prompt-count validation still applies.
 Run `kitzur doctor --client-config opencode.json` to check an OpenCode JSON/JSONC
 provider against Kitzur's listen address, SDK, model limits and trigger. Use
 `@ai-sdk/openai-compatible` for Chat Completions; `@ai-sdk/openai` uses
-`/responses`, which Kitzur forwards untouched. The check reserves
-`min(limit.output, 32000)` from `limit.input` (or `limit.context`) and warns
-when the usable context is at or below Kitzur's trigger plus output allowance.
+`/responses`, which Kitzur forwards untouched. For a positive `limit.input`,
+the check calculates OpenCode's compaction point as
+`max(0, limit.input - (compaction.reserved ?? min(20000, maxOutputTokens)))`.
+Root `compaction.reserved` may explicitly be `0`. Without a positive input
+limit, the point is `max(0, limit.context - maxOutputTokens)`;
+`maxOutputTokens` is `min(limit.output, client.outputTokenMax)` (the configured
+OpenCode output cap, default `32000`). For example, context `100000`, input
+`66000` and output `32000` give a default compaction point of `46000`.
+The doctor warns “OpenCode compacts at X, Kitzur triggers at Y” when
+`Y >= X - output allowance`, including equality. It skips this comparison
+when root `compaction.auto` is `false` or `limit.context` is `0`.
 
 `/status` exposes `client_compactions`, `last_client_compaction` (previous
 forwarded prompt tokens and trigger), and `completion_tokens_p99`. A request
