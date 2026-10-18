@@ -777,10 +777,12 @@ export function mapEvalResults(R: Record<string, J>, opts: MapOptions = {}): Imp
   if (lout) put('client.outputLimit', lout, 'collect_config#limit.output', 'copy', 'client-config');
   if (otmSet) put('client.outputTokenMax', otm, 'collect_config#/env/*_EXPERIMENTAL_OUTPUT_TOKEN_MAX', 'copy', 'client-config');
   const comp = compaction ?? {};
+  const lin = num(limit?.['input']);
+  const reserved = num(comp['reserved']);
+  if (lin) put('client.inputLimit', lin, 'collect_config#limit.input', 'copy', 'client-config');
+  if (reserved !== null) put('client.reservedTokens', reserved, 'collect_config#compaction.reserved', 'copy', 'client-config');
   if (lctx) {
     const maxOut = Math.min(lout || otm, otm) || otm;
-    const lin = num(limit?.['input']);
-    const reserved = num(comp['reserved']);
     const usable = lin ? Math.max(0, lin - (reserved !== null ? reserved : Math.min(20000, maxOut))) : Math.max(0, lctx - maxOut);
     const pct = num(comp['threshold_percent']);
     const kilo = pct !== null ? Math.min(usable, Math.floor((lctx * pct) / 100)) : null;
