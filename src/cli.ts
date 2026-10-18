@@ -17,7 +17,7 @@ import { computeBudget, planMaxTokens, requestMaxTokens, serverFits } from './co
 import { DEFAULT_LEAVES, getPath, isPlainObject } from './config/spec.js';
 import { isAutoWindow } from './config/window.js';
 import { renderInitConfig } from './config/init.js';
-import { packageInfo, stateDirOf } from './config/paths.js';
+import { defaultConfigPath, packageInfo, stateDirOf } from './config/paths.js';
 import { jsonErrorInfo, lineCol, parseJsonc } from './config/jsonc.js';
 import {
   mapEvalResults, mergeImport, readEvalInputs, renderImportReport, sidecarPath, type ImportSidecar, type KnobRecord, type MergeResult,
@@ -155,7 +155,7 @@ export function setOpsOf(p: ParsedArgs, spec: OptSpec = CONFIG_OPTS): SetOp[] {
 function loadFromArgs(p: ParsedArgs, io: CliIO): LoadedConfig {
   return loadConfig({
     preset: (p.values['preset'] as string | undefined) ?? null,
-    configPath: (p.values['config'] as string | undefined) ?? null,
+    configPath: (p.values['config'] as string | undefined) ?? (io.env['KITZUR_CONFIG'] ? null : defaultConfigPath(io.env)),
     env: io.env,
     cwd: io.cwd,
     sets: setOpsOf(p),
@@ -173,7 +173,7 @@ const USAGE = `usage: kitzur <command> [options]
   status [--url URL] [--json]   Show a running instance’s status
   doctor [--client-config PATH] [--json] [--check-upstream] [--timeout-ms N]  read-only setup diagnostics
   report <stats.jsonl> [--json]  aggregate request stats; sizes only
-  config init [--preset 100k] [--out FILE|-] [--force]
+  config init [--preset 100k] [--upstream URL] [--tokenizer FILE] [--out FILE|-] [--force]
   config show [--changed] [--json]      effective config with the source of every value
   config validate [--json]              errors and startup warnings
   config import-eval <dir|file>... [--out FILE] [--merge FILE] [--provenance FILE] [--dry-run]
@@ -184,7 +184,8 @@ const USAGE = `usage: kitzur <command> [options]
   version
 
 config options (serve, replay, count, status, config show|validate, state):
-  -c, --config FILE      JSON config file (comments allowed)       also KITZUR_CONFIG
+  -c, --config FILE      JSON config file (comments allowed)       also KITZUR_CONFIG;
+                         default ~/.config/kitzur/kitzur.jsonc if it exists
   -p, --preset NAME      32k | 64k | 100k | 128k, or a preset file   also KITZUR_PRESET
   -s, --set a.b=v        set any key (repeatable)                    also KITZUR_SET="a.b=v;c.d=w"
   --upstream URL  --host H  --port N  --tokenizer FILE  --template NAME
@@ -570,8 +571,12 @@ async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
   const [sub, ...rest] = argv;
   switch (sub) {
     case 'init': {
-      const p = parseArgs(rest, { preset: { type: 'string', short: 'p' }, out: { type: 'string', short: 'o' }, force: { type: 'boolean' } });
-      const text = renderInitConfig((p.values['preset'] as string | undefined) ?? '100k');
+      const p = parseArgs(rest, { preset: { type: 'string', short: 'p' }, out: { type: 'string', short: 'o' }, force: { type: 'boolean' }, upstream: { type: 'string' }, tokenizer: { type: 'string' } });
+      const text = renderInitConfig((p.values['preset'] as string | undefined) ?? '100k', {
+        upstream: p.values['upstream'] as string | undefined,
+        // relative to the shell's directory, not to the written file's
+        tokenizer: p.values['tokenizer'] === undefined ? undefined : resolve(io.cwd, p.values['tokenizer'] as string),
+      });
       const out = (p.values['out'] as string | undefined) ?? 'kitzur.config.jsonc';
       if (out === '-') {
         io.stdout(text);
@@ -585,7 +590,8 @@ async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
       // the README's `--out ~/.config/kitzur/kitzur.jsonc` on a fresh host: the directory does not exist yet
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, text);
-      io.stdout(`wrote ${path}\nnext: set upstream.origin (and tokenizer.path), then: kitzur config validate --config ${out}\n`);
+      const todo = [p.values['upstream'] ? '' : 'upstream.origin', p.values['tokenizer'] ? '' : 'tokenizer.path'].filter(Boolean);
+      io.stdout(`wrote ${path}\nnext: ${todo.length ? `set ${todo.join(' and ')}, then: ` : ''}kitzur config validate --config ${out}\n`);
       return 0;
     }
     case 'show': {

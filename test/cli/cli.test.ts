@@ -13,7 +13,7 @@ import type { AppModules } from '../../src/app.js';
 import { loadConfig } from '../../src/config/load.js';
 import { validateConfig } from '../../src/config/validate.js';
 import { DEFAULT_LEAVES } from '../../src/config/spec.js';
-import { packageInfo } from '../../src/config/paths.js';
+import { defaultConfigPath, packageInfo } from '../../src/config/paths.js';
 import type { ChatRequest, Engine, EngineResult, LearnedEntry, PlanStore } from '../../src/types.js';
 import { ROOT, testTokenizerPath } from '../helpers.js';
 
@@ -157,6 +157,42 @@ test('config init: a commented config that loads, validates and refuses to overw
     const toStdout = await run(['config', 'init', '-o', '-', '-p', '64k']);
     assert.match(toStdout.out, /"preset": "64k"/);
     assert.equal((await run(['config', 'init', '--preset', '48k', '-o', '-'])).code, 1);
+  }));
+
+test('config init: --upstream and --tokenizer are written into the file', () =>
+  withTmp(async (dir) => {
+    writeFileSync(join(dir, 'tok.json'), '{}');
+    const r = await run(['config', 'init', '--upstream', 'http://127.0.0.1:8000', '--tokenizer', 'tok.json', '--out', 'sub/k.jsonc'], { cwd: dir });
+    assert.equal(r.code, 0, r.err);
+    assert.doesNotMatch(r.out, /set upstream\.origin/);
+    const l = loadConfig({ configPath: join(dir, 'sub', 'k.jsonc'), env: {} });
+    assert.equal(l.config.upstream.origin, 'http://127.0.0.1:8000');
+    assert.equal(l.config.tokenizer.path, join(dir, 'tok.json'), 'relative to the working directory, not to the written file');
+    assert.match((await run(['config', 'init', '--upstream', 'http://gw:1', '-o', '-'])).out, /"origin": "http:\/\/gw:1"/);
+  }));
+
+test('config file discovery: XDG_CONFIG_HOME, then APPDATA on Windows, then HOME; never without an environment', () =>
+  withTmp(async (dir) => {
+    const has = (want: string) => (f: string) => f === want;
+    assert.equal(defaultConfigPath({ XDG_CONFIG_HOME: '/x', HOME: '/h' }, 'linux', () => true), '/x/kitzur/kitzur.jsonc');
+    assert.equal(defaultConfigPath({ XDG_CONFIG_HOME: 'rel', HOME: '/h' }, 'linux', () => true), '/h/.config/kitzur/kitzur.jsonc', 'XDG paths must be absolute');
+    assert.equal(defaultConfigPath({ APPDATA: 'C:\\Users\\u\\AppData\\Roaming' }, 'win32', () => true), 'C:\\Users\\u\\AppData\\Roaming\\kitzur\\kitzur.jsonc');
+    assert.equal(defaultConfigPath({ APPDATA: '/a', HOME: '/h' }, 'darwin', () => true), '/h/.config/kitzur/kitzur.jsonc', 'APPDATA is Windows-only');
+    assert.equal(defaultConfigPath({ HOME: '/h' }, 'linux', has('/elsewhere')), null, 'only an existing file');
+    assert.equal(defaultConfigPath({}, 'linux', () => true), null);
+
+    const home = join(dir, 'home');
+    mkdirSync(join(home, '.config', 'kitzur'), { recursive: true });
+    const found = join(home, '.config', 'kitzur', 'kitzur.jsonc');
+    writeFileSync(found, '{ "listen": { "port": 8311 } }');
+    const show = await run(['config', 'show', '--json'], { env: { HOME: home }, cwd: dir });
+    assert.equal(show.code, 0, show.err);
+    assert.equal(JSON.parse(show.out).configPath, found);
+    assert.equal(JSON.parse(show.out).config.listen.port, 8311);
+    // --config and KITZUR_CONFIG win over the discovered file
+    writeFileSync(join(dir, 'other.jsonc'), '{ "listen": { "port": 8312 } }');
+    assert.equal(JSON.parse((await run(['config', 'show', '--json', '-c', 'other.jsonc'], { env: { HOME: home }, cwd: dir })).out).config.listen.port, 8312);
+    assert.equal(JSON.parse((await run(['config', 'show', '--json'], { env: { HOME: home, KITZUR_CONFIG: 'other.jsonc' }, cwd: dir })).out).config.listen.port, 8312);
   }));
 
 // ---------------------------------------------------------------- import-eval
