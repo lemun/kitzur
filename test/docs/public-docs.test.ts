@@ -43,6 +43,11 @@ test('the README status hint warns that --url skips the listen token', () => {
   assert.match(doc, /`--url[^`]*` skips the config, so it\s+sends no `listen\.token`/);
 });
 
+test('the README /status curl example carries the listen token', () => {
+  const curl = read('README.md').match(/^curl .*\/status.*$/m)?.[0] ?? '';
+  assert.match(curl, /-H 'Authorization: Bearer <listen\.token>'/, curl);
+});
+
 test('relative links in the public docs resolve', () => {
   for (const f of ['README.md', 'SECURITY.md', 'CONTRIBUTING.md', 'deploy/README.md', 'deploy/windows/ADMIN.md']) {
     for (const [, target] of read(f).matchAll(/\]\(([^)\s]+)\)/g)) {
