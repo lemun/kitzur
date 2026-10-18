@@ -87,6 +87,25 @@ test('main: help, version, unknown command, usage errors', async () => {
   assert.match(ce.err, /config error: cli:--set: unknown config key budget\.windw \(did you mean budget\.window\?\)/);
 });
 
+test('main: every command answers --help / -h with its usage on stdout, exit 0', async () => {
+  for (const cmd of ['serve', 'replay', 'count', 'status', 'doctor', 'report', 'config', 'state', 'bench', 'version']) {
+    for (const flag of ['--help', '-h']) {
+      const r = await run([cmd, flag]);
+      assert.equal(r.code, 0, `${cmd} ${flag}: ${r.err}`);
+      assert.equal(r.err, '');
+      assert.match(r.out, new RegExp(`^usage: kitzur ${cmd} \\[options\\]\\n\\n {2}${cmd}\\b`));
+    }
+  }
+  const d = await run(['doctor', '--json', '--help']);
+  assert.match(d.out, /doctor \[--client-config PATH\].*\n[\s\S]*-c, --config FILE/);
+  const c = await run(['config', 'show', '--help']);
+  assert.match(c.out, /config init[\s\S]*config import-eval[\s\S]*--force-keys/);
+  for (const cmd of ['report', 'bench', 'version']) assert.doesNotMatch((await run([cmd, '-h'])).out, /config options/);
+  assert.doesNotMatch((await run(['version', '--help'])).out, /node v/);
+  // after `--` it is an argument, not a help request
+  assert.equal((await run(['doctor', '--', '--help'])).code, 2);
+});
+
 // ---------------------------------------------------------------- config show / validate / init
 
 test('config show: every leaf with its source, derived budget, masked headers', async () => {

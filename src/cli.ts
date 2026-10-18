@@ -194,6 +194,33 @@ config options (serve, replay, count, status, config show|validate, state):
 Precedence: defaults < preset < config file < KITZUR_* env < command line. Every key: CONFIG.md.
 `;
 
+/** Commands that answer --help / -h with their usage (bench forwards help flags to the suite only after `--`). */
+const HELP_COMMANDS = new Set(['serve', 'replay', 'count', 'status', 'doctor', 'report', 'config', 'state', 'bench', 'version']);
+
+/** Commands that read no config, so their usage leaves out the config options. */
+const NO_CONFIG_COMMANDS = new Set(['report', 'bench', 'version']);
+
+/** One command's USAGE lines (with their continuation lines), plus the config options unless it reads no config. */
+function usageOf(cmd: string): string {
+  const [, , ...lines] = USAGE.split('\n');
+  const own: string[] = [];
+  let mine = false;
+  for (const l of lines) {
+    if (l === '') break;
+    const m = /^ {2}(\S+)/.exec(l);
+    if (m) mine = m[1] === cmd;
+    if (mine) own.push(l);
+  }
+  const configOpts = NO_CONFIG_COMMANDS.has(cmd) ? '' : `\n${USAGE.slice(USAGE.indexOf('config options'))}`;
+  return `usage: kitzur ${cmd} [options]\n\n${own.join('\n')}\n${configOpts}`;
+}
+
+/** True when argv asks for help (--help or -h before any `--`). */
+const wantsHelp = (argv: readonly string[]): boolean => {
+  const end = argv.indexOf('--');
+  return (end < 0 ? argv : argv.slice(0, end)).some((a) => a === '--help' || a === '-h');
+};
+
 // ---------------------------------------------------------------- helpers
 
 const fmtHost = (h: string): string => (h.includes(':') && !h.startsWith('[') ? `[${h}]` : h);
@@ -815,6 +842,10 @@ function cmdBench(argv: string[], io: CliIO): number {
 /** Runs one command; resolves with the exit code. Never calls process.exit. */
 export async function main(argv: readonly string[], io: CliIO = defaultIO()): Promise<number> {
   const [cmd, ...rest] = argv;
+  if (cmd && HELP_COMMANDS.has(cmd) && wantsHelp(rest)) {
+    io.stdout(usageOf(cmd));
+    return 0;
+  }
   try {
     switch (cmd) {
       case undefined:

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the offline bundle (DESIGN.md "Deploy and packaging"):
 #   <out>/kitzur-<version>.tgz                 npm pack of a clean build (install with npm, offline)
-#   <out>/kitzur-<version>-offline.tar.gz      the vendored tarball: dist/src, presets, deploy (systemd unit, launchd plist), docs, LICENSE,
+#   <out>/kitzur-<version>-offline.tar.gz      the vendored tarball: dist/src, presets, deploy (systemd unit, launchd plist), docs (no assets), LICENSE,
 #                                               package.json and a SHA256SUMS manifest of every file
 #   <out>/SHA256SUMS                            checksums of the two archives
 # kitzur has no runtime dependencies, so nothing else needs vendoring. The build is compiled fresh into a
@@ -39,7 +39,8 @@ missing=()
 for f in README.md CONFIG.md DESIGN.md SECURITY.md THIRD_PARTY_NOTICES.md LICENSE; do
   if [ -f "$f" ]; then cp "$f" "$stage/"; else missing+=("$f"); fi
 done
-if [ -d docs ] && [ -n "$(ls -A docs)" ]; then cp -R docs "$stage/docs"; fi
+# docs text only: docs/assets (README GIFs, videos, images) is not needed at runtime
+if [ -d docs ] && [ -n "$(ls -A docs)" ]; then cp -R docs "$stage/docs" && rm -rf "$stage/docs/assets"; fi
 if [ ${#missing[@]} -gt 0 ]; then echo "pack-offline: warning: not in the repository yet: ${missing[*]}" >&2; fi
 
 # smoke test of the staged bundle: it runs and finds its presets without the repository
