@@ -23,8 +23,8 @@ import { fromRepro, type Repro } from '../../bench/fuzz/shrink.js';
 import { fuzzTokenizer } from '../../bench/fuzz/run.js';
 import { ROOT } from '../helpers.js';
 
-const load = (seed: number): Repro =>
-  JSON.parse(gunzipSync(readFileSync(join(ROOT, 'test', 'engine', 'repros', `repro-${seed}.json.gz`))).toString('utf8')) as Repro;
+const raw = (seed: number): string => gunzipSync(readFileSync(join(ROOT, 'test', 'engine', 'repros', `repro-${seed}.json.gz`))).toString('utf8');
+const load = (seed: number): Repro => JSON.parse(raw(seed)) as Repro;
 const skip = fuzzTokenizer() ? false : 'no dev tokenizer (exact-mode repros)';
 
 const cases: Array<{ seed: number; inv: string; checks: CheckOptions }> = [
@@ -33,6 +33,11 @@ const cases: Array<{ seed: number; inv: string; checks: CheckOptions }> = [
 ];
 
 for (const { seed, inv, checks } of cases) {
+  test(`frozen fuzz repro ${seed}: URLs use only reserved names (RFC 2606)`, () => {
+    const hosts = [...raw(seed).matchAll(/https?:\/\/([^/"\\\s)]+)/g)].map((m) => m[1]!);
+    assert.ok(hosts.length > 0, 'the repro carries URLs');
+    assert.deepEqual(hosts.filter((h) => !/(^|\.)(example|test|invalid|localhost)$|^127\.0\.0\.1$/.test(h)), []);
+  });
   test(`frozen fuzz repro ${seed} (${inv}): no invariant violation`, { skip }, () => {
     const r = load(seed);
     assert.equal(r.inv, inv, 'the repro was shrunk for this invariant');
