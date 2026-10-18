@@ -17,7 +17,7 @@
 import { createWriteStream, type WriteStream } from 'node:fs';
 import { dirname } from 'node:path';
 import type { AttemptRecord, EngineResult, StatsRecord } from '../types.js';
-import { mkdirs } from './state.js';
+import { mkdirs } from '../util.js';
 
 /** StatsRecord plus kitzur-only diagnostics (all sizes or timings). */
 export interface ProxyStatsRecord extends StatsRecord {

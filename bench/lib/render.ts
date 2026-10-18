@@ -10,6 +10,7 @@
 
 import type { Tokenizer } from '../../src/tokenize/tokenizer.js';
 import { pyDumps, pyLen } from './pyjson.js';
+import { escapeRe } from '../../src/util.js';
 
 type Json = Record<string, unknown>;
 const isDict = (x: unknown): x is Json => typeof x === 'object' && x !== null && !Array.isArray(x);
@@ -104,8 +105,6 @@ export function gobEstimate(value: unknown): number {
 }
 
 // ---------------------------------------------------------------- counting
-
-const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * A rendered prompt split on added tokens: [text, special, text, special, ..., text]. Even indices are

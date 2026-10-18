@@ -1,9 +1,10 @@
 // Tokenizer loading with the compiled cache (DESIGN.md: cold start ~1.3 s from tokenizer.json,
 // ~120 ms from the 3 MB compiled cache). The cache is keyed by the sha256 of the tokenizer.json bytes
 // (checked inside the file), written atomically (unique tmp + rename) and rebuilt when stale or corrupt.
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
+import { mkdirs } from '../util.js';
 import { serializeCompiled, tokenizerFromCompiled, tokenizerFromJson, type Tokenizer, type TokenizerOptions } from './tokenizer.js';
 
 export interface LoadedTokenizer extends Tokenizer {
@@ -14,19 +15,6 @@ export interface LoadedTokenizer extends Tokenizer {
   /** 'written' | 'fresh' (cache used) | 'unwritable' | 'none' (no cache path) */
   readonly cacheStatus: 'written' | 'fresh' | 'unwritable' | 'none';
   readonly loadMs: number;
-}
-
-/**
- * mkdir -p without { recursive: true }: Node's recursive mkdirSync never returns for a path under
- * /proc (ENOENT retried forever, seen on Node 26), and a misconfigured cachePath must not hang startup.
- */
-function mkdirs(dir: string): void {
-  const missing: string[] = [];
-  for (let d = dir; !existsSync(d); d = dirname(d)) {
-    missing.push(d);
-    if (dirname(d) === d || missing.length > 64) break;
-  }
-  for (let i = missing.length - 1; i >= 0; i--) mkdirSync(missing[i]!);
 }
 
 /** Default cache file: <stateDir>/tokenizer-<sha16>.lctk (config tokenizer.cachePath = null). */

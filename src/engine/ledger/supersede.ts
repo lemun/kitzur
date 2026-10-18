@@ -205,6 +205,14 @@ function differentIds(a: Candidate, b: Candidate, headIds: ReadonlySet<string>):
   return x.length > 0 && y.length > 0 && !x.some(id => y.includes(id));
 }
 
+// The /g copy of each cue pattern, compiled once (matchAll clones it, so sharing is safe).
+const GLOBAL_CUES = new WeakMap<RegExp, RegExp>();
+function globalCues(re: RegExp): RegExp {
+  let g = GLOBAL_CUES.get(re);
+  if (!g) GLOBAL_CUES.set(re, (g = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g')));
+  return g;
+}
+
 /**
  * True when sentence `s` cues a correction (DESIGN §6.1) under the rules' cue pattern, with three exclusions that
  * keep the rule erring towards missing ('s intent: a false supersession deletes a priority-1 rule):
@@ -223,8 +231,7 @@ export function cues(s: string, rules: SupersedeRules): boolean {
   if (cancellation(s)) return true;
   if (!rules.cues.test(bare)) return false;
   if (DIRECTIVE.test(bare)) return true;
-  const all = new RegExp(rules.cues.source, rules.cues.flags.includes('g') ? rules.cues.flags : rules.cues.flags + 'g');
-  for (const m of bare.matchAll(all)) {
+  for (const m of bare.matchAll(globalCues(rules.cues))) {
     if (m[0].length === 0) continue;
     if (!WEAK_CUE.test(m[0].trim())) return true;
   }

@@ -12,6 +12,7 @@ import { tallyLine } from '../rules/testrun.js';
 import { outputPaths } from './paths.js';
 import { explicitIdSpans } from './supersede.js';
 import { capHead, capHeadTail, collapseWs, contentText, splitThink, stripEnvironmentDetails, textParts } from './text.js';
+import { escapeRe } from '../../util.js';
 
 /** Cap of one decision / todo / note / tier-1 line (: 300 characters, head-first). */
 export const ITEM_MAX_CHARS = 300;
@@ -137,8 +138,6 @@ function stripEmphasisEnd(t: string): string {
   while (e >= 2 && (t.slice(e - 2, e) === '**' || t.slice(e - 2, e) === '__')) e -= 2;
   return t.slice(0, e);
 }
-
-const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\/-]/g, '\\$&');
 
 export interface Extractor {
   user(m: ChatMessage): UserFacts;

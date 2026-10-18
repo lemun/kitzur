@@ -6,8 +6,10 @@ import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { DEFAULT_CONFIG } from '../../src/config/schema.js';
 import {
-  StateStore, defaultStateDir, freshLearnedEntry, keyMatches, learnedKey, planningChanged, readLearnedState, resetState, showState, writeFileAtomic,
+  StateStore, freshLearnedEntry, keyMatches, learnedKey, planningChanged, readLearnedState, resetState, showState, writeFileAtomic,
 } from '../../src/proxy/state.js';
+import { defaultStateDir } from '../../src/config/paths.js';
+import { learnedKey as engineLearnedKey } from '../../src/engine/learned.js';
 import { applyAcceptedRatio, ceil1pct, correctionFor, judgeSample, p90, EndpointCalibrator } from '../../src/proxy/calibration.js';
 import type { LearnedEntry } from '../../src/types.js';
 import type { RemoteTokenizer } from '../../src/tokenize/remote.js';
@@ -22,6 +24,15 @@ test('state dir default and keys', () => {
   assert.equal(defaultStateDir({ XDG_STATE_HOME: '/x/state' }, '/users/example'), '/x/state/kitzur');
   assert.equal(defaultStateDir({}, '/users/example'), '/users/example/.local/state/kitzur');
   assert.equal(defaultStateDir({ XDG_STATE_HOME: 'relative' }, '/users/example'), '/users/example/.local/state/kitzur', 'XDG paths must be absolute');
+  const appData = { LOCALAPPDATA: 'C:\\Users\\example\\AppData\\Local' };
+  assert.equal(defaultStateDir(appData, 'C:\\Users\\example', 'win32'), 'C:\\Users\\example\\AppData\\Local\\Kitzur\\state');
+  assert.equal(defaultStateDir({ ...appData, XDG_STATE_HOME: 'D:\\state' }, 'C:\\Users\\example', 'win32'), 'D:\\state\\kitzur', 'Windows-absolute XDG');
+  assert.equal(defaultStateDir({ XDG_STATE_HOME: 'D:rel' }, 'C:\\Users\\example', 'win32'), 'C:\\Users\\example\\.local\\state\\kitzur');
+  assert.equal(defaultStateDir(appData, '/users/example', 'linux'), '/users/example/.local/state/kitzur', 'LOCALAPPDATA is Windows-only');
+  // one key for the proxy and the engine, whatever the origin's spelling
+  assert.equal(learnedKey('http://GW:80/v1/', 'qwen'), 'http://gw/v1|qwen');
+  assert.equal(engineLearnedKey('http://gw:8000/', 'qwen'), learnedKey('http://gw:8000', 'qwen'));
+  assert.equal(learnedKey(null, 'qwen'), '|qwen');
   assert.equal(learnedKey('http://gw:8000', 'qwen'), 'http://gw:8000|qwen');
   assert.equal(learnedKey('http://gw:8000', undefined), 'http://gw:8000|');
   assert.ok(keyMatches('http://gw:8000|qwen', 'qwen'));

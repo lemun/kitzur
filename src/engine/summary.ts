@@ -22,7 +22,7 @@ import { createToolRulesExt } from './rules/index.js';
 import { createExtractor, type MessageFacts } from './ledger/extract.js';
 import { supersedeRules } from './ledger/supersede.js';
 import { buildLedger, CATEGORY_ORDER, compareItems, comparePos, FLOOR_CATEGORIES, renderUserItem, SECTION_ORDER, type Ledger, type LedgerItem, type SectionId } from './ledger/index.js';
-import { Lru } from './ledger/lru.js';
+import { Lru } from './lru.js';
 import { maxFitting } from './ledger/fit.js';
 
 export const FACTS_LINE = 'Facts below are extracted mechanically; the latest state wins.';
@@ -91,9 +91,9 @@ export function createSummarizerExt(cfg: Config, counter: TokenCounter): Summari
   const rules = createToolRulesExt(cfg);
   const extractor = createExtractor(cfg, rules);
   const supRules = supersedeRules(cfg.ledger);
-  const factsCache = new Lru<MessageFacts>(16_384);
-  const ledgerCache = new Lru<Ledger>(8);
-  const lineTokens = new Lru<number>(8192);
+  const factsCache = new Lru<string, MessageFacts>(16_384);
+  const ledgerCache = new Lru<string, Ledger>(8);
+  const lineTokens = new Lru<string, number>(8192);
 
   const messageTokens = (text: string): number => {
     const req = { messages: [{ role: 'user', content: text } as ChatMessage] };

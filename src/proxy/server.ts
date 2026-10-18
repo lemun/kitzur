@@ -39,8 +39,7 @@ import { buildStatsRecord, type StatsWriter } from './stats.js';
 import { StatusTracker, type RecentRequest } from './status.js';
 import { applyAcceptedRatio, EndpointCalibrator, judgeSample, type CounterKind } from './calibration.js';
 import { budgetModeOf, serverLimits, budgetQuantities } from './budget.js';
-
-export const KITZUR_VERSION = '0.1.0';
+import { packageInfo } from '../config/paths.js';
 
 /**
  * true when a request may be served despite browser context: no Origin header and no cross-site or
@@ -110,7 +109,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   const upstream = deps.upstream ?? new Upstream(cfg.upstream);
   const origin = upstream.origin.origin + upstream.origin.pathname.replace(/\/+$/, '');
   const classifier = new ErrorClassifier(cfg.errors);
-  const status = new StatusTracker(cfg, KITZUR_VERSION, () => now().getTime());
+  const status = new StatusTracker(cfg, packageInfo().version,() => now().getTime());
   const endpoint = deps.remote && deps.counter.profile ? new EndpointCalibrator(deps.remote, deps.counter.profile) : null;
   const mode = budgetModeOf(cfg);
   for (const [k, e] of Object.entries(deps.state.entries())) deps.engine.setLearned(k, e);

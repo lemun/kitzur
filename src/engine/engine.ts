@@ -142,7 +142,7 @@ export class LeanEngine implements Engine {
     const attempt = Math.max(1, Math.floor(opts?.attempt ?? 1));
     const noClamp = opts?.noClamp === true;
     const given = opts?.learned;
-    const E = given && learnedValid(given, cfg, this.counter.id) ? given : this.learned(learnedKey(cfg, req));
+    const E = given && learnedValid(given, cfg, this.counter.id) ? given : this.learned(learnedKey(cfg.upstream.origin, req.model));
     const tReq = requestedMaxTokens(req, cfg);
     const bud = computeBudget(cfg, E, opts?.extraTighten ?? 0, tReq, req.model);
     const msgs = req.messages;

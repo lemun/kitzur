@@ -15,6 +15,7 @@ import { createHash } from 'node:crypto';
 import { ONIG_L, ONIG_M, ONIG_N, ONIG_SPACE } from './unicode-tables.js';
 import { NFC_EXCEPTION_RANGES } from './nfc-exceptions.js';
 import { nfc9 } from './nfc9.js';
+import { escapeRe } from '../util.js';
 export { nfc9 };
 
 export class TokenizerUnsupportedError extends Error {
@@ -375,8 +376,6 @@ interface AddedTok {
   id: number;
   normalized: boolean;
 }
-
-const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\/-]/g, '\\$&');
 
 function literalAlternation(toks: AddedTok[]): RegExp | null {
   if (toks.length === 0) return null;
