@@ -50,3 +50,27 @@ The login launcher runs only while you are logged in; Windows logoff may end req
 To uninstall run `& $kitzur -Action Uninstall`. This stops the proxy and removes the login shortcut.
 Remove Kitzur's provider selection from OpenCode, then delete `%LOCALAPPDATA%\Kitzur` when you no
 longer need its config/state/logs. Node and OpenCode are managed separately.
+
+## Ad-hoc npm / offline installs
+
+For an installation outside the managed bundle, use Node.js 22+ and a config file:
+
+```powershell
+kitzur autostart install --config 'C:\Kitzur config\kitzur.jsonc'
+kitzur autostart status
+kitzur autostart run --config 'C:\Kitzur config\kitzur.jsonc'
+kitzur autostart remove
+```
+
+Install creates your per-user Startup-folder `Kitzur.lnk`, targeting `node.exe` directly,
+with a minimised window. No admin rights, scheduled task or execution-policy change is needed.
+The config path is saved as an absolute path; keep Node, the installed CLI and config in place.
+`run` starts `serve` detached and hidden, appending stdout/stderr to
+`<stateDir>\logs\serve-stdio.log`. It exits successfully if Kitzur already answers on the
+configured port, and refuses an unrelated or hung listener. Removal deletes the login shortcut;
+it does not stop a running proxy. Status reports the shortcut target and arguments.
+
+If PowerShell/COM is blocked, install prints manual Explorer shortcut instructions. Organisational
+startup policy can still prevent login launch. Check once after logging out and back in.
+This is separate from the managed bundle's `Register-Startup.ps1` lifecycle above; both use
+`Kitzur.lnk`, so use only one installation method per user. Do not install over a managed shortcut.

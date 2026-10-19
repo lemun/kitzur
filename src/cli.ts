@@ -4,6 +4,7 @@
 // Arguments are parsed here without dependencies. Exit codes: 0 ok, 1 runtime failure, 2 usage or config
 // error; `config import-eval` also returns 10 (a safety-critical knob fell back to a default) and 11
 // (conflicting measurements). Nothing here prints message content: replay and count print sizes only.
+import { manageAutostart, runAutostart } from './autostart.js';
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
@@ -167,6 +168,7 @@ function loadFromArgs(p: ParsedArgs, io: CliIO): LoadedConfig {
 
 const USAGE = `usage: kitzur <command> [options]
 
+  autostart install|remove|status|run [--config FILE]  per-user Windows login startup
   serve                         run the proxy (logs the bound address to a file)
   replay <file|dir>...          run captured request bodies through the engine offline; sizes only,
                                 plus a live-vs-fresh determinism check
@@ -197,7 +199,7 @@ Precedence: defaults < preset < config file < KITZUR_* env < command line. Every
 `;
 
 /** Commands that answer --help / -h with their usage (bench forwards help flags to the suite only after `--`). */
-const HELP_COMMANDS = new Set(['serve', 'replay', 'count', 'status', 'doctor', 'tls-probe', 'report', 'config', 'state', 'bench', 'version']);
+const HELP_COMMANDS = new Set(['autostart', 'serve', 'replay', 'count', 'status', 'doctor', 'tls-probe', 'report', 'config', 'state', 'bench', 'version']);
 
 /** Commands that read no config, so their usage leaves out the config options. */
 const NO_CONFIG_COMMANDS = new Set(['report', 'bench', 'version']);
@@ -584,6 +586,20 @@ async function cmdCount(argv: string[], io: CliIO): Promise<number> {
   return 0;
 }
 
+async function cmdAutostart(argv: string[], io: CliIO): Promise<number> {
+  const [action, ...rest] = argv;
+  if (action !== 'install' && action !== 'remove' && action !== 'status' && action !== 'run') throw new UsageError('autostart needs install, remove, status or run');
+  // Persist only the config path: transient CLI overrides would disappear at next login.
+  const p = parseArgs(rest, { config: CONFIG_OPTS.config! });
+  if (p.positionals.length) throw new UsageError('unexpected autostart arguments');
+  const loaded = loadFromArgs(p, io);
+  const path = loaded.configPath ? resolve(io.cwd, loaded.configPath) : null;
+  const dir = resolve(io.cwd, stateDirOf(loaded.config, io.env));
+  if (action !== 'run') return manageAutostart(action, path, dir, io.stdout);
+  if (!path) throw new UsageError('autostart run requires a config file (--config PATH)');
+  return runAutostart(loaded.config, path, dir, { env: io.env, log: io.stdout });
+}
+
 async function cmdStatus(argv: string[], io: CliIO): Promise<number> {
   const p = parseArgs(argv, { ...CONFIG_OPTS, url: { type: 'string' }, json: { type: 'boolean' }, 'timeout-ms': { type: 'string' } });
   let url = p.values['url'] as string | undefined;
@@ -886,6 +902,8 @@ export async function main(argv: readonly string[], io: CliIO = defaultIO()): Pr
       case '-V':
         io.stdout(`kitzur ${packageInfo().version} (node ${process.version})\n`);
         return 0;
+      case 'autostart':
+        return await cmdAutostart(rest, io);
       case 'serve':
         return await cmdServe(rest, io);
       case 'replay':
