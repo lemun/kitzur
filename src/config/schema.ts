@@ -203,6 +203,7 @@ export interface Config {
   store: { persist: boolean; maxPlans: number; maxBytes: number; retentionDays: number };
   stateDir: string | null;
   stats: { path: string | null };
+  debug: { capture: { path: string | null; requests: number; maxBytes: number } };
   shadow: boolean;
   /** documented hook for an optional model-written digest; not implemented in v1 */
   digestHook: { enabled: false };
@@ -308,6 +309,7 @@ export const DEFAULT_CONFIG: Config = {
   store: { persist: false, retentionDays: 14, maxPlans: 4096, maxBytes: 64 * 1024 * 1024 },
   stateDir: null,
   stats: { path: null },
+  debug: { capture: { path: null, requests: 5, maxBytes: 10 * 1024 * 1024 } },
   shadow: false,
   digestHook: { enabled: false },
   log: { file: null, console: false },

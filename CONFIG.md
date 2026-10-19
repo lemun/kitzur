@@ -576,3 +576,32 @@ usage exceeds the allowance, another warning suggests increasing
 `client.outputAllowanceTokens`; reasoning tokens can consume this allowance.
 Completion percentiles cover the latest 2048 observed usage samples and reset
 on restart.
+
+### Bounded raw response capture
+
+| Key | Default | Meaning | If wrong | Probe field |
+|---|---|---|---|---|
+| `debug.capture.path` | `null` | Opt-in JSONL capture to a new file, created with mode `0600`. Existing files and symlinks are refused; relative paths use the process working directory. | Writes model output to disk; choose a private directory. File failures disable capture and appear in status. | – |
+| `debug.capture.requests` | `5` | Capture the next 1–50 upstream request attempts, including retries; startup discovery probes are excluded. Automatically stops admitting captures after this budget. | Too large: more output retained. | – |
+| `debug.capture.maxBytes` | `10485760` | Total file cap including JSONL/base64 overhead, minimum 1024 bytes. Stops all capture with an end marker when the next whole record would exceed the cap. | Too small: capture ends before useful frames. | – |
+
+Enable with `--set debug.capture.path=/private/new-capture.jsonl` or
+`KITZUR_SET='debug.capture.path=/private/new-capture.jsonl'`. Each restart rearms
+the budget and requires a new path. `/status` exposes `debug.capture` (active,
+remaining attempts, in-flight captures, bytes and file error); startup logs show
+whether capture is active. Budget exhaustion never interrupts the response.
+
+Records have UTC `ts`, `type` and a request-attempt `id`: request shape, upstream
+status line and response headers, each raw response chunk as byte-exact `base64`
+before parsing, and an end reason (`end`, `closed`, `aborted`, `upstream_error`,
+or a global `maxBytes` marker). Decode and concatenate chunk records per ID to
+recover the raw response. A byte-limit capture omits the whole record that
+would overflow. Disabling capture attaches no per-chunk observer.
+
+Request shape includes message/tool counts and only known numeric, boolean or
+null generation parameters, including `chat_template_kwargs.enable_thinking`,
+`preserve_thinking` and `thinking_budget`. String values, arbitrary keys, message
+text, model names, tool definitions and request headers are never captured;
+there is no request-body switch. Response authorization, proxy-authorization,
+cookie, set-cookie, x-api-key and every configured `upstream.headers` key are
+redacted case-insensitively. Raw response bodies remain unredacted.
