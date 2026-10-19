@@ -33,6 +33,20 @@ test('oversized records are discarded once and parsing resumes at the next newli
   assert.equal(tail.coverage.partialFinalLine, true);
 });
 
+test('record cap measures UTF-8 bytes in both APIs, including CR before LF', async () => {
+  const base = record();
+  const padding = MAX_RECORD_BYTES - Buffer.byteLength(base);
+  const exact = base.slice(0, -1) + ',"padding":"' + 'é'.repeat(Math.floor((padding - 13) / 2)) + '"}';
+  const line = exact + ' '.repeat(MAX_RECORD_BYTES - Buffer.byteLength(exact));
+  assert.equal(Buffer.byteLength(line), MAX_RECORD_BYTES);
+  const text = line + '\n' + line + '\r\n' + record();
+  const streamed = await reportStream(chunks(Buffer.from(text), 4093));
+  assert.deepEqual(streamed, report(text));
+  assert.equal(streamed.requests, 2);
+  assert.equal(streamed.coverage.oversized, 1);
+  assert.equal(streamed.coverage.malformed, 1);
+});
+
 test('sessions are bounded with explicit lower-bound and missing-ID coverage', async () => {
   async function* input() {
     for (let i = 0; i <= MAX_TRACKED_SESSIONS; i++) yield Buffer.from(record(String(i)) + '\n');
