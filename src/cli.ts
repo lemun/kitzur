@@ -169,7 +169,7 @@ const USAGE = `usage: kitzur <command> [options]
 
   serve                         run the proxy (logs the bound address to a file)
   replay <file|dir>...          run captured request bodies through the engine offline; sizes only,
-                                plus a live-vs-fresh determinism check
+                                plus a live-vs-fresh determinism check; --explain shows content-free retention outcomes
   count <request.json>          exact token count of a request (per message, no content)
   status [--url URL] [--json]   Show a running instance’s status
   doctor [--client-config PATH] [--json] [--check-upstream] [--timeout-ms N]  read-only setup diagnostics
@@ -472,7 +472,7 @@ async function cmdServe(argv: string[], io: CliIO): Promise<number> {
 }
 
 async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
-  const p = parseArgs(argv, { ...CONFIG_OPTS, json: { type: 'boolean' }, 'no-fresh': { type: 'boolean' } });
+  const p = parseArgs(argv, { ...CONFIG_OPTS, json: { type: 'boolean' }, explain: { type: 'boolean' }, 'no-fresh': { type: 'boolean' } });
   if (!p.positionals.length) throw new UsageError('replay needs a file or directory of captured request bodies');
   const l = loadFromArgs(p, io);
   const cfg = l.config;
@@ -500,7 +500,7 @@ async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
       const r = live.engine.process(req, { attempt: 1 });
       row = {
         i: i + 1, file: label, action: r.action, replan: r.replan ?? null, fit: r.plan?.fit ?? null, compactions: r.plan?.compactions ?? 0,
-        ...(r.plan?.retention ? { retention: r.plan.retention } : {}),
+        ...(p.values['explain'] && r.plan?.retention ? { retention: r.plan.retention } : {}),
         ...(r.stats.retention ? { retentionCounts: r.stats.retention } : {}),
         messagesIn: r.stats.messagesIn, messagesOut: r.stats.messagesOut, tokensIn: r.stats.tokensIn, tokensOut: r.stats.tokensOut,
         budget: r.stats.budget.budget, trigger: r.stats.budget.trigger, maxTokens: r.maxTokens?.value ?? null, engineMs: Math.round(r.stats.engineMs * 10) / 10,
@@ -533,6 +533,9 @@ async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
           `${String(r['budget']).padStart(7)} ${String(r['trigger']).padStart(7)} ${String(r['fit'] ?? '-').padEnd(11)} ${String(r['compactions']).padStart(3)} ` +
           `${String(r['maxTokens'] ?? '-').padStart(7)}  ${det}\n`,
       );
+      if (p.values['explain'] && Array.isArray(r['retention'])) {
+        io.stdout(`      retention: ${JSON.stringify(r['retention'])}\n`);
+      }
     }
     const actions: Record<string, number> = {};
     for (const r of rows) if (r['action']) actions[String(r['action'])] = (actions[String(r['action'])] ?? 0) + 1;
