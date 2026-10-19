@@ -10,6 +10,33 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defaultConfig } from '../../src/config/load.js';
 import { doctor, renderDoctor } from '../../src/diagnostics/doctor.js';
+import { Upstream } from '../../src/proxy/upstream.js';
+import { withLeafOnlyServer } from '../helpers/leaf-only.js';
+
+test('doctor diagnoses the missing TLS link while Upstream keeps rejecting the leaf-only server', async () => {
+  await withLeafOnlyServer(async (origin, caFile) => {
+    const cfg = defaultConfig();
+    cfg.upstream.origin = origin;
+    cfg.upstream.caFile = caFile;
+    cfg.listen.port = 0;
+    const upstream = new Upstream(cfg.upstream);
+    try {
+      const before = await upstream.probe();
+      assert.equal(before.ok, false);
+      assert.match(before.tlsError ?? '', /UNABLE_TO_VERIFY_LEAF_SIGNATURE/);
+      const result = await doctor(cfg, { upstreamCheck: true });
+      const check = result.checks.find((c) => c.code === 'upstream.tls');
+      assert.equal(result.exitCode, 1);
+      assert.equal(check?.status, 'error');
+      assert.match(check?.message ?? '', /UNABLE_TO_VERIFY_LEAF_SIGNATURE/);
+      assert.match(check?.message ?? '', /leaf_only_missing_intermediate/);
+      assert.match(check?.message ?? '', /FAILED: localhost <- Wiring Intermediate/);
+      assert.match(check?.message ?? '', /SHA256/);
+      assert.ok(!result.checks.some((c) => c.code === 'upstream.reachable'));
+      assert.equal((await upstream.probe()).ok, false, 'inspection must not weaken Upstream verification');
+    } finally { upstream.close(); }
+  });
+});
 
 test('doctor reports missing and invalid tokenizer with sanitized messages', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-doctor-'));
