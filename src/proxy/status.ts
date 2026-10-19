@@ -107,6 +107,7 @@ export class StatusTracker {
   usageRetries = 0;
   usageMismatch = 0;
   upstreamIncomplete = 0;
+  midstreamErrors = 0;
   upstreamUnavailable = 0;
   originalResent = 0;
   aborted = 0;
@@ -227,6 +228,7 @@ export class StatusTracker {
         retries: this.retries,
         include_usage_retries: this.usageRetries,
         usage_mismatch: this.usageMismatch,
+        midstream_errors: this.midstreamErrors,
         upstream_incomplete: this.upstreamIncomplete,
         upstream_unavailable: this.upstreamUnavailable,
         original_resent: this.originalResent,

@@ -178,3 +178,25 @@ test('relay: end of body without events commits; incomplete streams are detected
   const s3 = r3.onChunk(B('data: {"choices":[{"delta":{"content":"x"},"finish_reason":null}]}\n\n'));
   assert.equal(s3.commit, false, 'already committed (a retry on the same response)');
 });
+
+test('relay records later modern and legacy errors without changing bytes', () => {
+  for (const error of [{ error: { message: 'boom' } }, { object: 'error', message: 'boom' }]) {
+    const r = new SseRelay({ hold: true, strip: false, committed: false });
+    const bytes = B('data: {"choices":[{"delta":{"role":"assistant"}}]}\r\n\r\n' +
+      `data: ${JSON.stringify(error)}\n\ndata: [DONE]\n\n`);
+    assert.deepEqual(Buffer.concat(r.onChunk(bytes).writes), bytes);
+    r.onEnd();
+    assert.deepEqual(r.midStreamError?.json, error);
+    assert.equal(r.midStreamErrorAfter, 1);
+    assert.equal(r.done, true);
+  }
+});
+
+test('relay: first legacy error remains a normal first event', () => {
+  const r = new SseRelay({ hold: true, strip: false, committed: false });
+  const bytes = B('data: {"object":"error","message":"boom"}\n\n');
+  const step = r.onChunk(bytes);
+  assert.equal(step.error, undefined);
+  assert.deepEqual(Buffer.concat(step.writes), bytes);
+  assert.equal(r.midStreamError, null);
+});
