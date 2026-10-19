@@ -500,6 +500,8 @@ async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
       const r = live.engine.process(req, { attempt: 1 });
       row = {
         i: i + 1, file: label, action: r.action, replan: r.replan ?? null, fit: r.plan?.fit ?? null, compactions: r.plan?.compactions ?? 0,
+        ...(r.plan?.retention ? { retention: r.plan.retention } : {}),
+        ...(r.stats.retention ? { retentionCounts: r.stats.retention } : {}),
         messagesIn: r.stats.messagesIn, messagesOut: r.stats.messagesOut, tokensIn: r.stats.tokensIn, tokensOut: r.stats.tokensOut,
         budget: r.stats.budget.budget, trigger: r.stats.budget.trigger, maxTokens: r.maxTokens?.value ?? null, engineMs: Math.round(r.stats.engineMs * 10) / 10,
       };
