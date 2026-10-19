@@ -324,7 +324,8 @@ export function loadConfig(opts: LoadOptions = {}): LoadedConfig {
       envOps.push(parseSetArg(item, 'env:KITZUR_SET'));
     });
   }
-  const known = new Set<string>([...ENV_MAP.map(([n]) => n), ...LOADER_ENV]);
+  // Runtime-only doctor credential: recognized here, never loaded into config or provenance.
+  const known = new Set<string>([...ENV_MAP.map(([n]) => n), ...LOADER_ENV, 'KITZUR_PROBE_TOKEN']);
   for (const name of Object.keys(env).sort()) {
     if (name.startsWith('KITZUR_') && !known.has(name) && !/^KITZUR_(TEST|BENCH)_/.test(name)) {
       warnings.push(`unknown environment variable ${name} ignored (see CONFIG.md "Environment")`);

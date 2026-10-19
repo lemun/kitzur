@@ -54,7 +54,7 @@ export function clientConfigChecks(cfg: Config, input: unknown): DoctorCheck[] {
         warn('usable', `OpenCode compacts at ${usable}, Kitzur triggers at ${b.trigger} (output allowance ${b.allowance}); the client may compact first.`,
           'Mirror the client in kitzur.jsonc: ' + [positive(limit.input) ? `client.inputLimit: ${limit.input}` : null,
             positive(limit.input) && compaction.reserved === reserved ? `client.reservedTokens: ${reserved}` : null,
-            limit.output !== b.planMaxTokens ? `client.outputLimit: ${limit.output}` : null].filter(Boolean).join(', ') + '; align budget.window with limit.context.');
+            limit.output !== (cfg.client.outputLimit ?? b.planMaxTokens) ? `client.outputLimit: ${limit.output}` : null].filter(Boolean).join(', ') + '; align budget.window with limit.context.');
     }
   }
   if (!checks.length) checks.push({ code: 'client.compatible', status: 'ok', message: 'OpenCode provider routing and usable context are compatible.' });

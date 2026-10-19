@@ -88,3 +88,15 @@ test('shipped Windows 100k client has no warnings', () => {
   assert.deepEqual(input, JSON.parse(readFileSync('deploy/windows/opencode.template.json', 'utf8')));
   assert.ok(clientConfigChecks(cfg, input).every((c) => c.status === 'ok'));
 });
+
+test('usable fix overrides an existing client output limit even when output matches the plan', () => {
+  const cfg = defaultConfig(); cfg.listen.port = 8270;
+  cfg.client.outputLimit = 8_000;
+  const input = parseJsonc(readFileSync('test/fixtures/client-config/default-100k.opencode.json', 'utf8'));
+  const warning = clientConfigChecks(cfg, input).find((c) => c.code === 'client.usable');
+  assert.ok(warning);
+  const outputLimit = /client.outputLimit: (\d+)/.exec(warning.fix ?? '');
+  assert.ok(outputLimit, warning.fix);
+  cfg.client.outputLimit = Number(outputLimit[1]);
+  assert.ok(clientConfigChecks(cfg, input).every((c) => c.status === 'ok'));
+});
