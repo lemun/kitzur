@@ -5,6 +5,8 @@ import https from 'node:https';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+export const opensslAvailable = spawnSync('openssl', ['version']).status === 0;
+
 /** A trusted root with an omitted intermediate: verification must still fail. */
 export async function withLeafOnlyServer(fn: (origin: string, caFile: string) => Promise<void>): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-leaf-only-'));

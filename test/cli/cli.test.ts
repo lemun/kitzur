@@ -16,7 +16,7 @@ import { DEFAULT_LEAVES } from '../../src/config/spec.js';
 import { defaultConfigPath, packageInfo } from '../../src/config/paths.js';
 import type { ChatRequest, Engine, EngineResult, LearnedEntry, PlanStore } from '../../src/types.js';
 import { ROOT, testTokenizerPath } from '../helpers.js';
-import { withLeafOnlyServer } from '../helpers/leaf-only.js';
+import { opensslAvailable, withLeafOnlyServer } from '../helpers/leaf-only.js';
 import { Upstream } from '../../src/proxy/upstream.js';
 import { defaultConfig } from '../../src/config/load.js';
 
@@ -500,7 +500,7 @@ test('serve logs the bound address to a file and drains on SIGTERM', () => withT
   assert.match(readFileSync(file, 'utf8'), /UNABLE_TO_VERIFY_LEAF_SIGNATURE/);
 }));
 
-test('serve prints and logs the leaf-only chain diagnosis before exiting 1', () => withTmp(async (dir) => {
+test('serve prints and logs the leaf-only chain diagnosis before exiting 1', { skip: !opensslAvailable }, () => withTmp(async (dir) => {
   await withLeafOnlyServer(async (origin, caFile) => {
     const cfg = defaultConfig();
     cfg.upstream.origin = origin;

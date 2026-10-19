@@ -11,9 +11,9 @@ import { join } from 'node:path';
 import { defaultConfig } from '../../src/config/load.js';
 import { doctor, renderDoctor } from '../../src/diagnostics/doctor.js';
 import { Upstream } from '../../src/proxy/upstream.js';
-import { withLeafOnlyServer } from '../helpers/leaf-only.js';
+import { opensslAvailable, withLeafOnlyServer } from '../helpers/leaf-only.js';
 
-test('doctor diagnoses the missing TLS link while Upstream keeps rejecting the leaf-only server', async () => {
+test('doctor diagnoses the missing TLS link while Upstream keeps rejecting the leaf-only server', { skip: !opensslAvailable }, async () => {
   await withLeafOnlyServer(async (origin, caFile) => {
     const cfg = defaultConfig();
     cfg.upstream.origin = origin;
