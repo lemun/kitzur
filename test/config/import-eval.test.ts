@@ -8,6 +8,7 @@ import {
   extractBlocks, isCanonicalPackText, mapEvalResults, mergeImport, messageOf, messageRegex, packDigest, packPercentile, parseGenerated,
   pyRound, readEvalInputs, renderImportReport, sidecarPath, type ImportResult,
 } from '../../src/config/import-eval.js';
+import * as parseInput from '../../src/config/import-eval/parse-input.js';
 import { loadConfig } from '../../src/config/load.js';
 import { validateConfig } from '../../src/config/validate.js';
 import { computeBudget } from '../../src/config/derived.js';
@@ -436,4 +437,20 @@ test('mergeImport: absent, hand-set, previously imported, forced, defaults', () 
   assert.equal(getPath(g.config, 'compaction.summaryRole'), 'merge-into-first-user', 'hand-set survives a measured value');
   assert.equal(sidecarPath('/a/kitzur.config.json'), '/a/kitzur.config.provenance.json');
   assert.equal(sidecarPath('x.jsonc'), 'x.provenance.json');
+});
+
+test('import-eval: direct input parser preserves the facade and loads result blocks', () => {
+  assert.equal(parseInput.readEvalInputs, readEvalInputs);
+  assert.equal(parseInput.extractBlocks, extractBlocks);
+  withTmp((dir) => {
+    const body = JSON.stringify({ script: 'check_host', pack_version: '1', generated: '2026-10-19T12:00:00Z' });
+    const file = join(dir, 'probe.out');
+    writeFileSync(file, `===RESULT-BEGIN check_host===\n${body}\n===RESULT-END check_host sha256:${parseInput.packDigest(body)}===`);
+    const inputs = parseInput.readEvalInputs([file]);
+    assert.deepEqual(inputs.results, { check_host: JSON.parse(body) });
+    assert.deepEqual(inputs.sources, { check_host: 'probe.out#check_host' });
+    assert.deepEqual(inputs.invalid, []);
+    assert.deepEqual(inputs.warnings, []);
+    assert.equal(inputs.candidates, 1);
+  });
 });
