@@ -278,11 +278,50 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   }
 
   // ------------------------------------------------------------------ pass-through
-  async function passthrough(req: IncomingMessage, res: ServerResponse, body: Buffer): Promise<void> {
+  // Per-response observations never retain or log response content.
+  function observeResponse(res: ServerResponse) {
+    const o = { relay: null as SseRelay | null, bytes: 0, firstByte: 0, ended: false,
+      outcome: 'ok', midstream: false, finish: null as string | null };
+    const fields = (): string => `finish=${o.relay?.finishReason ?? o.finish ?? 'none'} done=${o.relay?.done ?? false} events=${o.relay?.events ?? 0} bytes=${o.bytes}`;
+    const inspect = (): void => {
+      const err = o.relay?.midStreamError;
+      if (!err || o.midstream) return;
+      o.midstream = true;
+      status.midstreamErrors++;
+      o.outcome = 'upstream_error';
+      const json = err.json;
+      let message = '';
+      if (typeof json === 'object' && json !== null) {
+        const inner = 'error' in json ? json.error : json;
+        if (typeof inner === 'object' && inner !== null && 'message' in inner && typeof inner.message === 'string') message = inner.message.trim().slice(0, 200);
+      }
+      log('warn', `upstream sent an error event after ${o.relay!.midStreamErrorAfter} events: ${JSON.stringify(message)}`);
+    };
+    res.once('close', () => {
+      inspect();
+      if (!res.writableEnded && !o.ended) {
+        o.outcome = 'aborted';
+        log('warn', `client closed before upstream ended ${fields()} ms_since_first_byte=${o.firstByte ? Math.round(performance.now() - o.firstByte) : 0}`);
+      }
+    });
+    return { o, fields, inspect, end: (): void => {
+      o.ended = true;
+      inspect();
+      if (o.relay && !o.relay.complete) {
+        if (o.outcome === 'ok') o.outcome = 'incomplete';
+        log('warn', `upstream stream ended without [DONE]/finish_reason ${fields()}`);
+      }
+    } };
+  }
+
+  async function passthrough(req: IncomingMessage, res: ServerResponse, body: Buffer, observation = observeResponse(res)): Promise<void> {
     status.passthroughRequests++;
     const ac = new AbortController();
     res.on('close', () => {
-      if (!res.writableEnded) ac.abort();
+      if (!res.writableEnded && !observation.o.ended) {
+        status.aborted++;
+        ac.abort();
+      }
     });
     let up: UpstreamResponse;
     try {
@@ -290,28 +329,44 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     } catch {
       if (!res.headersSent && !ac.signal.aborted) {
         status.upstreamUnavailable++;
+        observation.o.outcome = 'upstream_error';
         sendJson(res, 502, upstreamUnavailableBody());
       }
       return;
     }
+    if (String(up.headers['content-type'] ?? '').includes('text/event-stream')) observation.o.relay = new SseRelay({ hold: false, strip: false, committed: true, detectErrors: false });
+    if (up.status >= 400) observation.o.outcome = 'upstream_error';
     res.writeHead(up.status, up.statusMessage, forwardResponseHeaders(up.rawHeaders));
     await new Promise<void>((resolve) => {
       up.body.on('data', (d: Buffer) => {
+        observation.o.bytes += d.length;
+        observation.o.firstByte ||= performance.now();
+        observation.o.relay?.onChunk(d);
+        observation.inspect();
         if (!res.write(d)) {
           up.body.pause();
           res.once('drain', () => up.body.resume());
         }
       });
       up.body.on('end', () => {
+        observation.o.relay?.onEnd();
+        observation.end();
+        if (observation.o.outcome === 'incomplete') status.upstreamIncomplete++;
         res.end();
         resolve();
       });
       up.body.on('error', () => {
+        observation.o.ended = true;
+        observation.o.outcome = 'upstream_error';
         res.destroy();
         resolve();
       });
       up.body.on('close', () => {
-        if (!res.writableEnded) res.destroy();
+        if (!res.writableEnded && !ac.signal.aborted) {
+          observation.o.ended = true;
+          observation.o.outcome = 'upstream_error';
+          res.destroy();
+        }
         resolve();
       });
     });
@@ -320,6 +375,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   // ------------------------------------------------------------------ chat
   async function handleChat(req: IncomingMessage, res: ServerResponse, raw: Buffer, pathname: string, tBody: number, requestId: string): Promise<void> {
     status.chatRequests++;
+    const observation = observeResponse(res);
     const visible: RecentRequest = { action: 'passthrough', tokens: { in: null, out: null, trigger: null }, model: null, ms: 0 };
     let quantities: { budget: number; trigger: number; target: number } = budgetQuantities(cfg, null);
     const show = (n: number | null): string => n === null ? 'unknown' : String(n);
@@ -337,7 +393,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     res.once('close', () => {
       visible.ms = Math.round((performance.now() - tBody) * 10) / 10;
       status.recordRequest(visible);
-      log('info', `chat action=${visible.action} tokens=${show(visible.tokens.in)}->${show(visible.tokens.out)} budget=${quantities.budget} trigger=${show(visible.tokens.trigger)} target=${quantities.target} model=${JSON.stringify(visible.model)} ms=${visible.ms}`);
+      log('info', `chat action=${visible.action} tokens=${show(visible.tokens.in)}->${show(visible.tokens.out)} budget=${quantities.budget} trigger=${show(visible.tokens.trigger)} target=${quantities.target} model=${JSON.stringify(visible.model)} ms=${visible.ms} status=${res.headersSent ? res.statusCode : 499} outcome=${observation.o.outcome} ${observation.fields()}`);
     });
     setVisibleHeaders();
     const seq = deps.stats.nextSeq();
@@ -376,7 +432,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     if (!parsed.ok) {
       status.failedOpen(parsed.reason);
       status.action('passthrough');
-      await passthrough(req, res, raw);
+      await passthrough(req, res, raw, observation);
       deps.stats.write(buildStatsRecord({
         seq, ts, path: pathname, first: null, last: null, action: 'passthrough', attempts: [], clientStatus: res.statusCode, tokensIn: null,
         correction: 1, engineMs: 0, totalMs: performance.now() - tBody, compacted: false, shadow: cfg.shadow, usage: null, usageMismatch: false,
@@ -461,6 +517,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
 
     const write = (bufs: Buffer[], src: IncomingMessage): void => {
       if (!bufs.length) return;
+      observation.o.bytes += bufs.reduce((n, b) => n + b.length, 0);
+      observation.o.firstByte ||= performance.now();
       if (!firstClientByte) firstClientByte = performance.now();
       // One write, never res.cork(): a corked ServerResponse whose buffered writes pass its 64 KiB
       // highWaterMark returns false from write() but never emits 'drain' (Node 26), so the relay paused
@@ -489,14 +547,20 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         let done = false;
         up.body.on('end', () => {
           done = true;
-          res.end();
+          observation.end();
           const tap = tapSize < MAX_JSON_TAP ? tapJsonBody(Buffer.concat(tapChunks).toString('utf8')) : { usage: null, finishReason: null };
+          observation.o.finish = tap.finishReason;
+          res.end();
           resolve({ type: 'ok', status: up.status, tap, complete: true, upstreamMs: performance.now() - t0 });
         });
         up.body.on('close', () => {
           if (done) return;
           if (clientGone) resolve({ type: 'aborted', upstreamMs: performance.now() - t0 });
-          else resolve({ type: 'unavailable', committed: true, error: 'upstream body failed', upstreamMs: performance.now() - t0 });
+          else {
+            observation.o.ended = true;
+            observation.o.outcome = 'upstream_error';
+            resolve({ type: 'unavailable', committed: true, error: 'upstream body failed', upstreamMs: performance.now() - t0 });
+          }
         });
         up.body.on('error', () => undefined);
       });
@@ -505,6 +569,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       new Promise((resolve) => {
         const hold = cfg.stream.holdFirstEvent && !committed;
         const relay = new SseRelay({ hold, strip: a.injectedUsage, committed, detectErrors: cfg.errors.inStream });
+        observation.o.relay = relay;
         const hdrs = forwardResponseHeaders(up.rawHeaders, { dropContentLength: true });
         let finished = false;
         let erroredAt: RelayStep['error'] | null = null;
@@ -512,6 +577,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         const apply = (step: RelayStep): void => {
           if (step.commit) commit(up.status, up.statusMessage, hdrs);
           write(step.writes, up.body);
+          observation.inspect();
         };
         const finish = (o: AttemptOutcome): void => {
           if (finished) return;
@@ -595,6 +661,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
             return;
           }
           apply(last);
+          observation.end();
           res.end();
           finish({ type: 'ok', status: up.status, tap: { usage: relay.usage, finishReason: relay.finishReason }, complete: relay.complete, upstreamMs: performance.now() - t0 });
         });
@@ -605,7 +672,12 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
           }
           if (finished) return;
           if (clientGone) finish({ type: 'aborted', upstreamMs: performance.now() - t0 });
-          else finish({ type: 'unavailable', committed, error: 'upstream stream failed', upstreamMs: performance.now() - t0 });
+          else {
+            observation.o.ended = true;
+            observation.o.outcome = 'upstream_error';
+            if (!relay.complete) log('warn', `upstream stream closed without [DONE]/finish_reason ${observation.fields()}`);
+            finish({ type: 'unavailable', committed, error: 'upstream stream failed', upstreamMs: performance.now() - t0 });
+          }
         });
         up.body.on('error', () => undefined);
       });
@@ -663,7 +735,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       setVisibleHeaders();
       status.failedOpen('internal');
       status.action('passthrough');
-      await passthrough(req, res, raw);
+      await passthrough(req, res, raw, observation);
       deps.stats.write(buildStatsRecord({
         seq, ts, path: pathname, first: null, last: null, action: 'passthrough', attempts: [], clientStatus: res.statusCode, tokensIn: null,
         correction: 1, engineMs: 0, totalMs: performance.now() - tBody, compacted: false, shadow: cfg.shadow, usage: null, usageMismatch: false,
@@ -680,7 +752,18 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       if (result.attempts.length === 0) visible.tokens.out = 0;
       setVisibleHeaders();
     }
-    writeFinal(res, result.final, () => committed, (c) => (committed = c), rest);
+    if (result.final.type === 'generated') {
+      observation.o.outcome = 'refused';
+    }
+    else if (result.final.type === 'relay' || result.final.type === 'unavailable') observation.o.outcome = 'upstream_error';
+    if (result.final.type === 'relay' && result.final.error.inStream) {
+      observation.o.relay = new SseRelay({ hold: false, strip: false, committed: true, detectErrors: false });
+    }
+    writeFinal(res, result.final, () => committed, (c) => (committed = c), rest, (bytes) => {
+      observation.o.bytes += bytes.length;
+      observation.o.firstByte ||= performance.now();
+      observation.o.relay?.onChunk(bytes);
+    });
     if (firstUpByte && firstClientByte) respPathMs = Math.max(0, firstClientByte - firstUpByte);
 
     // ---------------------------------------------------------------- after the response
@@ -704,7 +787,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     });
   }
 
-  function writeFinal(res: ServerResponse, f: Final, isCommitted: () => boolean, setCommitted: (c: boolean) => void, rest: Rest | null = null): void {
+  function writeFinal(res: ServerResponse, f: Final, isCommitted: () => boolean, setCommitted: (c: boolean) => void, rest: Rest | null = null, onBytes: (bytes: Buffer) => void = () => undefined): void {
+    const end = (bytes: Buffer): void => { onBytes(bytes); res.end(bytes); };
     // the parked stream continues only after its own error, relayed unchanged
     const cont = rest && f.type === 'relay' && f.error === rest.outcome && f.error.inStream ? rest : null;
     if (rest && !cont) rest.body.destroy();
@@ -721,33 +805,34 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         return;
       case 'unavailable':
         if (committed) res.destroy(); // §9: after headers, no terminating chunk
-        else sendJson(res, 502, upstreamUnavailableBody());
+        else { const bytes = upstreamUnavailableBody(); onBytes(bytes); sendJson(res, 502, bytes); }
         return;
       case 'generated':
         if (!committed) {
+          onBytes(f.body);
           sendJson(res, f.status, f.body);
           setCommitted(true);
-        } else if (f.overflow) res.end(inStreamOverflowEvents(f.message || 'kitzur: context length exceeded'));
-        else res.end(inStreamErrorEvents(f.status, extractErrorMessage(safeJson(f.body)) ?? 'kitzur: request failed'));
+        } else if (f.overflow) end(inStreamOverflowEvents(f.message || 'kitzur: context length exceeded'));
+        else end(inStreamErrorEvents(f.status, extractErrorMessage(safeJson(f.body)) ?? 'kitzur: request failed'));
         return;
       case 'relay': {
         const e = f.error;
         if (!committed) {
           if (e.inStream) {
             res.writeHead(e.httpStatus, e.statusMessage, forwardResponseHeaders(e.headers, { dropContentLength: true }));
-            endWith(res, e.streamBytes ?? e.body, cont);
+            endWith(res, e.streamBytes ?? e.body, cont, onBytes);
           } else {
             const hdrs = forwardResponseHeaders(e.headers, { dropContentLength: true });
             hdrs.push('content-length', String(e.body.length));
             res.writeHead(e.httpStatus, e.statusMessage, hdrs);
-            res.end(e.body);
+            end(e.body);
           }
           setCommitted(true);
         } else if (e.inStream) {
-          endWith(res, e.streamBytes ?? e.body, cont);
+          endWith(res, e.streamBytes ?? e.body, cont, onBytes);
         } else {
           const text = e.body.toString('utf8');
-          res.end(inStreamErrorEvents(e.status, extractErrorMessage(safeJson(text)) ?? text.slice(0, 2000)));
+          end(inStreamErrorEvents(e.status, extractErrorMessage(safeJson(text)) ?? text.slice(0, 2000)));
         }
         return;
       }
@@ -928,14 +1013,15 @@ interface Rest {
 }
 
 /** Writes `bytes`, then the parked rest of the stream as it arrives (or ends the response at once without one). */
-function endWith(res: ServerResponse, bytes: Buffer, rest: Rest | null): void {
+function endWith(res: ServerResponse, bytes: Buffer, rest: Rest | null, onBytes: (bytes: Buffer) => void = () => undefined): void {
+  onBytes(bytes);
   if (!rest) {
     res.end(bytes);
     return;
   }
   const up = rest.body;
   res.write(bytes);
-  for (const b of rest.parked.splice(0)) res.write(b);
+  for (const b of rest.parked.splice(0)) { onBytes(b); res.write(b); }
   if (rest.ended) {
     res.end();
     return;
@@ -946,6 +1032,7 @@ function endWith(res: ServerResponse, bytes: Buffer, rest: Rest | null): void {
   }
   up.removeAllListeners('data');
   up.on('data', (d: Buffer) => {
+    onBytes(d);
     if (!res.write(d)) {
       up.pause();
       res.once('drain', () => up.resume());
