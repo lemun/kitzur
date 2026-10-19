@@ -8,6 +8,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, resolve } from 'node:path';
+import { buildModelProfiles, takeModelLayer, type ModelOverrides } from './models.js';
 import { enableAutoWindow } from './window.js';
 import { DEFAULT_CONFIG, type Config } from './schema.js';
 import { parseJsonc } from './jsonc.js';
@@ -70,6 +71,7 @@ export interface LoadOptions {
 
 export interface LoadedConfig {
   config: Config;
+  models: import('./schema.js').ModelProfiles;
   provenance: Provenance;
   /** the preset applied, if any (name or path) */
   preset: string | null;
@@ -253,6 +255,7 @@ export function loadConfig(opts: LoadOptions = {}): LoadedConfig {
   const issues: string[] = [];
   const warnings: string[] = [];
   const layers = ['default'];
+  const modelOverrides: ModelOverrides = new Map();
 
   // ---- config file (read first: it may name a preset)
   const cfgPathRaw = opts.object ? null : opts.configPath ?? (env['KITZUR_CONFIG'] || null);
@@ -291,6 +294,7 @@ export function loadConfig(opts: LoadOptions = {}): LoadedConfig {
     try {
       const p = loadPreset(presetName, opts.presetsDir === undefined ? presetsDir(env) : opts.presetsDir, cwd);
       const src = `preset:${presetName}`;
+      takeModelLayer(p.layer, modelOverrides, src, issues);
       applyLayer(cfg, prov, p.layer, src, dirname(p.file), issues);
       layers.push(src);
     } catch (e) {
@@ -302,6 +306,7 @@ export function loadConfig(opts: LoadOptions = {}): LoadedConfig {
 
   // ---- file
   if (fileLayer) {
+    takeModelLayer(fileLayer, modelOverrides, fileSource, issues);
     applyLayer(cfg, prov, fileLayer, fileSource, fileBase, issues);
     layers.push(fileSource);
   }
@@ -352,5 +357,7 @@ export function loadConfig(opts: LoadOptions = {}): LoadedConfig {
 
   if (issues.length) throw new ConfigError(issues);
   if (getPath(cfg, 'budget.window') === 'auto') enableAutoWindow(cfg as unknown as Config, typeof fallbackWindow === 'number' ? fallbackWindow : DEFAULT_CONFIG.budget.window);
-  return { config: cfg as unknown as Config, provenance: prov, preset: presetName, configPath, layers, warnings };
+  const models = buildModelProfiles(cfg as unknown as Config, modelOverrides, issues, warnings);
+  if (issues.length) throw new ConfigError(issues);
+  return { config: cfg as unknown as Config, models, provenance: prov, preset: presetName, configPath, layers, warnings };
 }

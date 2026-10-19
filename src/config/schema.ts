@@ -8,6 +8,9 @@ import type { ErrorExclusion, ErrorRule } from '../types.js';
 export type ServerType = 'vllm' | 'sglang' | 'llamacpp' | 'tgi' | 'ollama' | 'lmstudio' | 'litellm' | 'unknown';
 export type BudgetMode = 'strict_total' | 'prompt_only' | 'tgi' | 'silent_truncate';
 
+/** Resolved model configs; deliberately absent from DEFAULT_CONFIG and the leaf table. */
+export type ModelProfiles = Readonly<Record<string, Config>>;
+
 export interface Config {
   listen: {
     host: string;
