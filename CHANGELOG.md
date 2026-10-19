@@ -6,6 +6,23 @@ All notable changes to Kitzur are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-10-19
+
+Requires **Node.js 22 or newer**.
+
+### Changed
+
+- Offline and Windows bundles leave out the README demo images and videos (`docs/assets`),
+  reducing download size while keeping the documentation and runtime files (#31).
+
+### Fixed
+
+- `--help` and `-h` print usage for every subcommand, including `doctor`, `bench` and `version`,
+  instead of rejecting the option or running the command. Commands that do not read configuration
+  no longer show configuration options (#31).
+- The configuration-options heading in `doctor --help` now names `doctor`, making clear that
+  those options apply to it (#32).
+
 ## [0.2.0] — 2026-10-18
 
 Kitzur 0.2.0 requires **Node.js 22 or newer** (`engines.node` is now `>=22`; CI covers Node 22, 24 and 26).
@@ -81,6 +98,7 @@ It makes the proxy safer to run unattended, makes compaction visible, and smooth
 - A coding-task evaluation harness with executable graders (`bench/coding`).
 - Retention of additive instructions and conservative recognition of instruction cancellations.
 
-[Unreleased]: https://github.com/lemun/kitzur/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/lemun/kitzur/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/lemun/kitzur/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/lemun/kitzur/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/lemun/kitzur/releases/tag/v0.1.0
