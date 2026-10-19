@@ -10,6 +10,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { formatPaths } from './proxy/status.js';
 import { buildApp, buildEngine, createLogger, setupCounter, AppModuleError, type AppModules, type Logger } from './app.js';
 import { ConfigError, loadConfig, parseSetArg, type LoadedConfig, type SetOp } from './config/load.js';
 import { validateConfig } from './config/validate.js';
@@ -405,7 +406,7 @@ async function cmdServe(argv: string[], io: CliIO): Promise<number> {
   }
   const drainMs = p.values['drain-ms'] !== undefined ? Number(p.values['drain-ms']) : 30_000;
   if (!Number.isFinite(drainMs) || drainMs < 0) throw new UsageError('--drain-ms must be a number of milliseconds');
-  const app = await buildApp(cfg, { log, modules: io.modules, env: io.env });
+  const app = await buildApp(cfg, { log, modules: io.modules, env: io.env, configPath: l.configPath });
   let addr: { host: string; port: number };
   try { addr = await app.listen(); }
   catch (e) { await app.close(0); throw e; }
@@ -576,6 +577,7 @@ async function cmdStatus(argv: string[], io: CliIO): Promise<number> {
       const s = JSON.parse(r.body);
       body = p.values['json'] || r.status !== 200 ? JSON.stringify(s, null, 1) : [
         `${s.name ?? 'kitzur'} ${s.version ?? ''} — uptime ${s.uptime_s ?? '?'}s`,
+        formatPaths(s.paths ?? { config: null, state_dir: '?', log_file: null }),
         `Chat requests: ${s.counters?.chat_requests ?? 0}; actions: ${Object.entries(s.actions ?? {}).map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}`,
         `Budget: ${s.budget?.budget ?? '?'}; trigger: ${s.budget?.trigger ?? '?'}; target: ${s.budget?.target ?? '?'}`,
         s.last_compaction ? `Last compaction: ${s.last_compaction.at} — ${s.last_compaction.in ?? '?'} -> ${s.last_compaction.out ?? '?'} tokens (trigger ${s.last_compaction.trigger ?? '?'})` : 'Last compaction: none since startup',

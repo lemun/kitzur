@@ -189,3 +189,26 @@ test('doctor still reports diagnostics when upstream.headers is not a record', a
   assert.equal(result.checks.find((c) => c.code === 'config.valid')?.status, 'error');
   assert.equal(result.checks.find((c) => c.code === 'listen.token'), undefined);
 });
+
+test('doctor always reports resolved paths, including defaults and explicit files', async () => {
+  const cfg = defaultConfig(); cfg.stateDir = '/tmp/kitzur-paths'; cfg.log.file = '/tmp/custom.log';
+  for (const configPath of [undefined, '/tmp/custom.jsonc']) {
+    const result = await doctor(cfg, { configPath, timeoutMs: 1 });
+    const paths = result.checks.find((c) => c.code === 'paths');
+    assert.equal(paths?.status, 'ok');
+    assert.equal(paths?.message, `Paths: config=${configPath ?? 'defaults only'}; state_dir=/tmp/kitzur-paths; log_file=/tmp/custom.log`);
+  }
+});
+
+test('doctor explains Windows XDG choices', async () => {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+  try {
+    const env = { XDG_STATE_HOME: 'C:\\state', XDG_CONFIG_HOME: 'C:\\config' };
+    const result = await doctor(defaultConfig(), { env, configPath: 'C:\\config\\kitzur\\kitzur.jsonc', timeoutMs: 1 });
+    const message = result.checks.find((c) => c.code === 'paths')?.message ?? '';
+    assert.match(message, /XDG_STATE_HOME/);
+    // Config selection requires a real discovered file, not merely an XDG variable.
+    assert.doesNotMatch(message, /XDG_CONFIG_HOME/);
+  } finally { Object.defineProperty(process, 'platform', platform); }
+});

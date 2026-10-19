@@ -350,6 +350,7 @@ test('status: GET /status of a running instance', async () => {
     assert.equal(r.code, 0, r.err);
     assert.match(r.out, /kitzur.*uptime 3s/);
     assert.match(r.out, /Last compaction: none since startup/);
+    assert.match(r.out, /Paths: config=defaults only; state_dir=\?; log_file=\?/);
     const raw = await run(['status', '--port', String(port), '--json']);
     assert.equal(raw.code, 0, raw.err);
     assert.deepEqual(JSON.parse(raw.out), { name: 'kitzur', uptime_s: 3 });
@@ -484,6 +485,8 @@ test('serve logs the bound address to a file and drains on SIGTERM', () => withT
   const logs = readFileSync(file, 'utf8');
   assert.match(logs, /listening on http:\/\/127.0.0.1:45678/);
   assert.match(logs, /SIGTERM: stopping; draining/);
+  assert.ok(logs.includes(`Paths: config=defaults only; state_dir=`));
+  assert.ok(logs.includes(`log_file=${file}`));
   assert.deepEqual(x.errBuf, []);
   const r = await run(['serve', '--log-file', file], { modules: fakeModules() });
   assert.equal(r.code, 2);
@@ -569,3 +572,15 @@ test('config show exposes input-limit client point and trigger', async () => {
   assert.equal(value.derived.clientPoint, 46_000);
   assert.equal(value.derived.trigger, 39_000);
 });
+
+test('app status exposes resolved config, state and current log paths', () => withTmp(async (dir) => {
+  const { buildApp } = await import('../../src/app.js');
+  const cfg = loadConfig({ env: {}, sets: [`stateDir=${dir}`, 'upstream.origin=http://127.0.0.1:9'] }).config;
+  const app = await buildApp(cfg, { env: {}, configPath: join(dir, 'k.jsonc') });
+  try {
+    const paths = app.server.snapshot().paths as { config: string; state_dir: string; log_file: string };
+    assert.equal(paths.config, join(dir, 'k.jsonc'));
+    assert.equal(paths.state_dir, dir);
+    assert.match(paths.log_file, /kitzur-\d{4}-\d{2}-\d{2}\.log$/);
+  } finally { await app.close(0); }
+}));

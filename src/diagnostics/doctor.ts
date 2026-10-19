@@ -2,16 +2,18 @@ import { fileURLToPath } from 'node:url';
 import { createConnection } from 'node:net';
 import { request } from 'node:http';
 import { existsSync, statSync, accessSync, constants, readFileSync } from 'node:fs';
-import { dirname, parse } from 'node:path';
+import { dirname, parse, join, win32 } from 'node:path';
 import { listenTokenWarning, validateConfig } from '../config/validate.js';
 import { computeBudget } from '../config/derived.js';
 import type { Config } from '../config/schema.js';
-import { stateDirOf } from '../config/paths.js';
+import { defaultConfigPath, stateDirOf } from '../config/paths.js';
 import { loadTokenizer } from '../tokenize/tokenizer.js';
 import { templateTokenizerWarning } from '../tokenize/template.js';
 import { parseJsonc } from '../config/jsonc.js';
 import { clientConfigChecks } from './client-config.js';
 import { Upstream } from '../proxy/upstream.js';
+
+import { formatPaths } from '../proxy/status.js';
 
 export interface DoctorCheck { code: string; status: 'ok' | 'warn' | 'error'; message: string; fix?: string }
 export interface DoctorResult { checks: DoctorCheck[]; exitCode: number }
@@ -141,6 +143,13 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
     } catch { add(code, 'warn', `${label} directory is not accessible.`, 'Check directory permissions and configured path.'); }
   };
   const statePath = stateDirOf(config, opts.env);
+  const env = opts.env ?? process.env;
+  const xdg = process.platform === 'win32' ? [
+    !config.stateDir && env['XDG_STATE_HOME'] && win32.isAbsolute(env['XDG_STATE_HOME']) ? 'XDG_STATE_HOME' : null,
+    env['XDG_CONFIG_HOME'] && win32.isAbsolute(env['XDG_CONFIG_HOME']) && opts.configPath === defaultConfigPath(env) ? 'XDG_CONFIG_HOME' : null,
+  ].filter(Boolean) : [];
+  add('paths', 'ok', formatPaths({ config: opts.configPath ?? null, state_dir: statePath,
+    log_file: config.log.file ?? join(statePath, 'logs', `kitzur-${new Date().toISOString().slice(0, 10)}.log`) }) + (xdg.length ? ` (selected by ${xdg.join(', ')} on Windows)` : ''));
   pathCheck('state.directory', statePath, 'State');
   if (config.stats.path) {
     try {

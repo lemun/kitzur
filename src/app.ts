@@ -19,6 +19,7 @@
 import { RuntimeLog, LoopWatchdog } from './diagnostics/runtime.js';
 import { chmodSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { formatPaths } from './proxy/status.js';
 import type { Config } from './config/schema.js';
 import { stateDirOf, packageInfo } from './config/paths.js';
 import { counterFromConfig, type Counter } from './tokenize/counter.js';
@@ -225,7 +226,7 @@ export interface App extends EngineSetup {
  */
 export async function buildApp(
   config: Config,
-  opts: { log?: Logger; modules?: AppModules; env?: Record<string, string | undefined> } = {},
+  opts: { log?: Logger; modules?: AppModules; env?: Record<string, string | undefined>; configPath?: string | null } = {},
 ): Promise<App> {
   const runtimeLog = opts.log instanceof RuntimeLog ? opts.log : opts.log ? undefined : new RuntimeLog({ dir: join(stateDirOf(config, opts.env), 'logs'), file: config.log.file, console: config.log.console, level: config.logLevel });
   const log = opts.log ?? runtimeLog!;
@@ -245,6 +246,9 @@ export async function buildApp(
       log: (level, msg) => log[level](msg),
       watchdog,
     });
+    const paths = () => ({ config: opts.configPath ?? null, state_dir: es.stateDir, log_file: runtimeLog?.path ?? config.log.file });
+    server.status.paths = paths;
+    runtimeLog?.info(formatPaths(paths()));
     return {
       ...es,
       config,
