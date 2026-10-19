@@ -41,7 +41,7 @@ test('stream ending without a completion marker warns and logs incomplete', asyn
   } finally { await f.close(); await up.close(); }
 });
 
-for (const failOpen of [false, true]) test(`client abort warns with counts (passthrough=${failOpen})`, async () => {
+for (const failOpen of [false, true]) test(`client abort warns with counts (passthrough=${failOpen})`, { timeout: 10_000 }, async () => {
   const logs: string[] = [];
   let closed!: () => void;
   const upstreamClosed = new Promise<void>(resolve => { closed = resolve; });
@@ -53,7 +53,12 @@ for (const failOpen of [false, true]) test(`client abort warns with counts (pass
   const f = await startProxy(up, passthroughEngine(), { log: (level, msg) => logs.push(`${level} ${msg}`) });
   try {
     await new Promise<void>((resolve, reject) => {
-      const req = http.request({ host: '127.0.0.1', port: f.port, method: 'POST', path: '/v1/chat/completions' }, res => {
+      const req = http.request({ host: '127.0.0.1', port: f.port, method: 'POST', path: '/v1/chat/completions', headers: { 'content-type': 'application/json' } }, res => {
+        if (res.statusCode !== 200) {
+          res.resume();
+          reject(new Error(`expected upstream stream, got HTTP ${res.statusCode}`));
+          return;
+        }
         res.once('data', () => { res.destroy(); resolve(); });
         res.on('error', () => undefined);
       });
