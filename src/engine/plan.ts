@@ -537,6 +537,7 @@ export function compact(env: FoldEnv, planIn: Plan, b: number, h: number, cEv: E
   const plan: Plan = {
     version: 2, engine: ENGINE_ALGO_VERSION, n: b, hEnd: h, cut: draft.cut, summary,
     headRewrites: planIn.headRewrites, rewrites, compactions: compaction, fit,
+    summaryAttribution: S?.attribution ? structuredClone(S.attribution) : undefined,
     key: planKey(chainAt(env.K, b), env.pHash),
     meta: {
       step: 'compact', count: ev.count, before: cEv.count, summaryBudget, floorTokens,
