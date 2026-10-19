@@ -6,7 +6,7 @@
   <img src="docs/assets/banner-light.png" alt="Kitzur: zero-dependency context compaction proxy for coding agents using local LLMs" width="100%">
 </picture>
 
-### Keep coding in a smaller context window.
+### Keep coding in the context window your local model actually serves.
 
 [![CI](https://github.com/lemun/kitzur/actions/workflows/ci.yml/badge.svg)](https://github.com/lemun/kitzur/actions/workflows/ci.yml)
 [![Node.js ≥20](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)](package.json)
@@ -30,22 +30,6 @@ called to do it.**
   <a href="docs/assets/compaction.mp4">Watch the MP4</a>.</sub>
 </p>
 
-## Why Kitzur
-
-Long coding sessions accumulate file reads, browser snapshots and tool output.
-Small local windows (32k to 128k tokens) fill up fast, and then the server rejects
-the request or the agent loses the thread.
-
-- **Fits the window you actually serve.** Presets for 32k, 64k, 100k and 128k windows.
-- **Deterministic and local.** The same history and settings produce the same
-  request; there is no summarizer model to run, pay for or wait on.
-- **Zero runtime dependencies.** Plain Node.js 22+, one HTTP hop on loopback.
-- **Keeps the working set.** Tool calls stay paired with their results, and recent
-  work is retained verbatim.
-- **Drop-in.** Change the agent's base URL; nothing else about the agent changes.
-- **Observable.** Every response says what Kitzur did, and `/status` shows budgets,
-  counters and recent activity.
-
 ## Quick start
 
 Requires **Node.js 22+** and a running OpenAI-compatible Chat Completions server. The
@@ -53,12 +37,14 @@ served model's `tokenizer.json` is recommended for exact counts: without it
 (`tokenizer.path: null`), `serve` still starts, logs a warning and counts with a
 conservative per-class estimate. Kitzur is built from source:
 
+> **Trust:** the proxy sees prompts and credentials and forwards requests to your configured upstream. Keep loopback binding; default logs omit message content, while opt-in plan persistence stores summaries. Review [data handling](SECURITY.md) before enabling persistence or sharing diagnostics.
+
 ```sh
 git clone https://github.com/lemun/kitzur.git
 cd kitzur
 npm ci
 npm run build
-node dist/src/cli.js config init --preset 100k --out ~/.config/kitzur/kitzur.jsonc \
+node dist/src/cli.js config init --preset 32k --out ~/.config/kitzur/kitzur.jsonc \
   --upstream http://127.0.0.1:8000 --tokenizer /path/to/tokenizer.json
 ```
 
@@ -120,7 +106,7 @@ An OpenCode provider (`opencode.json`):
         "local-model": {
           "name": "Local model",
           "tool_call": true,
-          "limit": { "context": 100000, "output": 32000 }
+          "limit": { "context": 32000, "output": 8000 }
         }
       }
     }
@@ -142,6 +128,14 @@ If the gateway credentials live in kitzur's `upstream.headers`, set `listen.toke
 too, so other local processes cannot use them through the proxy (see
 [SECURITY.md](SECURITY.md)). `apiKey` then carries that token, not the gateway key:
 `"apiKey": "{env:KITZUR_TOKEN}"`. `status` and `doctor` send the configured token.
+
+Run `node dist/src/cli.js status --config ~/.config/kitzur/kitzur.jsonc` in another terminal: expect a reachable proxy and initially zero requests. Send a short OpenCode message; the request count should rise, but compaction may not be needed yet.
+
+> **Evidence:** [Demos](#see-compaction-happen) use a stub upstream; [replay](bench/README.md) checks fit/accounting, not task quality. [Coding mocks](bench/coding/README.md) validate the harness; live-model validation is pending. Token reduction is not a measured cost saving.
+
+## Why Kitzur
+
+Long coding sessions fill small served windows with file reads and tool output. Kitzur mechanically summarizes older history, keeps recent tool calls/results paired, and trims oversized output without a second model. Presets cover 32k–128k; response headers and `/status` expose its decisions.
 
 ## See compaction happen
 
@@ -206,6 +200,14 @@ rebuilt from the original history the agent sends. Retention is bounded by the
 available budget: under pressure, facts and user text can be shortened.
 [How compaction works and where it can lose information](DESIGN.md).
 
+| Retention | What reaches the model |
+|---|---|
+| Kept | Recent messages verbatim, with tool calls/results paired. |
+| Summarized | Older instructions, decisions and open work, within budget. |
+| Lost | Old tool output may be excerpted or removed; even facts and user text can be shortened. |
+
+There is no searchable full-transcript vault. Rebuilding only recovers history the client still sends.
+
 ## Benchmarks
 
 Here is a **46-step simulated browser session** with a 100,000-token context window
@@ -247,6 +249,12 @@ inference speed, billing savings or real-model task quality.
 
 [Reproduce this comparison](bench/README.md#readme-demonstration) ·
 [Benchmark methodology and historical Gobstopper comparison](bench/README.md)
+
+| Compatibility decision | Scope |
+|---|---|
+| HTTP format | Chat Completions only; no Responses or Anthropic Messages. |
+| Client evidence | OpenCode offline simulation; Kilo configuration guidance, not a live-client certification. |
+| Intended environment | Local/intranet model servers with known served limits; keep native client compaction enabled. |
 
 ## Configuration
 
@@ -390,15 +398,16 @@ it. Without an input limit, existing context-minus-output behavior is preserved.
 See [CONFIG.md](CONFIG.md) for all budget settings.
 ## Documentation
 
-| Document | What it covers |
+| Your task | Start here |
 |---|---|
-| [CONFIG.md](CONFIG.md) | Every configuration knob, presets, environment, client setup |
-| [DESIGN.md](DESIGN.md) | Architecture, planning, prefix stability and known limits |
-| [SECURITY.md](SECURITY.md) | Threat model, privacy and vulnerability reporting |
-| [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md) | Setup diagnostics and session reports |
-| [bench/README.md](bench/README.md) | Benchmark methodology and reproduction |
-| [deploy/README.md](deploy/README.md) | Packaging, the systemd user service and the macOS launchd agent |
-| [CHANGELOG.md](CHANGELOG.md) | Notable changes per release |
+| Connect OpenCode | [Provider example](#point-your-agent-at-the-proxy) |
+| Fit a served window/tokenizer | [CONFIG.md](CONFIG.md) |
+| Understand retention and loss | [DESIGN.md](DESIGN.md) |
+| Review privacy and report vulnerabilities | [SECURITY.md](SECURITY.md) |
+| Diagnose overflow or passthrough | [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md) |
+| Evaluate changes | [Benchmarks](bench/README.md) · [Coding harness](bench/coding/README.md) |
+| Deploy offline on Linux/Windows | [Packaging](deploy/README.md) · [Windows](deploy/windows/USER.md) |
+| Review release changes | [CHANGELOG.md](CHANGELOG.md) |
 
 ## Contributing
 
@@ -417,6 +426,8 @@ cross-check.
 
 Bug reports and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
 Use synthetic examples and remove credentials, prompts and private URLs from reports.
+
+Kitzur grew from coding agents on short-context local/intranet models, inspired by [Gobstopper](https://github.com/hraness/gobstopper). Adapted code is credited separately in [third-party notices](THIRD_PARTY_NOTICES.md).
 
 ## License
 

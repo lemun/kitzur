@@ -1,5 +1,11 @@
 # Diagnostics and reports
 
+| Symptom | Inspect / expected result | Recovery |
+|---|---|---|
+| No compactions | `kitzur status`: token counts below trigger can pass through. | No action needed below trigger. |
+| Overflow | `kitzur doctor`: budget/tokenizer checks should pass. | Match served window, output reservation and tokenizer/template in [CONFIG.md](../CONFIG.md). |
+| No terminal warning | Rotating log or `serve --foreground` shows warnings. | Inspect logs; review [data handling](../SECURITY.md) before sharing files. |
+
 `kitzur doctor` validates loaded settings, checks the prompt budget against the configured context and client limits, verifies tokenizer availability and local counting, and inspects state and stats paths. It does not create files or directories. The default state directory is resolved from `stateDir`, `XDG_STATE_HOME`, or the home directory; when a configured directory is absent, doctor checks the nearest existing parent. A configured tokenizer in automatic mode that is missing produces a warning because counts fall back to estimates. A present tokenizer must parse and count a short sample. Doctor also validates the configured template name, but does not render a chat request or contact a tokenize endpoint.
 
 Messages are fixed and safe for display: they include no raw paths, credentials, config values, network error text, or server response body. Doctor exits 0 when checks have no errors, 1 when a diagnostic finds an error, and the CLI uses 2 for configuration or command-line errors.
