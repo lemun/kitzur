@@ -12,6 +12,7 @@ import { templateTokenizerWarning } from '../tokenize/template.js';
 import { parseJsonc } from '../config/jsonc.js';
 import { clientConfigChecks } from './client-config.js';
 import { Upstream } from '../proxy/upstream.js';
+import { inspectTlsChain, renderTlsChain } from './tls-chain.js';
 
 export interface DoctorCheck { code: string; status: 'ok' | 'warn' | 'error'; message: string; fix?: string }
 export interface DoctorResult { checks: DoctorCheck[]; exitCode: number }
@@ -175,7 +176,13 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
       upstream = new Upstream(cfg);
       const result = await upstream.probe();
       const status = result.status ?? 0;
-      if (status >= 200 && status < 300) add('upstream.reachable', 'ok', `Upstream responded to the lightweight models probe (HTTP ${status}).`);
+      if (result.tlsError) {
+        let diagnosis: string;
+        try {
+          diagnosis = renderTlsChain(await inspectTlsChain({ origin: cfg.origin!, caFile: cfg.caFile, timeoutMs: Math.min(5000, cfg.timeoutMs) }));
+        } catch { diagnosis = 'TLS chain inspection could not be completed; check upstream.caFile and network availability.'; }
+        add('upstream.tls', 'error', `TLS verification failed: ${result.tlsError}\n${diagnosis}`, 'Check the chain diagnosis and upstream.caFile.');
+      } else if (status >= 200 && status < 300) add('upstream.reachable', 'ok', `Upstream responded to the lightweight models probe (HTTP ${status}).`);
       else if (status === 401 || status === 403) add('upstream.reachable', 'warn', `Upstream is reachable but the models probe requires authorization (HTTP ${status}).`, 'Check upstream.headers authorization configuration.');
       else if (status === 404) add('upstream.reachable', 'warn', 'Upstream is reachable but /v1/models is unavailable (HTTP 404).', 'Check the upstream gateway route.');
       else add('upstream.reachable', 'error', 'Upstream probe failed.', 'Check upstream.origin, TLS settings, and network availability.');
