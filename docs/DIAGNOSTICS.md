@@ -22,3 +22,5 @@ Request token reduction uses records with at least one valid recorded attempt an
 kitzur report stats.jsonl
 kitzur report stats.jsonl --json
 ```
+
+For optional external viewing of legacy stats, see [Gobstopper interop](GOBSTOPPER-INTEROP.md), including estimate semantics and an isolated synthetic import example.
