@@ -280,8 +280,16 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   // ------------------------------------------------------------------ pass-through
   // Per-response observations never retain or log response content.
   function observeResponse(res: ServerResponse) {
-    const o = { relay: null as SseRelay | null, bytes: 0, firstByte: 0, ended: false,
-      outcome: 'ok', midstream: false, finish: null as string | null };
+    type Outcome = 'ok' | 'aborted' | 'incomplete' | 'upstream_error' | 'refused';
+    const o = {
+      relay: null as SseRelay | null,
+      bytes: 0,
+      firstByte: 0,
+      ended: false,
+      outcome: 'ok' as Outcome,
+      midstream: false,
+      finish: null as string | null,
+    };
     const fields = (): string => `finish=${o.relay?.finishReason ?? o.finish ?? 'none'} done=${o.relay?.done ?? false} events=${o.relay?.events ?? 0} bytes=${o.bytes}`;
     const inspect = (): void => {
       const err = o.relay?.midStreamError;
@@ -304,14 +312,15 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         log('warn', `client closed before upstream ended ${fields()} ms_since_first_byte=${o.firstByte ? Math.round(performance.now() - o.firstByte) : 0}`);
       }
     });
-    return { o, fields, inspect, end: (): void => {
+    const end = (): void => {
       o.ended = true;
       inspect();
       if (o.relay && !o.relay.complete) {
         if (o.outcome === 'ok') o.outcome = 'incomplete';
         log('warn', `upstream stream ended without [DONE]/finish_reason ${fields()}`);
       }
-    } };
+    };
+    return { o, fields, inspect, end };
   }
 
   async function passthrough(req: IncomingMessage, res: ServerResponse, body: Buffer, observation = observeResponse(res)): Promise<void> {

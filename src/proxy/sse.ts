@@ -166,6 +166,10 @@ export interface StreamError {
 
 /** Parses an event payload; an in-stream error is a JSON object with a top-level `error` key, or any `error:` field. */
 export function eventError(ev: SseEvent): StreamError | null {
+  return observedError(ev, false);
+}
+
+function observedError(ev: SseEvent, legacy: boolean): StreamError | null {
   if (ev.error !== null) {
     let json: unknown;
     try {
@@ -176,10 +180,10 @@ export function eventError(ev: SseEvent): StreamError | null {
     return { event: ev, payload: ev.error, json };
   }
   if (ev.data === null || ev.data === '[DONE]') return null;
-  if (!ev.data.includes('"error"') && !ev.data.includes('\\u')) return null;
+  if (!ev.data.includes('"error"')) return null;
   try {
     const json = JSON.parse(ev.data) as unknown;
-    if (inspectChunk(json).error || (typeof json === 'object' && json !== null && 'object' in json && json.object === 'error')) return { event: ev, payload: ev.data, json };
+    if (inspectChunk(json).error || (legacy && typeof json === 'object' && json !== null && 'object' in json && json.object === 'error')) return { event: ev, payload: ev.data, json };
   } catch {
     /* not JSON: relayed as is */
   }
@@ -341,7 +345,7 @@ export class SseRelay {
       return;
     }
     if (this.events > 0 && !this.midStreamError) {
-      this.midStreamError = eventError(ev);
+      this.midStreamError = observedError(ev, true);
       if (this.midStreamError) this.midStreamErrorAfter = this.events;
     }
     this.events++;

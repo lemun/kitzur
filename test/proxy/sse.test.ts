@@ -186,7 +186,17 @@ test('relay records later modern and legacy errors without changing bytes', () =
       `data: ${JSON.stringify(error)}\n\ndata: [DONE]\n\n`);
     assert.deepEqual(Buffer.concat(r.onChunk(bytes).writes), bytes);
     r.onEnd();
-    assert.ok('midStreamError' in r && r.midStreamError);
+    assert.deepEqual(r.midStreamError?.json, error);
+    assert.equal(r.midStreamErrorAfter, 1);
     assert.equal(r.done, true);
   }
+});
+
+test('relay: first legacy error remains a normal first event', () => {
+  const r = new SseRelay({ hold: true, strip: false, committed: false });
+  const bytes = B('data: {"object":"error","message":"boom"}\n\n');
+  const step = r.onChunk(bytes);
+  assert.equal(step.error, undefined);
+  assert.deepEqual(Buffer.concat(step.writes), bytes);
+  assert.equal(r.midStreamError, null);
 });
