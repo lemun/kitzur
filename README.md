@@ -9,7 +9,7 @@
 ### Keep coding in a smaller context window.
 
 [![CI](https://github.com/lemun/kitzur/actions/workflows/ci.yml/badge.svg)](https://github.com/lemun/kitzur/actions/workflows/ci.yml)
-[![Node.js ≥20](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)](package.json)
+[![Node.js ≥22](https://img.shields.io/badge/node-%E2%89%A522-brightgreen)](package.json)
 [![Runtime dependencies: 0](https://img.shields.io/badge/runtime%20deps-0-brightgreen)](package.json)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
