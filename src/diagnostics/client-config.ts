@@ -9,7 +9,7 @@ const positive = (v: unknown): v is number => typeof v === 'number' && Number.is
 /** Read-only OpenCode diagnostics; never echo URLs, credentials or configuration contents. */
 export function clientConfigChecks(cfg: Config, input: unknown): DoctorCheck[] {
   const checks: DoctorCheck[] = [];
-  const warn = (code: string, message: string): void => { checks.push({ code: 'client.' + code, status: 'warn', message }); };
+  const warn = (code: string, message: string, fix?: string): void => { checks.push({ code: 'client.' + code, status: 'warn', message, ...(fix ? { fix } : {}) }); };
   const local = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0', '[::]']);
   const hostMatches = (host: string): boolean => host === cfg.listen.host || local.has(host) && local.has(cfg.listen.host);
   const root = object(input);
@@ -50,8 +50,11 @@ export function clientConfigChecks(cfg: Config, input: unknown): DoctorCheck[] {
       const usable = positive(limit.input)
         ? Math.max(0, limit.input - reserved)
         : Math.max(0, limit.context - maxOutputTokens);
-      if (b.trigger >= usable - b.allowance)
-        warn('usable', `OpenCode compacts at ${usable}, Kitzur triggers at ${b.trigger} (output allowance ${b.allowance}); the client may compact first.`);
+      if (b.trigger > usable - b.allowance)
+        warn('usable', `OpenCode compacts at ${usable}, Kitzur triggers at ${b.trigger} (output allowance ${b.allowance}); the client may compact first.`,
+          'Mirror the client in kitzur.jsonc: ' + [positive(limit.input) ? `client.inputLimit: ${limit.input}` : null,
+            positive(limit.input) && compaction.reserved === reserved ? `client.reservedTokens: ${reserved}` : null,
+            limit.output !== b.planMaxTokens ? `client.outputLimit: ${limit.output}` : null].filter(Boolean).join(', ') + '; align budget.window with limit.context.');
     }
   }
   if (!checks.length) checks.push({ code: 'client.compatible', status: 'ok', message: 'OpenCode provider routing and usable context are compatible.' });

@@ -57,7 +57,9 @@ for (const scenario of [
           } },
         });
         const warning = checks.find((c) => c.code === 'client.usable');
-        assert.equal(Boolean(warning), delta >= 0, JSON.stringify({ scenario, allowance, delta, checks }));
+        assert.equal(Boolean(warning), delta > 0, JSON.stringify({ scenario, allowance, delta, checks }));
+        if (warning && scenario.input && scenario.reserved !== undefined) assert.match(warning.fix ?? '', new RegExp(`client.inputLimit: ${scenario.input}.*client.reservedTokens: ${scenario.reserved}`));
+        if (warning && scenario.output === 8_000) assert.match(warning.fix ?? '', /client.outputLimit: 8000/);
         if (warning) assert.match(warning.message, new RegExp(`OpenCode compacts at ${scenario.point}, Kitzur triggers at ${cfg.compaction.triggerTokens}`));
       }
     }
@@ -79,3 +81,10 @@ for (const [name, compaction, context] of [
     assert.deepEqual(checks.map((c) => c.code), ['client.compatible']);
   });
 }
+
+test('shipped Windows 100k client has no warnings', () => {
+  const cfg = defaultConfig(); cfg.listen.port = 8270;
+  const input = parseJsonc(readFileSync('test/fixtures/client-config/default-100k.opencode.json', 'utf8'));
+  assert.deepEqual(input, JSON.parse(readFileSync('deploy/windows/opencode.template.json', 'utf8')));
+  assert.ok(clientConfigChecks(cfg, input).every((c) => c.status === 'ok'));
+});

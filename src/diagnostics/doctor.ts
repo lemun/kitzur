@@ -173,10 +173,15 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
       const requestedTimeout = opts.timeoutMs ?? config.upstream.timeoutMs;
       cfg.timeoutMs = Number.isFinite(requestedTimeout) ? Math.max(1, Math.min(10_000, Math.floor(requestedTimeout))) : 3000;
       upstream = new Upstream(cfg);
-      const result = await upstream.probe();
+      const token = (opts.env ?? process.env).KITZUR_PROBE_TOKEN;
+      const hasAuth = Object.keys(cfg.headers).some((key) => /authorization|api[-_]?key|token|cookie/i.test(key));
+      if (token) for (const key of Object.keys(cfg.headers)) if (key.toLowerCase() === 'authorization') delete cfg.headers[key];
+      const result = await upstream.probe('/v1/models', token ? { authorization: 'Bearer ' + token } : {});
       const status = result.status ?? 0;
-      if (status >= 200 && status < 300) add('upstream.reachable', 'ok', `Upstream responded to the lightweight models probe (HTTP ${status}).`);
-      else if (status === 401 || status === 403) add('upstream.reachable', 'warn', `Upstream is reachable but the models probe requires authorization (HTTP ${status}).`, 'Check upstream.headers authorization configuration.');
+      if (status >= 200 && status < 300) add('upstream.reachable', 'ok', `Upstream responded to the lightweight models probe (HTTP ${status}).${token ? ' Key accepted.' : ''}`);
+      else if (status === 401 || status === 403) add('upstream.reachable', token || hasAuth ? 'warn' : 'ok',
+        token ? 'Upstream is reachable; probe key rejected.' : hasAuth ? 'Upstream is reachable; configured key rejected.' : 'Upstream is reachable; gateway requires a key; the client supplies it.',
+        token ? 'Check KITZUR_PROBE_TOKEN.' : hasAuth ? 'Check upstream.headers authorization configuration.' : undefined);
       else if (status === 404) add('upstream.reachable', 'warn', 'Upstream is reachable but /v1/models is unavailable (HTTP 404).', 'Check the upstream gateway route.');
       else add('upstream.reachable', 'error', 'Upstream probe failed.', 'Check upstream.origin, TLS settings, and network availability.');
     } catch { add('upstream.reachable', 'error', 'Upstream probe could not be completed.', 'Check upstream.origin and upstream configuration.'); }
