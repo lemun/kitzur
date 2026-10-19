@@ -392,6 +392,7 @@ See [CONFIG.md](CONFIG.md) for all budget settings.
 
 | Document | What it covers |
 |---|---|
+| [Upstream rotation](docs/UPSTREAM-ROTATION.md) | External key routing: authorized pooling only; no increase to shared limits or evasion of per-user limits/terms |
 | [CONFIG.md](CONFIG.md) | Every configuration knob, presets, environment, client setup |
 | [DESIGN.md](DESIGN.md) | Architecture, planning, prefix stability and known limits |
 | [SECURITY.md](SECURITY.md) | Threat model, privacy and vulnerability reporting |
