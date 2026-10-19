@@ -105,3 +105,39 @@ test('missing results and repeated file calls preserve the selected call slot', 
     assert.equal(log.sources[0]!.kind, 'tool-call');
   }
 });
+
+import { createEngine } from '../../src/engine/engine.js';
+import { createToolRules } from '../../src/engine/rules/index.js';
+
+test('final retention survives cache reuse and rebuild from original history', () => {
+  const cfg = testConfig({ budget: { window: 8000, defaultMaxTokens: 256 },
+    compaction: { triggerTokens: 3500, targetTokens: 1500 },
+    tokenizer: { template: { name: 'generic' } } });
+  const makeEngine = () => {
+    const counter = estimateCounter('generic');
+    return createEngine(cfg, { counter, summarizer: createSummarizerExt(cfg, counter), rules: createToolRules(cfg) });
+  };
+  const engine = makeEngine();
+  const history: ChatMessage[] = [{ role: 'system', content: 'Coding task.' },
+    { role: 'user', content: 'Work on the task.' }];
+  for (let i = 0; i < 12; i++) history.push(
+    { role: 'assistant', content: `DECISION: Step ${i}.`, tool_calls: [call(`c${i}`, 'read_file', { path: `/private/f${i}.ts` })] },
+    { role: 'tool', tool_call_id: `c${i}`, content: 'Diagnostic output. '.repeat(450) });
+  const req = { model: 'test', messages: history, max_tokens: 256 };
+  const first = engine.process(req, { attempt: 1 });
+  assert.ok(first.plan!.compactions > 0);
+  const decisions = (first.plan as unknown as { retention?: unknown[] }).retention;
+  assert.ok(decisions?.length, 'accepted plans must carry final retention decisions');
+  const cached = engine.process(req, { attempt: 1 });
+  assert.equal(engine.lastTrace!.summaryRenders, 0);
+  const rebuilt = makeEngine().process(req, { attempt: 1 });
+  assert.deepEqual(cached.plan!.retention, decisions);
+  assert.deepEqual(rebuilt.plan!.retention, decisions);
+  assert.deepEqual(rebuilt.request, first.request);
+  assert.ok(decisions.some((d: any) => d.disposition === 'summarized'));
+  assert.ok(decisions.some((d: any) => d.disposition === 'verbatim'));
+  assert.doesNotMatch(JSON.stringify(decisions), /private|Diagnostic|read_file/);
+  assert.deepEqual(first.stats.retention, cached.stats.retention);
+  first.plan!.retention![0]!.sources[0]!.messageIndex = 999;
+  assert.deepEqual(engine.process(req, { attempt: 1 }).plan!.retention, cached.plan!.retention);
+});
