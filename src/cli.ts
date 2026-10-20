@@ -5,7 +5,7 @@
 // error; `config import-eval` also returns 10 (a safety-critical knob fell back to a default) and 11
 // (conflicting measurements). Nothing here prints message content: replay and count print sizes only.
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -27,7 +27,8 @@ import { canonicalJSON } from './tokenize/canonical.js';
 import type { Config } from './config/schema.js';
 import type { ChatRequest, EngineResult, LearnedState } from './types.js';
 import { doctor, renderDoctor } from './diagnostics/doctor.js';
-import { report, renderReport } from './diagnostics/report.js';
+import { inspectTlsChain, renderTlsChain } from './diagnostics/tls-chain.js';
+import { reportStream, renderReport } from './diagnostics/report.js';
 
 // ---------------------------------------------------------------- IO and errors
 
@@ -172,6 +173,7 @@ const USAGE = `usage: kitzur <command> [options]
   count <request.json>          exact token count of a request (per message, no content)
   status [--url URL] [--json]   Show a running instance’s status
   doctor [--client-config PATH] [--json] [--check-upstream] [--timeout-ms N]  read-only setup diagnostics
+  tls-probe [origin] [--ca-file FILE] [--json] [--timeout-ms N]  inspect the TLS chain
   report <stats.jsonl> [--json]  aggregate request stats; sizes only
   config init [--preset 100k] [--upstream URL] [--tokenizer FILE] [--out FILE|-] [--force]
   config show [--changed] [--json]      effective config with the source of every value
@@ -195,7 +197,7 @@ Precedence: defaults < preset < config file < KITZUR_* env < command line. Every
 `;
 
 /** Commands that answer --help / -h with their usage (bench forwards help flags to the suite only after `--`). */
-const HELP_COMMANDS = new Set(['serve', 'replay', 'count', 'status', 'doctor', 'report', 'config', 'state', 'bench', 'version']);
+const HELP_COMMANDS = new Set(['serve', 'replay', 'count', 'status', 'doctor', 'tls-probe', 'report', 'config', 'state', 'bench', 'version']);
 
 /** Commands that read no config, so their usage leaves out the config options. */
 const NO_CONFIG_COMMANDS = new Set(['report', 'bench', 'version']);
@@ -358,6 +360,29 @@ async function importState(): Promise<{
 
 // ---------------------------------------------------------------- commands
 
+async function cmdTlsProbe(argv: string[], io: CliIO): Promise<number> {
+  const p = parseArgs(argv, { ...CONFIG_OPTS, 'ca-file': { type: 'string' }, json: { type: 'boolean' }, 'timeout-ms': { type: 'string' } });
+  if (p.positionals.length > 1) throw new UsageError('tls-probe takes at most one origin');
+  const timeoutMs = Number(p.values['timeout-ms'] ?? 5000);
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000) throw new UsageError('--timeout-ms must be an integer from 1 to 10000');
+  const config = loadFromArgs(p, io).config;
+  const origin = p.positionals[0] ?? config.upstream.origin;
+  if (!origin) throw new UsageError('tls-probe needs an origin or upstream.origin in config');
+  let url: URL;
+  try { url = new URL(origin); } catch { throw new UsageError('tls-probe requires an https origin'); }
+  if (url.protocol !== 'https:' || url.username || url.password) throw new UsageError('tls-probe requires an https origin without credentials');
+  const caFile = p.values['ca-file'] as string | undefined ?? config.upstream.caFile;
+  try {
+    const result = await inspectTlsChain({ origin, caFile: caFile ? resolve(io.cwd, caFile) : null, timeoutMs });
+    io.stdout((p.values['json'] ? JSON.stringify(result, null, 2) : renderTlsChain(result)) + '\n');
+    return result.diagnosis === 'ok' ? 0 : 1;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    io.stdout((p.values['json'] ? JSON.stringify({ error: message }) : `TLS probe failed: ${message}`) + '\n');
+    return 1;
+  }
+}
+
 async function cmdDoctor(argv: string[], io: CliIO): Promise<number> {
   const p = parseArgs(argv, { ...CONFIG_OPTS, json: { type: 'boolean' }, 'client-config': { type: 'string' }, 'check-upstream': { type: 'boolean' }, 'timeout-ms': { type: 'string' } });
   if (p.positionals.length) throw new UsageError('doctor takes no positional arguments');
@@ -376,13 +401,12 @@ async function cmdDoctor(argv: string[], io: CliIO): Promise<number> {
   return result.exitCode;
 }
 
-function cmdReport(argv: string[], io: CliIO): number {
+async function cmdReport(argv: string[], io: CliIO): Promise<number> {
   const p = parseArgs(argv, { json: { type: 'boolean' } });
   if (p.positionals.length !== 1) throw new UsageError('report needs one stats JSONL file');
-  let input: string;
-  try { input = readFileSync(resolve(io.cwd, p.positionals[0]!), 'utf8'); }
+  let result;
+  try { result = await reportStream(createReadStream(resolve(io.cwd, p.positionals[0]!))); }
   catch { io.stderr('kitzur: report could not read the stats file\n'); return 1; }
-  const result = report(input);
   io.stdout(p.values['json'] ? JSON.stringify(result, null, 2) + '\n' : renderReport(result) + '\n');
   return result.coverage.malformed ? 1 : 0;
 }
@@ -475,6 +499,8 @@ async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
       const r = live.engine.process(req, { attempt: 1 });
       row = {
         i: i + 1, file: label, action: r.action, replan: r.replan ?? null, fit: r.plan?.fit ?? null, compactions: r.plan?.compactions ?? 0,
+        ...(r.plan?.retention ? { retention: r.plan.retention } : {}),
+        ...(r.stats.retention ? { retentionCounts: r.stats.retention } : {}),
         messagesIn: r.stats.messagesIn, messagesOut: r.stats.messagesOut, tokensIn: r.stats.tokensIn, tokensOut: r.stats.tokensOut,
         budget: r.stats.budget.budget, trigger: r.stats.budget.trigger, maxTokens: r.maxTokens?.value ?? null, engineMs: Math.round(r.stats.engineMs * 10) / 10,
       };
@@ -869,10 +895,12 @@ export async function main(argv: readonly string[], io: CliIO = defaultIO()): Pr
         return await cmdCount(rest, io);
       case 'status':
         return await cmdStatus(rest, io);
+      case 'tls-probe':
+        return await cmdTlsProbe(rest, io);
       case 'doctor':
         return await cmdDoctor(rest, io);
       case 'report':
-        return cmdReport(rest, io);
+        return await cmdReport(rest, io);
       case 'config':
         return await cmdConfig(rest, io);
       case 'state':

@@ -166,6 +166,10 @@ export interface StreamError {
 
 /** Parses an event payload; an in-stream error is a JSON object with a top-level `error` key, or any `error:` field. */
 export function eventError(ev: SseEvent): StreamError | null {
+  return observedError(ev, false);
+}
+
+function observedError(ev: SseEvent, legacy: boolean): StreamError | null {
   if (ev.error !== null) {
     let json: unknown;
     try {
@@ -179,7 +183,7 @@ export function eventError(ev: SseEvent): StreamError | null {
   if (!ev.data.includes('"error"')) return null;
   try {
     const json = JSON.parse(ev.data) as unknown;
-    if (inspectChunk(json).error) return { event: ev, payload: ev.data, json };
+    if (inspectChunk(json).error || (legacy && typeof json === 'object' && json !== null && 'object' in json && json.object === 'error')) return { event: ev, payload: ev.data, json };
   } catch {
     /* not JSON: relayed as is */
   }
@@ -226,6 +230,9 @@ export class SseRelay {
   /** events relayed (data or error events; comments excluded) */
   events = 0;
   stripped = 0;
+  /** First error after a previously relayed data event; observing it never changes the bytes. */
+  midStreamError: StreamError | null = null;
+  midStreamErrorAfter = 0;
 
   constructor(private readonly o: SseRelayOptions) {
     this.committed = o.committed;
@@ -336,6 +343,10 @@ export class SseRelay {
     if (ev.comment) {
       step.writes.push(ev.raw);
       return;
+    }
+    if (this.events > 0 && !this.midStreamError) {
+      this.midStreamError = observedError(ev, true);
+      if (this.midStreamError) this.midStreamErrorAfter = this.events;
     }
     this.events++;
     let strip = false;
