@@ -23,4 +23,22 @@ kitzur report stats.jsonl
 kitzur report stats.jsonl --json
 ```
 
+Reports read bytes incrementally with a 1 MiB limit per JSONL record (excluding LF;
+CR in CRLF counts toward the limit). Larger records are discarded through the
+next LF, counted in both `coverage.oversized` and `coverage.malformed`, and cause
+exit 1. Parsing resumes with the next record, including after a huge unterminated
+record at EOF. `partialFinalLine` still describes the original final line.
+Totals cover accepted records only; discarded or absent data is unknown, not
+measured zero. Reports cannot infer records dropped by the stats writer or
+outside the supplied file.
+
+Session tracking retains at most 10,000 SHA-256 digests, never raw identifiers.
+`sessionCoverage.approximate` is true: `uniqueSessions` is approximate because hashes can collide. Once another unseen
+digest arrives at the cap, `sessionCoverage.lowerBound` becomes true and the text
+says “at least”; additional sessions are not tracked. `sessionCoverage.limit`
+exposes the cap, and `sessionCoverage.missing` counts accepted records without a
+nonempty session ID. A zero count with missing IDs is not evidence of zero sessions.
+The byte-stream API `reportStream` and string convenience API `report` use the
+same limits; the CLI uses streaming and never loads the entire file.
+
 For optional external viewing of legacy stats, see [Gobstopper interop](GOBSTOPPER-INTEROP.md), including estimate semantics and an isolated synthetic import example.
