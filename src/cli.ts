@@ -5,7 +5,7 @@
 // error; `config import-eval` also returns 10 (a safety-critical knob fell back to a default) and 11
 // (conflicting measurements). Nothing here prints message content: replay and count print sizes only.
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -28,7 +28,7 @@ import type { Config } from './config/schema.js';
 import type { ChatRequest, EngineResult, LearnedState } from './types.js';
 import { doctor, renderDoctor } from './diagnostics/doctor.js';
 import { inspectTlsChain, renderTlsChain } from './diagnostics/tls-chain.js';
-import { report, renderReport } from './diagnostics/report.js';
+import { reportStream, renderReport } from './diagnostics/report.js';
 
 // ---------------------------------------------------------------- IO and errors
 
@@ -401,13 +401,12 @@ async function cmdDoctor(argv: string[], io: CliIO): Promise<number> {
   return result.exitCode;
 }
 
-function cmdReport(argv: string[], io: CliIO): number {
+async function cmdReport(argv: string[], io: CliIO): Promise<number> {
   const p = parseArgs(argv, { json: { type: 'boolean' } });
   if (p.positionals.length !== 1) throw new UsageError('report needs one stats JSONL file');
-  let input: string;
-  try { input = readFileSync(resolve(io.cwd, p.positionals[0]!), 'utf8'); }
+  let result;
+  try { result = await reportStream(createReadStream(resolve(io.cwd, p.positionals[0]!))); }
   catch { io.stderr('kitzur: report could not read the stats file\n'); return 1; }
-  const result = report(input);
   io.stdout(p.values['json'] ? JSON.stringify(result, null, 2) + '\n' : renderReport(result) + '\n');
   return result.coverage.malformed ? 1 : 0;
 }
@@ -901,7 +900,7 @@ export async function main(argv: readonly string[], io: CliIO = defaultIO()): Pr
       case 'doctor':
         return await cmdDoctor(rest, io);
       case 'report':
-        return cmdReport(rest, io);
+        return await cmdReport(rest, io);
       case 'config':
         return await cmdConfig(rest, io);
       case 'state':
