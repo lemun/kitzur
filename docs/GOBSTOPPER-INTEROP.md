@@ -16,8 +16,11 @@ HOME="$interop_state" XDG_STATE_HOME="$interop_state/state" XDG_DATA_HOME="$inte
 ```
 
 Keep that directory for a repeat import with identical environment and source ID.
-Duplicate handling should leave the observation total unchanged on reimport;
-verify the import summary before using this with your own bounded, closed logs.
+At Gobstopper commit `1aa71294f35d07ff81c82a7e133d0c2a3a220939`, source inspection
+indicates duplicate rows for the same source are deduplicated, so reimport is
+expected to leave the observation total unchanged. Verify the import summary.
+The importer bounds input to 256 MiB and 100,000 lines, with an additional
+per-line size limit; use bounded, closed log segments rather than an active log.
 Keep the same source ID if a segment moves; give distinct segments distinct IDs.
 Do not infer duplicate identity from Kitzur's `seq`, which restarts with the proxy.
 
