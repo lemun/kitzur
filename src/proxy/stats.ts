@@ -50,6 +50,8 @@ export class StatsWriter {
   private queue: string[] = [];
   private pendingBytes = 0;
   private writing = false;
+  private inFlightBytes = 0;
+  private closeResolve: (() => void) | null = null;
   private seqNo = 0;
   written = 0;
   dropped = 0;
@@ -75,8 +77,9 @@ export class StatsWriter {
 
   write(rec: ProxyStatsRecord): void {
     const line = JSON.stringify(rec) + '\n';
-    if (!this.stream) { this.dropped++; return; }
-    if (this.queue.length >= 1024 || this.pendingBytes + Buffer.byteLength(line) > 4 * 1024 * 1024) { this.dropped++; return; }
+    if (!this.stream) { if (this.path) this.dropped++; return; }
+    const lineBytes = Buffer.byteLength(line);
+    if (this.queue.length + (this.writing ? 1 : 0) >= 1024 || this.pendingBytes + this.inFlightBytes + lineBytes > 4 * 1024 * 1024) { this.dropped++; return; }
     this.written++;
     this.queue.push(line);
     this.pendingBytes += Buffer.byteLength(line);
@@ -85,8 +88,12 @@ export class StatsWriter {
 
   private attach(stream: Writable): void {
     this.stream = stream;
-    stream.on('drain', () => { this.writing = false; this.flush(); });
-    stream.on('error', (e: Error) => { this.lastError = e.message; this.writeFailures++; this.dropped += this.queue.length; this.queue = []; this.pendingBytes = 0; this.stream = null; });
+    stream.on('drain', () => { this.writing = false; this.inFlightBytes = 0; this.flush(); });
+    stream.on('error', (e: Error) => {
+      this.lastError = e.message; this.writeFailures++; this.dropped += this.queue.length + (this.writing ? 1 : 0);
+      this.queue = []; this.pendingBytes = 0; this.inFlightBytes = 0; this.writing = false; this.stream = null;
+      this.closeResolve?.(); this.closeResolve = null;
+    });
   }
 
   private flush(): void {
@@ -94,7 +101,7 @@ export class StatsWriter {
     while (this.queue.length) {
       const line = this.queue.shift()!;
       this.pendingBytes -= Buffer.byteLength(line);
-      try { if (!this.stream.write(line)) { this.writing = true; return; } }
+      try { if (!this.stream.write(line)) { this.writing = true; this.inFlightBytes = Buffer.byteLength(line); return; } }
       catch (e) { this.lastError = e instanceof Error ? e.message : String(e); this.writeFailures++; this.dropped += this.queue.length + 1; this.queue = []; this.pendingBytes = 0; this.stream = null; return; }
     }
   }
@@ -104,7 +111,7 @@ export class StatsWriter {
     if (!s) return Promise.resolve();
     return new Promise((resolve) => {
       const end = (): void => {
-        if (this.queue.length) { s.once('drain', () => { this.writing = false; this.flush(); end(); }); return; }
+      if (this.queue.length || this.writing) { this.closeResolve = () => { this.closeResolve = null; resolve(); }; s.once('drain', () => { this.writing = false; this.inFlightBytes = 0; this.flush(); end(); }); return; }
         this.stream = null;
         s.end(() => resolve());
       };
