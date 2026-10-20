@@ -47,7 +47,7 @@ export function globToRegExp(glob: string): RegExp {
   return new RegExp('^' + glob.split('*').map((p) => p.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')).join('.*') + '$');
 }
 
-function checkLeaf(path: string, spec: LeafSpec, v: unknown): string | null {
+export function checkLeaf(path: string, spec: LeafSpec, v: unknown): string | null {
   if (path === 'budget.window' && v === 'auto') return null;
   // header values are credentials: never echo them
   const bad = (): string => `${path}: expected ${describeSpec(spec)}, got ${(spec.t === 'headers' || path === 'listen.token') ? typeName(v) : JSON.stringify(v)}`;
