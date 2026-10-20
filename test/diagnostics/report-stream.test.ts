@@ -62,6 +62,24 @@ test('sessions are bounded with explicit lower-bound and missing-ID coverage', a
   assert.equal(report(record()).uniqueSessions, 1);
 });
 
+test('coverage reports malformed, partial and nonempty input with unknown completeness', async () => {
+  const text = record() + '\n{bad\n42\n{"unrelated":true}\n\n' + record('other');
+  const r = await reportStream(chunks(Buffer.from(text), 5));
+  assert.deepEqual(r.coverage, { records: 2, malformed: 3, oversized: 0, partialFinalLine: true, from: null, to: null, completeness: 'unknown' });
+  assert.equal(r.requests, 2);
+  assert.equal(r.uniqueSessions, 2);
+  const malformedTail = report(record() + '\n{"seq":');
+  assert.equal(malformedTail.coverage.records, 1);
+  assert.equal(malformedTail.coverage.malformed, 1);
+  assert.equal(malformedTail.coverage.partialFinalLine, true);
+  const empty = report('');
+  assert.equal(empty.coverage.completeness, 'unknown');
+  assert.equal(empty.coverage.partialFinalLine, false);
+  const text2 = renderReport(r);
+  assert.match(text2, /completeness unknown \(writer drops are not persisted\)/);
+  assert.doesNotMatch(text2, /会話|other/);
+});
+
 test('stream read errors propagate', async () => {
   async function* broken() { yield Buffer.from(record()); throw new Error('read failed'); }
   await assert.rejects(reportStream(broken()), /read failed/);
