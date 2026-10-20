@@ -28,7 +28,7 @@ import type { Engine, PlanStore } from './types.js';
 import type { Summarizer, ToolRules } from './engine/contracts.js';
 import type { EngineDeps } from './engine/engine.js';
 import type { ProxyDeps, ProxyServer } from './proxy/server.js';
-import type { StateStore } from './proxy/state.js';
+import type { StateStore, StateStoreOptions } from './proxy/state.js';
 import type { StatsWriter } from './proxy/stats.js';
 
 // ---------------------------------------------------------------- logging
@@ -122,7 +122,7 @@ export async function loadModules(need: { proxy: boolean }): Promise<AppModules>
   let createStats: AppModules['createStats'] = missing('src/proxy/stats.ts');
   let createProxyServer: AppModules['createProxyServer'] = missing('src/proxy/server.ts');
   if (need.proxy) {
-    const StateStoreCtor = await importExport<new (o: { dir: string | null; configuredWindow: number; counterId: string }) => StateStore>('./proxy/state.js', 'StateStore');
+    const StateStoreCtor = await importExport<new (o: StateStoreOptions) => StateStore>('./proxy/state.js', 'StateStore');
     const StatsWriterCtor = await importExport<new (path: string | null) => StatsWriter>('./proxy/stats.js', 'StatsWriter');
     createProxyServer = await importExport<AppModules['createProxyServer']>('./proxy/server.js', 'createProxyServer');
     createState = (config, stateDir, counterId) => new StateStoreCtor({ dir: stateDir, configuredWindow: config.budget.window, counterId });

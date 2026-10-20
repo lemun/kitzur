@@ -145,6 +145,8 @@ export interface StateStoreOptions {
   configuredWindow: number;
   /** the counter id: entries learned with another counter are discarded */
   counterId: string;
+  /** Per-key learned identity; omitted to preserve the legacy, constant identity. */
+  identityFor?: (key: string) => { configuredWindow: number; counterId: string };
   now?: () => Date;
   /** Delay for sample-only checkpoints (default 5000 ms); planning changes take at most 250 ms. */
   debounceMs?: number;
@@ -171,15 +173,18 @@ export class StateStore {
   private scheduledAt = 0;
   private writing: Promise<void> | null = null;
   private readonly now: () => Date;
+  private readonly identityFor: (key: string) => { configuredWindow: number; counterId: string };
 
   constructor(private readonly o: StateStoreOptions) {
     this.path = o.dir ? join(o.dir, 'learned.json') : null;
     this.now = o.now ?? (() => new Date());
+    this.identityFor = o.identityFor ?? (() => ({ configuredWindow: o.configuredWindow, counterId: o.counterId }));
     if (!this.path) return;
     const { state, error } = readLearnedState(this.path);
     if (error) this.lastError = `learned.json: ${error}`;
     for (const [k, e] of Object.entries(state.entries)) {
-      if (e.configuredWindow !== o.configuredWindow || e.counterId !== o.counterId) this.discarded.push(k);
+      const identity = this.identityFor(k);
+      if (e.configuredWindow !== identity.configuredWindow || e.counterId !== identity.counterId) this.discarded.push(k);
       else this.entriesMap.set(k, e);
     }
   }
@@ -187,7 +192,8 @@ export class StateStore {
   /** The valid entry for `key` (a copy), or a fresh one. */
   entry(key: string): LearnedEntry {
     const e = this.entriesMap.get(key);
-    return e ? clone(e) : freshLearnedEntry(this.o.configuredWindow, this.o.counterId);
+    const identity = this.identityFor(key);
+    return e ? clone(e) : freshLearnedEntry(identity.configuredWindow, identity.counterId);
   }
 
   has(key: string): boolean {
