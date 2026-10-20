@@ -303,6 +303,32 @@ export interface StatsRecord {
   ratio_permille: number;
 }
 
+// ---------------------------------------------------------------- report coverage (aggregates over a stats file)
+
+/**
+ * Whether the supplied file holds every record the writer was asked to persist. Always 'unknown' today:
+ * the stats writer does not persist drop counts. Kept a string union so future states can be added.
+ */
+export type ReportCompleteness = 'unknown';
+
+export interface ReportCoverage {
+  records: number;
+  malformed: number;
+  partialFinalLine: boolean;
+  oversized: number;
+  from: string | null;
+  to: string | null;
+  completeness: ReportCompleteness;
+}
+
+export interface ReportSessionCoverage {
+  /** true while sessions are counted by digest (collisions possible) */
+  approximate: boolean;
+  limit: number;
+  lowerBound: boolean;
+  missing: number;
+}
+
 // ---------------------------------------------------------------- ledger
 
 export type FactCategory = 'user' | 'decision' | 'todo' | 'file' | 'rest';

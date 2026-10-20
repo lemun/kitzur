@@ -29,8 +29,13 @@ next LF, counted in both `coverage.oversized` and `coverage.malformed`, and caus
 exit 1. Parsing resumes with the next record, including after a huge unterminated
 record at EOF. `partialFinalLine` still describes the original final line.
 Totals cover accepted records only; discarded or absent data is unknown, not
-measured zero. Reports cannot infer records dropped by the stats writer or
-outside the supplied file.
+measured zero. `coverage.completeness` is `unknown` and the text says
+“completeness unknown”: a report cannot tell whether the file is complete. The
+stats writer keeps no persisted drop total (after a write error it stops
+writing, and the error is held only in the running process), and records outside
+the supplied file are not visible. Malformed, oversized and partial-line counts
+describe only what the file contains. `completeness` is a string so later
+versions can report other states.
 
 Session tracking retains at most 10,000 SHA-256 digests, never raw identifiers.
 `sessionCoverage.approximate` is true: `uniqueSessions` is approximate because hashes can collide. Once another unseen
