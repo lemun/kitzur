@@ -18,6 +18,11 @@ test('byte streaming agrees with string reports across UTF-8, CRLF and final lin
   }
   assert.equal((await reportStream(chunks(Buffer.from(record() + '\n'), 1))).coverage.partialFinalLine, false);
   assert.equal((await reportStream(chunks(Buffer.alloc(0), 1))).requests, 0);
+  const empty = await reportStream(chunks(Buffer.alloc(0), 1));
+  assert.equal(empty.coverage.records, 0);
+  assert.equal(empty.coverage.historyComplete, false);
+  assert.equal(empty.coverage.droppedRecords, null);
+  assert.match(renderReport(empty), /History incomplete; dropped-record total unavailable/);
 });
 
 test('oversized records are discarded once and parsing resumes at the next newline', async () => {
