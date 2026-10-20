@@ -6,6 +6,8 @@ Messages are fixed and safe for display: they include no raw paths, credentials,
 
 The optional upstream check sends one bounded `GET /v1/models` request. It sends no prompt and does not generate a completion. A 2xx response is healthy; 401/403 and 404 indicate a reachable server with an auth or route issue; other responses or transport failures are errors. The timeout is capped at 10 seconds.
 
+When a local instance answers `/status`, doctor also reports the stats writer's dropped-record and write-failure counters. The writer keeps at most 1,024 queued records and 4 MiB of queued JSONL data; records arriving beyond either limit are dropped and counted. These counters reset when the process restarts.
+
 ```sh
 kitzur doctor
 kitzur doctor --json

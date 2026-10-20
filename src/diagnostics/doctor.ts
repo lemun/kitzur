@@ -24,7 +24,7 @@ function detachedCommand(configPath?: string): string {
 }
 
 /** Distinguish an absent instance from one accepting TCP but unable to serve HTTP. */
-export async function probeInstance(host: string, port: number, timeoutMs = 3000, token: string | null = null): Promise<'absent' | 'responsive' | 'hung' | 'other'> {
+export async function probeInstance(host: string, port: number, timeoutMs = 3000, token: string | null = null, onStatus?: (body: Record<string, unknown>) => void): Promise<'absent' | 'responsive' | 'hung' | 'other'> {
   const started = Date.now();
   timeoutMs = Number.isFinite(timeoutMs) ? Math.max(1, Math.min(timeoutMs, 3000)) : 3000;
   const target = host === '0.0.0.0' ? '127.0.0.1' : host === '::' ? '::1' : host;
@@ -57,7 +57,7 @@ export async function probeInstance(host: string, port: number, timeoutMs = 3000
         if (body.length > 1024 * 1024) finish('other');
       });
       res.on('end', () => {
-        try { finish(JSON.parse(body)?.name === 'kitzur' ? 'responsive' : 'other'); }
+        try { const parsed = JSON.parse(body) as Record<string, unknown>; onStatus?.(parsed); finish(parsed.name === 'kitzur' ? 'responsive' : 'other'); }
         catch { finish('other'); }
       });
     });
@@ -157,7 +157,11 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
     } catch { add('stats.path', 'warn', 'Stats file path is not accessible.', 'Check directory permissions and configured path.'); }
   } else add('stats.path', 'ok', 'Stats output is disabled.');
 
-  const instance = await probeInstance(config.listen.host, config.listen.port, Math.min(opts.timeoutMs ?? 3000, 3000), config.listen.token);
+  let writerStats: Record<string, unknown> | undefined;
+  const instance = await probeInstance(config.listen.host, config.listen.port, Math.min(opts.timeoutMs ?? 3000, 3000), config.listen.token, (body) => {
+    const stats = body.stats;
+    if (stats && typeof stats === 'object') writerStats = stats as Record<string, unknown>;
+  });
   if (instance === 'hung') {
     add('instance.responsive', 'error', 'Detected: a Kitzur process is listening but not responding. On Windows, a paused console (including QuickEdit selection) can freeze synchronous console writes.',
       `Restart detached with logs to a file. PowerShell: ${detachedCommand(opts.configPath)}`);
@@ -165,6 +169,11 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
     add('instance.responsive', 'warn', `Another service (or a Kitzur refusing this probe) answers on ${config.listen.port}.`,
       'Check listen.host, listen.port, and allowed Host settings; inspect the service response before taking action.');
   } else add('instance.responsive', 'ok', instance === 'responsive' ? 'Running instance answered GET /status.' : 'No running instance accepted a local TCP connection.');
+  if (writerStats) {
+    const dropped = typeof writerStats.dropped === 'number' ? writerStats.dropped : 0;
+    const failures = typeof writerStats.write_failures === 'number' ? writerStats.write_failures : 0;
+    add('stats.writer', dropped || failures ? 'warn' : 'ok', `Stats writer has dropped ${dropped} record(s) and seen ${failures} write failure(s).`);
+  }
 
   if (opts.upstreamCheck) {
     let upstream: Upstream | undefined;

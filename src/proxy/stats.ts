@@ -15,6 +15,7 @@
 //   threshold_tokens   the trigger
 //   ratio_permille     the calibration correction × 1000
 import { createWriteStream, type WriteStream } from 'node:fs';
+import type { Writable } from 'node:stream';
 import { dirname } from 'node:path';
 import type { AttemptRecord, EngineResult, StatsRecord } from '../types.js';
 import { mkdirs } from '../util.js';
@@ -45,20 +46,23 @@ export interface ProxyStatsRecord extends StatsRecord {
 }
 
 export class StatsWriter {
-  private stream: WriteStream | null = null;
+  private stream: Writable | null = null;
+  private queue: string[] = [];
+  private pendingBytes = 0;
+  private writing = false;
   private seqNo = 0;
   written = 0;
+  dropped = 0;
+  writeFailures = 0;
   lastError: string | null = null;
 
-  constructor(readonly path: string | null) {
+  constructor(readonly path: string | null, stream?: Writable | null) {
+    if (stream) { this.attach(stream); return; }
     if (!path) return;
     try {
       mkdirs(dirname(path));
       this.stream = createWriteStream(path, { flags: 'a', mode: 0o600 });
-      this.stream.on('error', (e) => {
-        this.lastError = e.message;
-        this.stream = null;
-      });
+      this.attach(this.stream);
     } catch (e) {
       this.lastError = e instanceof Error ? e.message : String(e);
     }
@@ -70,15 +74,43 @@ export class StatsWriter {
   }
 
   write(rec: ProxyStatsRecord): void {
+    const line = JSON.stringify(rec) + '\n';
+    if (!this.stream) { this.dropped++; return; }
+    if (this.queue.length >= 1024 || this.pendingBytes + Buffer.byteLength(line) > 4 * 1024 * 1024) { this.dropped++; return; }
     this.written++;
-    this.stream?.write(JSON.stringify(rec) + '\n');
+    this.queue.push(line);
+    this.pendingBytes += Buffer.byteLength(line);
+    this.flush();
+  }
+
+  private attach(stream: Writable): void {
+    this.stream = stream;
+    stream.on('drain', () => { this.writing = false; this.flush(); });
+    stream.on('error', (e: Error) => { this.lastError = e.message; this.writeFailures++; this.dropped += this.queue.length; this.queue = []; this.pendingBytes = 0; this.stream = null; });
+  }
+
+  private flush(): void {
+    if (this.writing || !this.stream) return;
+    while (this.queue.length) {
+      const line = this.queue.shift()!;
+      this.pendingBytes -= Buffer.byteLength(line);
+      try { if (!this.stream.write(line)) { this.writing = true; return; } }
+      catch (e) { this.lastError = e instanceof Error ? e.message : String(e); this.writeFailures++; this.dropped += this.queue.length + 1; this.queue = []; this.pendingBytes = 0; this.stream = null; return; }
+    }
   }
 
   close(): Promise<void> {
     const s = this.stream;
-    this.stream = null;
     if (!s) return Promise.resolve();
-    return new Promise((resolve) => s.end(() => resolve()));
+    return new Promise((resolve) => {
+      const end = (): void => {
+        if (this.queue.length) { s.once('drain', () => { this.writing = false; this.flush(); end(); }); return; }
+        this.stream = null;
+        s.end(() => resolve());
+      };
+      this.flush();
+      end();
+    });
   }
 }
 
