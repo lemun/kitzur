@@ -59,10 +59,13 @@ test('proxy pins each model runtime across A/B/A requests and an interleaved str
 
     const streaming = request(port, { body: chatBody('stream', { model: 'alpha', stream: true }) });
     await started;
+    const alphaCountWhileStreaming = countCalls.alpha;
     await request(port, { body: chatBody('during', { model: 'beta' }) });
+    assert.equal(countCalls.alpha, alphaCountWhileStreaming, 'beta processing does not run alpha afterChat while its stream is in flight');
     await streaming;
     assert.deepEqual(calls, { root: 0, alpha: 3, beta: 2 });
-    assert.ok(countCalls.alpha >= 3 && countCalls.beta >= 3);
+    assert.ok(countCalls.alpha > alphaCountWhileStreaming, 'alpha afterChat resumes with alpha counter after its own stream ends');
+    assert.ok(countCalls.alpha >= 3 && countCalls.beta >= 3, 'each selected counter runs in processing and afterChat');
   } finally {
     await proxy.close(2000);
     await up.close();
