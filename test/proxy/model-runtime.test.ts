@@ -6,7 +6,7 @@ import { ModelRuntimeMap, type ModelRuntime } from '../../src/proxy/model-runtim
 import type { Engine, LearnedEntry } from '../../src/types.js';
 import { createProxyServer } from '../../src/proxy/server.js';
 import { StatsWriter } from '../../src/proxy/stats.js';
-import { charCounter, testConfig } from './harness.js';
+import { charCounter } from './harness.js';
 import type { StateStore } from '../../src/proxy/state.js';
 
 test('model runtimes own learned state and discovered windows by exact model ID', () => {

@@ -40,13 +40,19 @@ test('setupCounter: estimate without a tokenizer, exact with one, estimate with 
 
 test('buildApp: the engine gets a local counter; the tokenize endpoint only reaches the proxy ()', async () => {
   const seen: Record<string, unknown> = {};
+  const engineConfigs: import('../../src/config/schema.js').Config[] = [];
+  const engineDependencies: Parameters<AppModules['createEngine']>[1][] = [];
+  const summaryCounters: Parameters<AppModules['createSummarizer']>[1][] = [];
   const engine = { process: () => { throw new Error('unused'); }, learned: () => ({}) as LearnedEntry, setLearned: () => undefined } as Engine;
   const modules: AppModules = {
-    createEngine: (_c, deps) => {
+    createEngine: (c, deps) => {
+      engineConfigs.push(c);
+      engineDependencies.push(deps);
       seen['engineDeps'] = deps;
       return engine;
     },
     createSummarizer: (_c, counter) => {
+      summaryCounters.push(counter);
       seen['summaryCounter'] = counter;
       return { render: () => { throw new Error('unused'); } };
     },
@@ -69,17 +75,22 @@ test('buildApp: the engine gets a local counter; the tokenize endpoint only reac
       return { listen: async () => ({ host: '127.0.0.1', port: 1 }), close: async () => undefined } as unknown as ReturnType<AppModules['createProxyServer']>;
     },
   };
-  const cfg = cfgOf('upstream.origin=http://127.0.0.1:9', 'tokenizer.endpoint.style=vllm', 'stateDir=/tmp/kitzur-app-state', 'stats.path=/tmp/x.jsonl');
+  const loaded = loadConfig({ env: {}, sets: ['upstream.origin=http://127.0.0.1:9', 'tokenizer.endpoint.style=vllm', 'stateDir=/tmp/kitzur-app-state', 'stats.path=/tmp/x.jsonl'], object: { models: { alpha: { budget: { window: 50000 } } } } });
+  const cfg = loaded.config;
   const logs: string[] = [];
-  const app = await buildApp(cfg, { modules, log: createLogger('debug', (s) => void logs.push(s)) });
-  const ed = seen['engineDeps'] as { counter: { mode: string }; store: unknown; summarizer: unknown; rules: unknown; tokenizerSha256: unknown };
+  const app = await buildApp(cfg, { modules, log: createLogger('debug', (s) => void logs.push(s)), models: loaded.models });
+  assert.equal(engineConfigs.length, 2, 'buildApp creates the root engine and one profile engine');
+  assert.equal(engineConfigs[1], loaded.models.alpha, 'the profile config is passed to its engine');
+  const ed = engineDependencies[0]! as { counter: { mode: string }; store: unknown; summarizer: unknown; rules: unknown; tokenizerSha256: unknown };
   assert.equal(ed.counter.mode, 'estimate', 'never remote');
   assert.equal(ed.tokenizerSha256, null);
-  assert.equal(seen['summaryCounter'], ed.counter, 'the summarizer counts with the engine counter');
+  assert.equal(summaryCounters[0], ed.counter, 'the summarizer counts with the engine counter');
   const pd = seen['proxyDeps'] as { engine: unknown; counter: unknown; remote: { style: string } | null; state: unknown; stats: unknown; log: (l: string, m: string) => void };
   assert.equal((seen['proxyDeps'] as { watchdog?: unknown }).watchdog, undefined, 'custom loggers do not start a watchdog');
   assert.equal(pd.engine, engine);
   assert.equal(pd.counter, ed.counter);
+  const runtimeMap = (seen['proxyDeps'] as { modelRuntimes: { forModel: (model: string) => { cfg: unknown; engine: unknown } } }).modelRuntimes;
+  assert.equal(runtimeMap.forModel('alpha').cfg, loaded.models.alpha, 'the profile runtime reaches the proxy');
   assert.equal(pd.remote?.style, 'vllm', 'the tokenize client is a calibration source for the proxy');
   assert.deepEqual(seen['state'], ['/tmp/kitzur-app-state', (ed.counter as unknown as { id: string }).id], 'learned entries are keyed to the counter id ()');
   assert.equal(seen['stats'], '/tmp/x.jsonl');
