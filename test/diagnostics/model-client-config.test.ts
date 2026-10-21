@@ -42,9 +42,10 @@ test('routing accepts wire id and reports unresolved small_model safely', () => 
   assert.ok(!clientConfigChecks(cfg, { ...base, small_model: 'local/wire/model' }).some((c) => c.code === 'client.routing'));
   const external = { ...base, provider: { ...base.provider, elsewhere: { ...base.provider.local, options: { baseURL: 'https://example.com/v1' }, models: { other: { id: 'wire/model' } } } }, small_model: 'elsewhere/other' };
   assert.ok(clientConfigChecks(cfg, external).some((c) => c.code === 'client.routing'));
-  const warning = clientConfigChecks(cfg, { ...base, small_model: 'missing/\u001b[31msecret' }).find((c) => c.code === 'client.routing');
+  const warning = clientConfigChecks(cfg, { ...base, small_model: 'missing/\u001b[31msecret\u200b\u202e\u2066' }).find((c) => c.code === 'client.routing');
   assert.ok(warning);
   assert.ok(!warning.message.includes('\u001b'));
+  assert.ok(!/[\u200b\u202e\u2066]/u.test(warning.message));
   assert.ok(warning.message.length < 200);
 });
 
