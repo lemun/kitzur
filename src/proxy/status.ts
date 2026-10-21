@@ -44,6 +44,7 @@ export interface StatusExtras {
   statsPath?: string | null;
   statsError?: string | null;
   upstream?: Record<string, unknown>;
+  modelTokenizers?: Record<string, unknown>;
 }
 
 /** Content-free diagnostics, in request completion order. */
@@ -219,6 +220,7 @@ export class StatusTracker {
       budget: budgetQuantities(cfg, null),
       budget_by_key: budgets,
       counter: x.counter,
+      model_tokenizers: x.modelTokenizers ?? {},
       learned,
       counters: {
         requests: this.requests,

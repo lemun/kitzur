@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { eagerTokenizer } from '../../src/app.js';
 import { loadConfig } from '../../src/config/load.js';
 import { doctor } from '../../src/diagnostics/doctor.js';
+import { ModelRuntimeMap } from '../../src/proxy/model-runtime.js';
 
 function fixture(): string {
   const bytes = Array.from({ length: 256 }, (_, i) => i);
@@ -61,4 +62,14 @@ test('doctor reports each configured model tokenizer mode and source identity', 
     assert.match(exact?.message ?? '', /counter=exact; sha256=[0-9a-f]{64}; sourceBytes=\d+; loadMs=\d+/);
     assert.match(estimate?.message ?? '', /counter=estimate; reason=tokenizer.mode is 'estimate'/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('model runtime status includes per-model counter mode and tokenizer identity', () => {
+  const root = { counter: { mode: 'estimate' }, estimateReason: 'root missing' } as any;
+  const exact = { counter: { mode: 'exact' }, tokenizer: { sha256: 'abc', sourceBytes: 12, loadMs: 4 } } as any;
+  const runtimes = new ModelRuntimeMap(root, { exact: {} } as any, new Map([['exact', exact]]));
+  assert.deepEqual(runtimes.tokenizerStatus(), {
+    root: { mode: 'estimate', sha256: null, sourceBytes: 0, loadMs: 0, reason: 'root missing' },
+    exact: { mode: 'exact', sha256: 'abc', sourceBytes: 12, loadMs: 4, reason: null },
+  });
 });

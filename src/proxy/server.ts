@@ -169,6 +169,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       statsPath: deps.stats.path,
       statsError: deps.stats.lastError,
       upstream: { origin, ...upstream.stats, endpoint: deps.remote ? deps.remote.stats() : null },
+      modelTokenizers: deps.modelRuntimes?.tokenizerStatus(),
     }),
     concurrency_rejected: concurrencyRejected,
     ...deps.watchdog?.snapshot(),

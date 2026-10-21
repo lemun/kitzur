@@ -40,6 +40,20 @@ export class ModelRuntimeMap {
     return true;
   }
 
+  tokenizerStatus(): Record<string, { mode: string; sha256: string | null; sourceBytes: number; loadMs: number; reason: string | null }> {
+    const describe = (runtime: ModelRuntime) => ({
+      mode: runtime.counter.mode,
+      sha256: runtime.tokenizer?.sha256 ?? null,
+      sourceBytes: runtime.tokenizer?.sourceBytes ?? 0,
+      loadMs: runtime.tokenizer?.loadMs ?? 0,
+      reason: runtime.estimateReason ?? null,
+    });
+    return Object.fromEntries([
+      ['root', describe(this.root)],
+      ...[...this.byModel].map(([id, runtime]) => [id, describe(runtime)] as const),
+    ]);
+  }
+
   setLearned(model: string | undefined, key: string, entry: LearnedEntry): void {
     this.forModel(model).engine.setLearned(key, entry);
   }
