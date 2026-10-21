@@ -30,6 +30,8 @@ import type { EngineDeps } from './engine/engine.js';
 import type { ProxyDeps, ProxyServer } from './proxy/server.js';
 import type { StateStore, StateStoreOptions } from './proxy/state.js';
 import type { StatsWriter } from './proxy/stats.js';
+import { ModelRuntimeMap, type ModelRuntime } from './proxy/model-runtime.js';
+import type { ModelProfiles } from './config/schema.js';
 
 // ---------------------------------------------------------------- logging
 
@@ -225,7 +227,7 @@ export interface App extends EngineSetup {
  */
 export async function buildApp(
   config: Config,
-  opts: { log?: Logger; modules?: AppModules; env?: Record<string, string | undefined> } = {},
+  opts: { log?: Logger; modules?: AppModules; env?: Record<string, string | undefined>; models?: ModelProfiles } = {},
 ): Promise<App> {
   const runtimeLog = opts.log instanceof RuntimeLog ? opts.log : opts.log ? undefined : new RuntimeLog({ dir: join(stateDirOf(config, opts.env), 'logs'), file: config.log.file, console: config.log.console, level: config.logLevel });
   const log = opts.log ?? runtimeLog!;
@@ -233,6 +235,12 @@ export async function buildApp(
   try {
     const modules = opts.modules ?? (await loadModules({ proxy: true }));
     const es = await buildEngine(config, { log, modules, env: opts.env });
+    const profileRuntimes = new Map<string, ModelRuntime>();
+    for (const [id, profile] of Object.entries(opts.models ?? {})) {
+      const profileSetup = await buildEngine(profile, { log, modules, env: opts.env });
+      profileRuntimes.set(id, { cfg: profile, counter: profileSetup.counter, engine: profileSetup.engine });
+    }
+    const modelRuntimes = new ModelRuntimeMap({ cfg: config, counter: es.counter, engine: es.engine }, opts.models ?? {}, profileRuntimes);
     const remote = remoteFromConfig(config); // calibration source only (§4)
     const state = modules.createState(config, es.stateDir, es.counter.id);
     const stats = modules.createStats(config);
@@ -244,6 +252,7 @@ export async function buildApp(
       stats,
       log: (level, msg) => log[level](msg),
       watchdog,
+      modelRuntimes,
     });
     return {
       ...es,
