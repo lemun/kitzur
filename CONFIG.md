@@ -580,16 +580,19 @@ on restart.
 ## Model profiles
 
 `models` is optional loader metadata, like `preset`, outside `DEFAULT_CONFIG` and the
-leaf/knob table. Existing config files need no migration. Profiles are preparatory:
-serving and per-profile reports require the remaining multi-model runtime units.
+leaf/knob table. Existing config files need no migration. OpenCode checks resolve each
+wire model against its own profile; unknown IDs use root defaults and produce a warning.
 
 ```json
 {
   "budget": { "window": 100000 },
   "models": {
-    "org/qwen.v1": { "budget": { "window": 252000 } },
+    "org/qwen.v1": {
+      "budget": { "window": 252000 },
+      "client": { "compactionPointTokens": 200000 }
+    },
     "org/gpt-oss": {
-      "budget": { "window": 131071, "maxTokensClamp": { "enabled": true } },
+      "budget": { "window": 131071, "planMaxTokens": 32000, "maxTokensClamp": { "enabled": true } },
       "tokenizer": { "mode": "estimate", "template": { "name": "generic" } }
     }
   }
@@ -629,3 +632,30 @@ and verified Harmony counting come later. For output-equals-context models behin
 `strict_total` servers, enable `budget.maxTokensClamp.enabled` so a client sending
 its full output limit can fit. `budget.planMaxTokens` remains the explicit planning
 reservation knob; adding profiles does not change the reservation formula.
+
+For example, OpenCode can route two exact wire IDs through one provider:
+
+```json
+{
+  "model": "kitzur/org/qwen.v1",
+  "small_model": "kitzur/org/gpt-oss",
+  "provider": { "kitzur": {
+    "npm": "@ai-sdk/openai-compatible",
+    "options": { "baseURL": "http://127.0.0.1:8270/v1" },
+    "models": {
+      "org/qwen.v1": { "limit": { "context": 252000, "output": 32000 } },
+      "org/gpt-oss": { "limit": { "context": 131071, "output": 32000 } }
+    }
+  } },
+  "compaction": { "auto": true }
+}
+```
+
+The corresponding profiles set Qwen `client.compactionPointTokens: 200000`, giving
+clientPoint 200,000 and hard limit 193,000. GPT-OSS sets
+`budget.planMaxTokens: 32000`, giving T_plan 32,000 and hard limit 92,071. These
+figures are derived, engine, and proxy budgets for their respective profiles. OpenCode's
+`small_model` must name a model in a provider routed through Kitzur to be compacted.
+If the model emits output equal to its context window, the client must advertise a
+smaller output limit (here 32,000); enable `maxTokensClamp` for strict-total servers.
+Phase 1 uses the shared root tokenizer: select estimate mode for foreign models.

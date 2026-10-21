@@ -8,6 +8,11 @@ The optional upstream check sends one bounded `GET /v1/models` request. It sends
 
 Client usable-context checks accept equality at the trigger plus output allowance boundary. When the client would compact first, the fix names the client.inputLimit, client.reservedTokens (for an explicit input reservation), and client.outputLimit values to mirror in kitzur.jsonc, where applicable.
 
+With model profiles configured, `doctor --client-config` checks each OpenCode model
+against its exact wire-ID profile and qualifies findings by model. An unknown model
+uses root defaults and is reported; `model` and `small_model` must resolve within an
+OpenCode provider for routing through Kitzur to be checked.
+
 ```sh
 kitzur doctor
 kitzur doctor --json
