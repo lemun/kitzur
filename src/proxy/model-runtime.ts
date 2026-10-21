@@ -12,6 +12,7 @@ export interface ModelRuntime {
 /** Exact model IDs select a profile runtime; unknown IDs keep the root runtime. */
 export class ModelRuntimeMap {
   private readonly byModel = new Map<string, ModelRuntime>();
+  private readonly unknownModels = new Set<string>();
 
   constructor(readonly root: ModelRuntime, profiles: ModelProfiles, runtimes: ReadonlyMap<string, ModelRuntime>) {
     for (const id of Object.keys(profiles)) {
@@ -22,6 +23,23 @@ export class ModelRuntimeMap {
 
   forModel(model?: string): ModelRuntime {
     return model === undefined ? this.root : this.byModel.get(model) ?? this.root;
+  }
+
+  /** Compatibility alias for callers that used the original runtimeFor name. */
+  runtimeFor(model?: string): ModelRuntime {
+    return this.forModel(model);
+  }
+
+  hasModel(model?: string): boolean {
+    return model !== undefined && this.byModel.has(model);
+  }
+
+  shouldWarnUnknown(model?: string): boolean {
+    if (model === undefined || this.byModel.has(model) || this.unknownModels.has(model)) return false;
+    // Keep diagnostics bounded even if clients send arbitrary model IDs.
+    if (this.unknownModels.size >= 100) return false;
+    this.unknownModels.add(model);
+    return true;
   }
 
   setLearned(model: string | undefined, key: string, entry: LearnedEntry): void {

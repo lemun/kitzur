@@ -456,10 +456,16 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       return;
     }
     const creq = parsed.value.req;
-    const requestCfg = cfg;
-    const requestEngine = deps.engine;
-    const requestCounter = deps.counter;
-    const requestCounterMode = counterMode;
+    const runtime = deps.modelRuntimes?.forModel(creq.model);
+    const requestCfg = runtime?.cfg ?? cfg;
+    const requestEngine = runtime?.engine ?? deps.engine;
+    const requestCounter = runtime?.counter ?? deps.counter;
+    const requestCounterMode: CounterKind = requestCounter.mode === 'exact' ? 'exact' : 'estimate';
+    if (deps.modelRuntimes?.shouldWarnUnknown(creq.model)) {
+      const message = `No model profile configured for ${JSON.stringify(creq.model)}; using the root runtime.`;
+      status.warn('model_runtime_fallback', message);
+      log('warn', message);
+    }
     const key = learnedKey(origin, creq.model);
     visible.model = creq.model ?? null;
     const learnedForModel = (): LearnedEntry => {
@@ -791,6 +797,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       try {
         afterChat(result, {
           seq, ts, pathname, tBody, cpu0, key, creq, clientSession, reqPathMs, respPathMs, clientStatus: clientGone && !res.headersSent ? 499 : res.statusCode,
+          requestCfg, requestCounter, requestEngine,
         });
       } catch (e) {
         log('error', `post-processing failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -871,12 +878,15 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     reqPathMs: number | undefined;
     respPathMs: number | undefined;
     clientStatus: number;
+    requestCfg: Config;
+    requestCounter: TokenCounter & { profile?: TemplateProfile };
+    requestEngine: Engine;
   }
 
   function afterChat(r: ChatResult, c: AfterCtx): void {
-    const afterCounter = deps.counter;
-    const afterEngine = deps.engine;
-    const afterCfg = cfg;
+    const afterCounter = c.requestCounter;
+    const afterEngine = c.requestEngine;
+    const afterCfg = c.requestCfg;
     const afterMode: CounterKind = afterCounter.mode === 'exact' ? 'exact' : 'estimate';
     const count = (q: ChatRequest): number => afterCounter.countRequest(q);
     const attempts = attemptRecords(r, count, afterCfg);
