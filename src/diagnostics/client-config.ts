@@ -8,7 +8,7 @@ const object = (v: unknown): Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v) ? v as Record<string, unknown> : {};
 const positive = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
 const safeId = (v: unknown): string => typeof v === 'string'
-  ? v.replace(/[\u0000-\u001f\u007f-\u009f]/gu, '\uFFFD').slice(0, 80) : 'unknown';
+  ? v.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/gu, '\uFFFD').slice(0, 80) : 'unknown';
 
 /** Read-only OpenCode diagnostics; never echo URLs, credentials or configuration contents. */
 export function clientConfigChecks(cfg: Config, input: unknown, profiles: ModelProfiles = {}): DoctorCheck[] {
