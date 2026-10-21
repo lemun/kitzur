@@ -115,8 +115,9 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   const endpoint = deps.remote && deps.counter.profile ? new EndpointCalibrator(deps.remote, deps.counter.profile) : null;
   const mode = budgetModeOf(cfg);
   for (const [k, e] of Object.entries(deps.state.entries())) {
-    const model = k.slice(k.lastIndexOf('|') + 1);
-    (deps.modelRuntimes?.forModel(model).engine ?? deps.engine).setLearned(k, e);
+    const model = k.startsWith(`${origin}|`) ? k.slice(origin.length + 1) : undefined;
+    if (deps.modelRuntimes) deps.modelRuntimes.setLearned(model, k, e);
+    else deps.engine.setLearned(k, e);
   }
   if (deps.state.discarded.length) status.warn('learned_discarded', `${deps.state.discarded.length} learned entries discarded (window or counter changed)`);
   if (deps.state.lastError) status.warn('state', deps.state.lastError);
@@ -455,11 +456,10 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       return;
     }
     const creq = parsed.value.req;
-    const modelRuntime = deps.modelRuntimes?.forModel(creq.model);
-    const requestCfg = modelRuntime?.cfg ?? cfg;
-    const requestEngine = modelRuntime?.engine ?? deps.engine;
-    const requestCounter = modelRuntime?.counter ?? deps.counter;
-    const requestCounterMode: CounterKind = requestCounter.mode === 'exact' ? 'exact' : 'estimate';
+    const requestCfg = cfg;
+    const requestEngine = deps.engine;
+    const requestCounter = deps.counter;
+    const requestCounterMode = counterMode;
     const key = learnedKey(origin, creq.model);
     visible.model = creq.model ?? null;
     const learnedForModel = (): LearnedEntry => {
@@ -722,7 +722,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
           ? { ...e, window: deps.state.entry(key).window }
           : e;
         deps.state.set(key, stored); // immediate memory update; async coalesced checkpoint
-        requestEngine.setLearned(key, stored);
+        if (deps.modelRuntimes) deps.modelRuntimes.setLearned(creq.model, key, stored);
+        else requestEngine.setLearned(key, stored);
       },
       process: (r: ChatRequest, o: ProcessOptions): EngineResult => {
         deps.watchdog?.phase(requestId, 'planning');
@@ -873,10 +874,9 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   }
 
   function afterChat(r: ChatResult, c: AfterCtx): void {
-    const runtime = deps.modelRuntimes?.forModel(c.creq.model);
-    const afterCounter = runtime?.counter ?? deps.counter;
-    const afterEngine = runtime?.engine ?? deps.engine;
-    const afterCfg = runtime?.cfg ?? cfg;
+    const afterCounter = deps.counter;
+    const afterEngine = deps.engine;
+    const afterCfg = cfg;
     const afterMode: CounterKind = afterCounter.mode === 'exact' ? 'exact' : 'estimate';
     const count = (q: ChatRequest): number => afterCounter.countRequest(q);
     const attempts = attemptRecords(r, count, afterCfg);
@@ -918,7 +918,10 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       const cur = deps.state.entry(c.key);
       const applied = applyAcceptedRatio(cur, v.ratio, afterCfg, afterMode, now());
       deps.state.set(c.key, applied.entry);
-      if (applied.correctionChanged) afterEngine.setLearned(c.key, applied.entry);
+      if (applied.correctionChanged) {
+        if (deps.modelRuntimes) deps.modelRuntimes.setLearned(c.creq.model, c.key, applied.entry);
+        else afterEngine.setLearned(c.key, applied.entry);
+      }
     };
     if (sent && r.final.type === 'relayed') {
       status.forwardedPrompt(c.creq.model, c.clientSession, usage?.prompt_tokens ?? null);
@@ -977,8 +980,9 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       else setDiscoveredWindows(cfg, discoveredWindows);
       status.setDiscoveredWindows(discoveredWindows);
       for (const [model, window] of Object.entries(discoveredWindows)) {
-        if (window !== cfg.budget.window) {
-          const message = `Model ${JSON.stringify(model)} reports context window ${window}; budget.window is ${cfg.budget.window}${isAutoWindow(cfg) ? ' (auto fallback); using the discovered window' : '; set budget.window=auto to use the discovered window'}.`;
+        const modelCfg = deps.modelRuntimes?.forModel(model).cfg ?? cfg;
+        if (window !== modelCfg.budget.window) {
+          const message = `Model ${JSON.stringify(model)} reports context window ${window}; budget.window is ${modelCfg.budget.window}${isAutoWindow(modelCfg) ? ' (auto fallback); using the discovered window' : '; set budget.window=auto to use the discovered window'}.`;
           status.warn(`window_mismatch:${model}`, message);
           log('warn', message);
         }
