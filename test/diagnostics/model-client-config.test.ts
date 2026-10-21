@@ -12,13 +12,10 @@ import { clientConfigChecks } from '../../src/diagnostics/client-config.js';
 test('checks each wire model against its profile and qualifies messages', () => {
   const cfg = defaultConfig();
   cfg.listen.port = 8787;
-  cfg.client.outputTokenMax = 131_071;
-  cfg.budget.safetyMarginTokens = 0;
-  cfg.budget.safetyMarginFraction = 0;
   const issues: string[] = [];
   const profiles = buildModelProfiles(cfg, new Map([
     ['org/qwen.v1', new Map([['budget.window', 252_000], ['client.compactionPointTokens', 200_000]])],
-    ['org/gpt-oss', new Map([['budget.window', 131_071], ['budget.planMaxTokens', 32_000], ['client.compactionPointTokens', 99_071]])],
+    ['org/gpt-oss', new Map([['budget.window', 131_071], ['budget.planMaxTokens', 32_000]])],
   ]), issues, []);
   assert.deepEqual(issues, []);
   const input = JSON.parse(readFileSync('test/fixtures/client-config/multimodel.opencode.json', 'utf8'));
@@ -34,8 +31,8 @@ test('checks each wire model against its profile and qualifies messages', () => 
     const derived = computeBudget(profile);
     const engine = computeEngineBudget(profile, defaultLearnedEntry(profile, 'test'), 0, profile.budget.defaultMaxTokens);
     const proxy = budgetQuantities(profile, defaultLearnedEntry(profile, 'test'));
-    assert.deepEqual([derived.clientPoint, derived.hard, engine.clientPoint, engine.hard, proxy.clientPoint, proxy.hard],
-      [clientPoint, hard, clientPoint, hard, clientPoint, hard], id);
+    assert.deepEqual([derived.clientPoint, derived.hard, derived.planMaxTokens, engine.clientPoint, engine.hard, engine.planMaxTokens, proxy.clientPoint, proxy.hard, proxy.planMaxTokens],
+      [clientPoint, hard, 32_000, clientPoint, hard, 32_000, clientPoint, hard, 32_000], id);
   }
 });
 
@@ -43,6 +40,8 @@ test('routing accepts wire id and reports unresolved small_model safely', () => 
   const cfg = defaultConfig(); cfg.listen.port = 8787;
   const base = { provider: { local: { npm: '@ai-sdk/openai-compatible', options: { baseURL: 'http://localhost:8787/v1' }, models: { alias: { id: 'wire/model', limit: { context: 100_000, output: 32_000 } } } } }, model: 'local/wire/model' };
   assert.ok(!clientConfigChecks(cfg, { ...base, small_model: 'local/wire/model' }).some((c) => c.code === 'client.routing'));
+  const external = { ...base, provider: { ...base.provider, elsewhere: { ...base.provider.local, options: { baseURL: 'https://example.com/v1' }, models: { other: { id: 'wire/model' } } } }, small_model: 'elsewhere/other' };
+  assert.ok(clientConfigChecks(cfg, external).some((c) => c.code === 'client.routing'));
   const warning = clientConfigChecks(cfg, { ...base, small_model: 'missing/\u001b[31msecret' }).find((c) => c.code === 'client.routing');
   assert.ok(warning);
   assert.ok(!warning.message.includes('\u001b'));
