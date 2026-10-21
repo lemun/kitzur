@@ -29,6 +29,7 @@ import type { ChatRequest, EngineResult, LearnedState } from './types.js';
 import { doctor, renderDoctor } from './diagnostics/doctor.js';
 import { inspectTlsChain, renderTlsChain } from './diagnostics/tls-chain.js';
 import { reportStream, renderReport } from './diagnostics/report.js';
+import { exportOpenCode } from './config/export-opencode.js';
 
 // ---------------------------------------------------------------- IO and errors
 
@@ -179,6 +180,7 @@ const USAGE = `usage: kitzur <command> [options]
   config show [--changed] [--json]      effective config with the source of every value
   config validate [--json]              errors and startup warnings
   config import-eval <dir|file>... [--out FILE] [--merge FILE] [--provenance FILE] [--dry-run]
+  config export-opencode --model ID [--small-model ID] [--provider NAME] [--key-env NAME]
                      [--force-keys a.b,c] [--allow-pack-version N] [--json-report] [--port N] [--force]
   state show [--key K] [--json]         learned entries in the state dir
   state reset [--key K] [--plans]       remove learned entries (and the plan store)
@@ -623,6 +625,14 @@ async function cmdStatus(argv: string[], io: CliIO): Promise<number> {
 async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
   const [sub, ...rest] = argv;
   switch (sub) {
+    case 'export-opencode': {
+      const p = parseArgs(rest, { ...CONFIG_OPTS, model: { type: 'string' }, 'small-model': { type: 'string' }, provider: { type: 'string' }, 'key-env': { type: 'string' } });
+      const model = p.values['model'];
+      if (typeof model !== 'string' || !model) throw new UsageError('config export-opencode needs --model ID');
+      const l = loadFromArgs(p, io);
+      io.stdout(exportOpenCode(l.config, l.models, { model, smallModel: p.values['small-model'] as string | undefined, provider: p.values['provider'] as string | undefined, keyEnv: p.values['key-env'] as string | undefined }));
+      return 0;
+    }
     case 'init': {
       const p = parseArgs(rest, { preset: { type: 'string', short: 'p' }, out: { type: 'string', short: 'o' }, force: { type: 'boolean' }, upstream: { type: 'string' }, tokenizer: { type: 'string' } });
       const tokenizerArg = p.values['tokenizer'] as string | undefined;
@@ -687,7 +697,7 @@ async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
     case 'import-eval':
       return cmdImportEval(rest, io);
     default:
-      throw new UsageError(sub ? `unknown config command '${sub}' (init, show, validate, import-eval)` : 'config needs a subcommand: init, show, validate, import-eval');
+      throw new UsageError(sub ? `unknown config command '${sub}' (init, show, validate, import-eval, export-opencode)` : 'config needs a subcommand: init, show, validate, import-eval, export-opencode');
   }
 }
 
