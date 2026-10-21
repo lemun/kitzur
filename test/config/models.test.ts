@@ -65,11 +65,12 @@ test('reject invalid maps, IDs, leaves, types, ranges, arrays and prototype path
   }
   for (const override of [null, [], { preset: '32k' }, { upstream: { origin: 'http://localhost' } },
     { client: { summaryMarkers: [] } }, { budget: { observedFixedPromptTokens: 1 } },
-    { budget: { window: 1 } }, { client: { inputLimit: '1' } }, { tokenizer: { path: 'other' } },
+    { budget: { window: 1 } }, { client: { inputLimit: '1' } },
     { tokenizer: { template: { name: 'harmony' } } }, { 'budget.window': 128000 },
     JSON.parse('{"budget":{"__proto__":{}}}'), { budget: { maxTokensClamp: [] } }]) {
     assert.throws(() => load({ bad: override }), /models\["bad"\]/);
   }
+  assert.equal(load({ bad: { tokenizer: { path: 'other' } } }).models['bad']!.tokenizer.path, 'other');
   assert.throws(() => load({ bad: { client: { inputLimit: 100, reservedTokens: 1000 } } }), /models\["bad"\]/);
 });
 
