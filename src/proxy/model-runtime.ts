@@ -30,10 +30,6 @@ export class ModelRuntimeMap {
     return this.forModel(model);
   }
 
-  hasModel(model?: string): boolean {
-    return model !== undefined && this.byModel.has(model);
-  }
-
   shouldWarnUnknown(model?: string): boolean {
     if (model === undefined || this.byModel.has(model) || this.unknownModels.has(model)) return false;
     // Keep diagnostics bounded even if clients send arbitrary model IDs.

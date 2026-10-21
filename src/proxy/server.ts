@@ -113,7 +113,6 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   const classifier = new ErrorClassifier(cfg.errors);
   const status = new StatusTracker(cfg, packageInfo().version,() => now().getTime());
   const endpoint = deps.remote && deps.counter.profile ? new EndpointCalibrator(deps.remote, deps.counter.profile) : null;
-  const mode = budgetModeOf(cfg);
   for (const [k, e] of Object.entries(deps.state.entries())) {
     const model = k.startsWith(`${origin}|`) ? k.slice(origin.length + 1) : undefined;
     if (deps.modelRuntimes) deps.modelRuntimes.setLearned(model, k, e);
@@ -916,7 +915,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     const learnSample = (counted: number, reported: number, source: 'usage' | 'endpoint', a: OutgoingAttempt): void => {
       const v = judgeSample({
         cfg: afterCfg, mode: afterMode, budget: budgetOf(a), counted, reported, source, complete: r.complete, finishReason: r.tap?.finishReason ?? null,
-        sameAttempt: true, silentTruncate: mode === 'silent_truncate',
+        sameAttempt: true, silentTruncate: budgetModeOf(afterCfg) === 'silent_truncate',
       });
       if (v.warning) status.warn('silent_truncate', v.warning);
       if (v.verdict === 'mismatch') {
