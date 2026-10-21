@@ -17,7 +17,19 @@ test('byte streaming agrees with string reports across UTF-8, CRLF and final lin
     assert.deepEqual(await reportStream(chunks(Buffer.from(text), size)), report(text));
   }
   assert.equal((await reportStream(chunks(Buffer.from(record() + '\n'), 1))).coverage.partialFinalLine, false);
-  assert.equal((await reportStream(chunks(Buffer.alloc(0), 1))).requests, 0);
+  const empty = await reportStream(chunks(Buffer.alloc(0), 1));
+  assert.equal(empty.coverage.records, 0);
+  assert.equal(empty.coverage.historyComplete, null);
+  assert.equal(empty.coverage.droppedRecords, null);
+  assert.match(renderReport(empty), /History completeness unknown; dropped-record total unavailable/);
+  const withIssues = await reportStream(chunks(Buffer.from(record() + '\n{bad}\n' + record('tail')), 3));
+  assert.equal(withIssues.coverage.records, 2);
+  assert.equal(withIssues.coverage.malformed, 1);
+  assert.equal(withIssues.coverage.oversized, 0);
+  assert.equal(withIssues.coverage.partialFinalLine, true);
+  assert.equal(withIssues.coverage.historyComplete, null);
+  assert.equal(withIssues.coverage.droppedRecords, null);
+  assert.match(renderReport(withIssues), /History completeness unknown; dropped-record total unavailable/);
 });
 
 test('oversized records are discarded once and parsing resumes at the next newline', async () => {

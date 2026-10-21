@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 type JsonRecord = Record<string, unknown>;
 
 export interface ReportResult {
-  coverage: { records: number; malformed: number; partialFinalLine: boolean; oversized: number; from: string | null; to: string | null };
+  coverage: { records: number; malformed: number; partialFinalLine: boolean; oversized: number; from: string | null; to: string | null; historyComplete: boolean | null; droppedRecords: number | null };
   requests: number; uniqueSessions: number; sessionCoverage: { approximate: true; limit: number; lowerBound: boolean; missing: number }; localRejects: number; shadowRequests: number; incompleteStreams: number;
   compactions: number;
   retries: number;
@@ -27,7 +27,7 @@ export const MAX_RECORD_BYTES = 1024 * 1024;
 export const MAX_TRACKED_SESSIONS = 10_000;
 
 function accumulator() {
-  const coverage: ReportResult['coverage'] = { records: 0, malformed: 0, oversized: 0, partialFinalLine: false, from: null, to: null };
+  const coverage: ReportResult['coverage'] = { records: 0, malformed: 0, oversized: 0, partialFinalLine: false, from: null, to: null, historyComplete: null, droppedRecords: null };
   const result: ReportResult = {
     coverage, requests: 0, uniqueSessions: 0, sessionCoverage: { approximate: true, limit: MAX_TRACKED_SESSIONS, lowerBound: false, missing: 0 }, localRejects: 0, shadowRequests: 0, incompleteStreams: 0, compactions: 0, retries: 0, failures: 0,
     tokenTotals: { input: 0, forwarded: 0, shadowEstimatedForwarded: 0, reductionEligibleInput: 0, reductionEligibleForwarded: 0, reductionPercent: null, attemptedRaw: 0, actualUpstreamPrompt: 0, actualUpstreamCompletion: 0, actualUsageRecords: 0 },
@@ -156,6 +156,7 @@ export function renderReport(r: ReportResult): string {
   const reduction = t.reductionPercent === null ? 'n/a' : `${t.reductionPercent.toFixed(1)}%`;
   return [
     `Coverage: ${r.coverage.records} records (${r.coverage.malformed} malformed, ${r.coverage.oversized} oversized${r.coverage.partialFinalLine ? ', final line has no newline' : ''})${r.coverage.from ? `, ${r.coverage.from} to ${r.coverage.to}` : ''}`,
+    `History completeness ${r.coverage.historyComplete === null ? 'unknown' : r.coverage.historyComplete ? 'verified' : 'incomplete'}; dropped-record total ${r.coverage.droppedRecords === null ? 'unavailable' : r.coverage.droppedRecords}.`,
     `Requests: ${r.requests} across ${r.sessionCoverage.lowerBound ? 'at least ' : ''}${r.uniqueSessions} sessions (approximate hashed count; ${r.sessionCoverage.missing} records without session IDs); compactions: ${r.compactions}; retries: ${r.retries}; failures: ${r.failures}; local rejects: ${r.localRejects}; shadow requests: ${r.shadowRequests}; incomplete streams: ${r.incompleteStreams}`,
     `Tokens: input ${t.input} (${r.fieldCoverage.tokensIn} records); last-attempt forwarded ${t.forwarded} (${r.fieldCoverage.tokensOut}); reduction ${reduction} across eligible non-shadow requests (${t.reductionEligibleInput} input tokens); attempted raw across recorded attempts ${t.attemptedRaw} (${r.fieldCoverage.attemptedRaw} attempts with raw counts).`,
     `Shadow estimated forwarded tokens: ${t.shadowEstimatedForwarded} (${r.fieldCoverage.shadowEstimatedForwarded} records). Upstream usage: prompt ${t.actualUpstreamPrompt} (${r.fieldCoverage.actualPromptUsage}), completion ${t.actualUpstreamCompletion} (${r.fieldCoverage.actualCompletionUsage}); usage fields cover the final response only and may be absent.`,
