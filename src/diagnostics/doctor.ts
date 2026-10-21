@@ -5,7 +5,7 @@ import { existsSync, statSync, accessSync, constants, readFileSync } from 'node:
 import { dirname, parse } from 'node:path';
 import { listenTokenWarning, validateConfig } from '../config/validate.js';
 import { computeBudget } from '../config/derived.js';
-import type { Config } from '../config/schema.js';
+import type { Config, ModelProfiles } from '../config/schema.js';
 import { stateDirOf } from '../config/paths.js';
 import { loadTokenizer } from '../tokenize/tokenizer.js';
 import { templateTokenizerWarning } from '../tokenize/template.js';
@@ -78,7 +78,7 @@ function nearestExistingDirectory(path: string): { path: string; blocked: boolea
 }
 
 /** Read-only local diagnostics. Network access is opt-in and uses the small models endpoint probe. */
-export async function doctor(config: Config, opts: { env?: Record<string, string | undefined>; upstreamCheck?: boolean; timeoutMs?: number; configPath?: string; clientConfigPath?: string } = {}): Promise<DoctorResult> {
+export async function doctor(config: Config, opts: { env?: Record<string, string | undefined>; upstreamCheck?: boolean; timeoutMs?: number; configPath?: string; clientConfigPath?: string; models?: ModelProfiles } = {}): Promise<DoctorResult> {
   const checks: DoctorCheck[] = [];
   const add = (code: string, status: DoctorCheck['status'], message: string, fix?: string): void => { checks.push({ code, status, message, ...(fix ? { fix } : {}) }); };
 
@@ -104,7 +104,7 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
   }
 
   if (opts.clientConfigPath) {
-    try { checks.push(...clientConfigChecks(config, parseJsonc(readFileSync(opts.clientConfigPath, 'utf8')))); }
+    try { checks.push(...clientConfigChecks(config, parseJsonc(readFileSync(opts.clientConfigPath, 'utf8')), opts.models)); }
     catch { add('client.config', 'error', 'Client configuration could not be read as JSON/JSONC.'); }
   }
 

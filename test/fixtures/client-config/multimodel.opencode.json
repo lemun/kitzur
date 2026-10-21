@@ -1,0 +1,15 @@
+{
+  "model": "local/org/qwen.v1",
+  "small_model": "local/org/gpt-oss",
+  "provider": {
+    "local": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": { "baseURL": "http://localhost:8787/v1" },
+      "models": {
+        "org/qwen.v1": { "limit": { "context": 252000, "output": 32000 } },
+        "org/gpt-oss": { "limit": { "context": 131071, "output": 32000 } }
+      }
+    }
+  },
+  "compaction": { "auto": true }
+}

@@ -396,7 +396,7 @@ async function cmdDoctor(argv: string[], io: CliIO): Promise<number> {
     io.stdout(p.values['json'] ? JSON.stringify(result, null, 2) + '\n' : renderDoctor(result) + '\n');
     return 2;
   }
-  const result = await doctor(loaded.config, { env: io.env, upstreamCheck: p.values['check-upstream'] === true, timeoutMs, configPath: loaded.configPath ?? undefined, clientConfigPath: p.values['client-config'] as string | undefined });
+  const result = await doctor(loaded.config, { env: io.env, upstreamCheck: p.values['check-upstream'] === true, timeoutMs, configPath: loaded.configPath ?? undefined, clientConfigPath: p.values['client-config'] as string | undefined, models: loaded.models });
   io.stdout(p.values['json'] ? JSON.stringify(result, null, 2) + '\n' : renderDoctor(result) + '\n');
   return result.exitCode;
 }

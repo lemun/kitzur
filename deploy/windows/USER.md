@@ -35,6 +35,12 @@ Use the organisation's normal script policy. No administrator rights are needed 
    the environment, never a literal key. Project settings can override global settings. Your admin
    should verify the effective provider routes through Kitzur. No individual benchmark run is required.
 
+For multiple models, put each exact gateway model ID in the OpenCode provider's `models`
+map. Route `small_model` through that Kitzur provider if it should be compacted. For
+example, Qwen may use context 252000/output 32000; GPT-OSS may use context 131071/output
+32000. Kitzur's corresponding clientPoint/hard limits are 200000/193000 and 92071 hard
+with a 32000 planned output reservation.
+
 Use `-Action Stop` to stop accepting requests and drain active requests for up to 30 seconds.
 `-Action Start` starts it again. `-Action Diagnose` writes a safe count-only report in
 `%LOCALAPPDATA%\Kitzur\logs\diagnostics.json`. Share that report and OpenCode UI compaction counts/
