@@ -1,4 +1,3 @@
-import { clientCompactionPoint } from './client-point.js';
 import { planMaxTokens } from './derived.js';
 import { isAutoWindow } from './window.js';
 import type { Config, ModelProfiles } from './schema.js';
@@ -18,11 +17,13 @@ export function exportOpenCode(root: Config, profiles: ModelProfiles, options: O
   const provider = options.provider ?? 'kitzur';
   const keyEnv = options.keyEnv ?? 'OPENAI_API_KEY';
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(keyEnv)) throw new Error('--key-env must be an environment variable name');
+  const reservations = [...new Set(ids.map((id) => profiles[id]!.client.reservedTokens).filter((value): value is number => value !== null && value > 0))];
+  if (reservations.length > 1) throw new Error('profiles have conflicting explicit output reservations');
   const models: Record<string, unknown> = {};
   for (const id of ids) {
     const cfg = profiles[id]!;
     const context = cfg.budget.window;
-    const output = Math.min(clientCompactionPoint(cfg, context, planMaxTokens(cfg)), cfg.client.outputTokenMax);
+    const output = Math.min(cfg.client.outputLimit ?? planMaxTokens(cfg), cfg.client.outputTokenMax);
     if (!Number.isSafeInteger(context) || context <= 0 || !Number.isSafeInteger(output) || output <= 0) {
       throw new Error(`model ${JSON.stringify(id)} has unusable numeric limits`);
     }

@@ -34,3 +34,19 @@ test('auto profiles carry a labelled numeric fallback', () => {
   assert.equal(value.provider.kitzur.models['auto-model'].limit.context, 64000);
   assert.match(value.provider.kitzur.models['auto-model'].description, /fallback: 64000/);
 });
+
+test('exports the declared output cap for a non-default window', () => {
+  const root = defaultConfig();
+  const profiles = buildModelProfiles(root, new Map([['wide', new Map([['budget.window', 40000]])]]), [], []);
+  const value = JSON.parse(exportOpenCode(root, profiles, { model: 'wide' }));
+  assert.deepEqual(value.provider.kitzur.models.wide.limit, { context: 40000, output: 32000 });
+});
+
+test('rejects conflicting explicit output reservations across profiles', () => {
+  const root = defaultConfig();
+  const built = buildModelProfiles(root, new Map([['a', new Map()], ['b', new Map()]]), [], []);
+  const profiles = Object.fromEntries(Object.entries(built).map(([id, cfg], index) => [id, {
+    ...cfg, client: { ...cfg.client, reservedTokens: index === 0 ? 1000 : 2000 },
+  }]));
+  assert.throws(() => exportOpenCode(root, profiles, { model: 'a' }), /conflicting explicit output reservations/);
+});
