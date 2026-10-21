@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadConfig } from '../../src/config/load.js';
 import { ModelRuntimeMap, type ModelRuntime } from '../../src/proxy/model-runtime.js';
+import { budgetQuantities } from '../../src/proxy/budget.js';
 import type { Engine } from '../../src/types.js';
 import { createProxyServer } from '../../src/proxy/server.js';
 import { StatsWriter } from '../../src/proxy/stats.js';
@@ -20,10 +21,13 @@ test('proxy pins each model runtime across A/B/A requests and an interleaved str
     if ((hit.json as { model?: string }).model === 'alpha' && hit.json.stream) {
       aStarted();
       await sseRes(res, [chunk('first'), chunk('last', 'stop'), DONE], { delayMs: 25 });
-    } else jsonRes(res, 200, okCompletion());
+    } else jsonRes(res, 200, okCompletion(1));
   });
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-multimodel-'));
-  const loaded = loadConfig({ env: {}, object: { upstream: { origin: up.origin }, stateDir: dir, models: { alpha: { budget: { window: 12_000 } }, beta: { budget: { window: 22_000 } } } } });
+  const loaded = loadConfig({ env: {}, object: { upstream: { origin: up.origin }, stateDir: dir, models: {
+    alpha: { budget: { window: 12_000 } },
+    beta: { budget: { window: 22_000, limitCountsMaxTokens: false }, server: { type: 'ollama' } },
+  } } });
   const calls = { root: 0, alpha: 0, beta: 0 };
   const countCalls = { root: 0, alpha: 0, beta: 0 };
   const runtime = (name: keyof typeof calls, cfg: typeof loaded.config): ModelRuntime => {
@@ -38,7 +42,8 @@ test('proxy pins each model runtime across A/B/A requests and an interleaved str
   const beta = runtime('beta', loaded.models.beta!);
   const runtimes = new ModelRuntimeMap(root, loaded.models, new Map([['alpha', alpha], ['beta', beta]]));
   const state = new StateStore({ dir, configuredWindow: loaded.config.budget.window, counterId: 'test' });
-  const proxy = createProxyServer(loaded.config, { engine: root.engine, counter: root.counter, modelRuntimes: runtimes, state, stats: new StatsWriter(null) });
+  const logs: string[] = [];
+  const proxy = createProxyServer(loaded.config, { engine: root.engine, counter: root.counter, modelRuntimes: runtimes, state, stats: new StatsWriter(null), log: (_level, message) => logs.push(message) });
   const { port } = await proxy.listen();
   try {
     const a1 = await request(port, { body: chatBody('a1', { model: 'alpha' }) });
@@ -46,8 +51,11 @@ test('proxy pins each model runtime across A/B/A requests and an interleaved str
     const a2 = await request(port, { body: chatBody('a2', { model: 'alpha' }) });
     assert.equal(a1.headers['x-kitzur-tokens'], a2.headers['x-kitzur-tokens']);
     assert.notEqual(a1.headers['x-kitzur-tokens'], b.headers['x-kitzur-tokens']);
+    assert.equal(String(a1.headers['x-kitzur-tokens']).split('/')[2], String(budgetQuantities(alpha.cfg, null).trigger));
+    assert.equal(String(b.headers['x-kitzur-tokens']).split('/')[2], String(budgetQuantities(beta.cfg, null).trigger));
     assert.deepEqual(calls, { root: 0, alpha: 2, beta: 1 });
     assert.ok(countCalls.alpha >= 2 && countCalls.beta >= 2, 'selected counter is used during processing and afterChat');
+    assert.ok(logs.some((message) => message.includes('server truncates: window smaller than configured')), 'afterChat uses beta silent_truncate config');
 
     const streaming = request(port, { body: chatBody('stream', { model: 'alpha', stream: true }) });
     await started;
