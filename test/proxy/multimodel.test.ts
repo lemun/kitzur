@@ -3,6 +3,63 @@ import assert from 'node:assert/strict';
 import { loadConfig } from '../../src/config/load.js';
 import { ModelRuntimeMap, type ModelRuntime } from '../../src/proxy/model-runtime.js';
 import type { Engine } from '../../src/types.js';
+import { createProxyServer } from '../../src/proxy/server.js';
+import { StatsWriter } from '../../src/proxy/stats.js';
+import { fakeUpstream, jsonRes, request, chatBody, okCompletion, sseRes, chunk, DONE } from './harness.js';
+import { FakeEngine, result } from './fake-engine.js';
+import { charCounter } from './harness.js';
+import { StateStore } from '../../src/proxy/state.js';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+test('proxy pins each model runtime across A/B/A requests and an interleaved stream', async () => {
+  let aStarted!: () => void;
+  const started = new Promise<void>((resolve) => { aStarted = resolve; });
+  const up = await fakeUpstream(async (hit, res) => {
+    if ((hit.json as { model?: string }).model === 'alpha' && hit.json.stream) {
+      aStarted();
+      await sseRes(res, [chunk('first'), chunk('last', 'stop'), DONE], { delayMs: 25 });
+    } else jsonRes(res, 200, okCompletion());
+  });
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-multimodel-'));
+  const loaded = loadConfig({ env: {}, object: { upstream: { origin: up.origin }, stateDir: dir, models: { alpha: { budget: { window: 12_000 } }, beta: { budget: { window: 22_000 } } } } });
+  const calls = { root: 0, alpha: 0, beta: 0 };
+  const countCalls = { root: 0, alpha: 0, beta: 0 };
+  const runtime = (name: keyof typeof calls, cfg: typeof loaded.config): ModelRuntime => {
+    const counter = charCounter();
+    const countRequest = counter.countRequest.bind(counter);
+    counter.countRequest = (req) => { countCalls[name]++; return countRequest(req); };
+    const engine = new FakeEngine((req) => { calls[name]++; return result(req, req, false); });
+    return { cfg, counter: counter as unknown as ModelRuntime['counter'], engine };
+  };
+  const root = runtime('root', loaded.config);
+  const alpha = runtime('alpha', loaded.models.alpha!);
+  const beta = runtime('beta', loaded.models.beta!);
+  const runtimes = new ModelRuntimeMap(root, loaded.models, new Map([['alpha', alpha], ['beta', beta]]));
+  const state = new StateStore({ dir, configuredWindow: loaded.config.budget.window, counterId: 'test' });
+  const proxy = createProxyServer(loaded.config, { engine: root.engine, counter: root.counter, modelRuntimes: runtimes, state, stats: new StatsWriter(null) });
+  const { port } = await proxy.listen();
+  try {
+    const a1 = await request(port, { body: chatBody('a1', { model: 'alpha' }) });
+    const b = await request(port, { body: chatBody('b', { model: 'beta' }) });
+    const a2 = await request(port, { body: chatBody('a2', { model: 'alpha' }) });
+    assert.equal(a1.headers['x-kitzur-tokens'], a2.headers['x-kitzur-tokens']);
+    assert.notEqual(a1.headers['x-kitzur-tokens'], b.headers['x-kitzur-tokens']);
+    assert.deepEqual(calls, { root: 0, alpha: 2, beta: 1 });
+    assert.ok(countCalls.alpha >= 2 && countCalls.beta >= 2, 'selected counter is used during processing and afterChat');
+
+    const streaming = request(port, { body: chatBody('stream', { model: 'alpha', stream: true }) });
+    await started;
+    await request(port, { body: chatBody('during', { model: 'beta' }) });
+    await streaming;
+    assert.deepEqual(calls, { root: 0, alpha: 3, beta: 2 });
+    assert.ok(countCalls.alpha >= 3 && countCalls.beta >= 3);
+  } finally {
+    await proxy.close(2000);
+    await up.close();
+  }
+});
 
 test('model runtime selection is exact, stable, and preserves runtimeFor compatibility', () => {
   const loaded = loadConfig({ env: {}, object: { models: { alpha: {}, beta: {} } } });
