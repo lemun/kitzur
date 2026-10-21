@@ -7,6 +7,8 @@ export interface ModelRuntime {
   cfg: Config;
   counter: Counter;
   engine: Engine;
+  estimateReason?: string | null;
+  tokenizer?: { sha256: string | null; sourceBytes: number; loadMs: number };
 }
 
 /** Exact model IDs select a profile runtime; unknown IDs keep the root runtime. */
