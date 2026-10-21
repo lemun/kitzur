@@ -429,7 +429,7 @@ async function cmdServe(argv: string[], io: CliIO): Promise<number> {
   }
   const drainMs = p.values['drain-ms'] !== undefined ? Number(p.values['drain-ms']) : 30_000;
   if (!Number.isFinite(drainMs) || drainMs < 0) throw new UsageError('--drain-ms must be a number of milliseconds');
-  const app = await buildApp(cfg, { log, modules: io.modules, env: io.env });
+  const app = await buildApp(cfg, { log, modules: io.modules, env: io.env, models: l.models });
   let addr: { host: string; port: number };
   try { addr = await app.listen(); }
   catch (e) { await app.close(0); throw e; }

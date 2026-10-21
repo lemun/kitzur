@@ -40,6 +40,7 @@ import { StatusTracker, type RecentRequest } from './status.js';
 import { applyAcceptedRatio, EndpointCalibrator, judgeSample, type CounterKind } from './calibration.js';
 import { budgetModeOf, serverLimits, budgetQuantities } from './budget.js';
 import { packageInfo } from '../config/paths.js';
+import type { ModelRuntimeMap } from './model-runtime.js';
 
 /**
  * true when a request may be served despite browser context: no Origin header and no cross-site or
@@ -59,6 +60,7 @@ export function isJsonContentType(ct: string | undefined): boolean {
 
 export interface ProxyDeps {
   watchdog?: LoopWatchdog;
+  modelRuntimes?: ModelRuntimeMap;
   engine: Engine;
   /** the local counter (exact or estimate); a 'remote' counter is refused */
   counter: TokenCounter & { profile?: TemplateProfile };
@@ -112,7 +114,11 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   const status = new StatusTracker(cfg, packageInfo().version,() => now().getTime());
   const endpoint = deps.remote && deps.counter.profile ? new EndpointCalibrator(deps.remote, deps.counter.profile) : null;
   const mode = budgetModeOf(cfg);
-  for (const [k, e] of Object.entries(deps.state.entries())) deps.engine.setLearned(k, e);
+  for (const [k, e] of Object.entries(deps.state.entries())) {
+    const model = k.startsWith(`${origin}|`) ? k.slice(origin.length + 1) : undefined;
+    if (deps.modelRuntimes) deps.modelRuntimes.setLearned(model, k, e);
+    else deps.engine.setLearned(k, e);
+  }
   if (deps.state.discarded.length) status.warn('learned_discarded', `${deps.state.discarded.length} learned entries discarded (window or counter changed)`);
   if (deps.state.lastError) status.warn('state', deps.state.lastError);
 
@@ -450,22 +456,26 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       return;
     }
     const creq = parsed.value.req;
+    const requestCfg = cfg;
+    const requestEngine = deps.engine;
+    const requestCounter = deps.counter;
+    const requestCounterMode = counterMode;
     const key = learnedKey(origin, creq.model);
     visible.model = creq.model ?? null;
     const learnedForModel = (): LearnedEntry => {
       const entry = deps.state.entry(key);
       const model = creq.model ?? '';
       const window = Object.hasOwn(discoveredWindows, model) ? discoveredWindows[model] : undefined;
-      if (isAutoWindow(cfg) && window !== undefined) entry.window = entry.window === null ? window : Math.min(entry.window, window);
+      if (isAutoWindow(requestCfg) && window !== undefined) entry.window = entry.window === null ? window : Math.min(entry.window, window);
       return entry;
     };
-    if (isAutoWindow(cfg) && !Object.hasOwn(discoveredWindows, creq.model ?? '') && !fallbackWarned.has(creq.model ?? '')) {
+    if (isAutoWindow(requestCfg) && !Object.hasOwn(discoveredWindows, creq.model ?? '') && !fallbackWarned.has(creq.model ?? '')) {
       fallbackWarned.add(creq.model ?? '');
-      const message = `No context window discovered for model ${JSON.stringify(creq.model ?? '')}; using fallback ${cfg.budget.window}.`;
+      const message = `No context window discovered for model ${JSON.stringify(creq.model ?? '')}; using fallback ${requestCfg.budget.window}.`;
       status.warn('window_auto_fallback', message);
       log('warn', message);
     }
-    quantities = budgetQuantities(cfg, learnedForModel());
+    quantities = budgetQuantities(requestCfg, learnedForModel());
     visible.tokens.trigger = quantities.trigger;
     const clientWarning = status.clientRequest(creq, clientSession, quantities.trigger);
     if (clientWarning) log('warn', clientWarning);
@@ -486,7 +496,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       if (!committed) {
         const st = a.result?.stats;
         if (st) quantities = st.budget;
-        visible.action = cfg.shadow || !a.result ? 'passthrough' : actionOf(a.result.action);
+        visible.action = requestCfg.shadow || !a.result ? 'passthrough' : actionOf(a.result.action);
         visible.tokens.out = a.original ? visible.tokens.in : st?.tokensOut ?? visible.tokens.in;
         visible.tokens.trigger = quantities.trigger;
         setVisibleHeaders();
@@ -576,8 +586,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
 
     const relaySse = (a: OutgoingAttempt, up: UpstreamResponse, t0: number): Promise<AttemptOutcome> =>
       new Promise((resolve) => {
-        const hold = cfg.stream.holdFirstEvent && !committed;
-        const relay = new SseRelay({ hold, strip: a.injectedUsage, committed, detectErrors: cfg.errors.inStream });
+        const hold = requestCfg.stream.holdFirstEvent && !committed;
+        const relay = new SseRelay({ hold, strip: a.injectedUsage, committed, detectErrors: requestCfg.errors.inStream });
         observation.o.relay = relay;
         const hdrs = forwardResponseHeaders(up.rawHeaders, { dropContentLength: true });
         let finished = false;
@@ -608,7 +618,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
           holdTimer = setTimeout(() => {
             holdTimer = null;
             apply(relay.onHoldTimeout());
-          }, cfg.stream.firstEventTimeoutMs);
+          }, requestCfg.stream.firstEventTimeoutMs);
           holdTimer.unref();
         } else {
           commit(up.status, up.statusMessage, hdrs); // no-op when a previous attempt committed
@@ -647,7 +657,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
             apply({ ...step, error: undefined }); // held comments stay held; nothing of the error is written
             // collect the stream's tail (e.g. `data: [DONE]`) briefly, to relay the error unchanged if needed
             if (relay.tailFull) return park();
-            cut = setTimeout(park, Math.min(cfg.upstream.idleTimeoutMs, 2000));
+            cut = setTimeout(park, Math.min(requestCfg.upstream.idleTimeoutMs, 2000));
             cut.unref();
             up.body.once('close', () => {
               if (cut) clearTimeout(cut);
@@ -697,7 +707,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       send,
       aborted: () => clientGone,
       count: (r: ChatRequest) => {
-        const n = deps.counter.countRequest(r);
+        const n = requestCounter.countRequest(r);
         if (r === creq && firstStats) visible.tokens.in = n;
         return n;
       },
@@ -708,15 +718,16 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         // out of persisted entries so a restart can discover a larger active context.
         const model = creq.model ?? '';
         const served = Object.hasOwn(discoveredWindows, model) ? discoveredWindows[model] : undefined;
-        const stored = isAutoWindow(cfg) && e.window === served
+        const stored = isAutoWindow(requestCfg) && e.window === served
           ? { ...e, window: deps.state.entry(key).window }
           : e;
         deps.state.set(key, stored); // immediate memory update; async coalesced checkpoint
-        deps.engine.setLearned(key, stored);
+        if (deps.modelRuntimes) deps.modelRuntimes.setLearned(creq.model, key, stored);
+        else requestEngine.setLearned(key, stored);
       },
       process: (r: ChatRequest, o: ProcessOptions): EngineResult => {
         deps.watchdog?.phase(requestId, 'planning');
-        const result = deps.engine.process(r, o);
+        const result = requestEngine.process(r, o);
         if (firstStats) {
           firstStats = false;
           visible.tokens.in = result.stats.tokensIn;
@@ -728,7 +739,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     };
     let result: ChatResult;
     try {
-      result = await runChat({ cfg, parsed: parsed.value, classifier, counterMode, shadow: cfg.shadow }, io);
+      result = await runChat({ cfg: requestCfg, parsed: parsed.value, classifier, counterMode: requestCounterMode, shadow: requestCfg.shadow }, io);
     } catch (e) {
       // an internal failure before any upstream call (e.g. a stack overflow on a pathologically deep
       // body): never worse than no proxy, so the client's bytes go out unchanged (I7, as for a failed
@@ -738,7 +749,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       log('error', `ladder failed before any upstream call, forwarding the original: ${e instanceof Error ? e.message : String(e)}`);
       visible.action = 'passthrough';
       if (visible.tokens.in === null) {
-        try { visible.tokens.in = deps.counter.countRequest(creq); } catch { /* count unavailable */ }
+        try { visible.tokens.in = requestCounter.countRequest(creq); } catch { /* count unavailable */ }
       }
       visible.tokens.out = visible.tokens.in;
       setVisibleHeaders();
@@ -747,14 +758,14 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       await passthrough(req, res, raw, observation);
       deps.stats.write(buildStatsRecord({
         seq, ts, path: pathname, first: null, last: null, action: 'passthrough', attempts: [], clientStatus: res.statusCode, tokensIn: null,
-        correction: 1, engineMs: 0, totalMs: performance.now() - tBody, compacted: false, shadow: cfg.shadow, usage: null, usageMismatch: false,
+        correction: 1, engineMs: 0, totalMs: performance.now() - tBody, compacted: false, shadow: requestCfg.shadow, usage: null, usageMismatch: false,
         rewriteRejected: false, reason: 'internal', forwarded: 'original', ...(clientSession ? { clientSession } : {}),
       }));
       return;
     }
     if (!committed) {
       visible.action = result.final.type === 'generated' ? 'refuse' : actionOf(result.action);
-      if (result.originalResent || cfg.shadow) visible.action = 'passthrough';
+      if (result.originalResent || requestCfg.shadow) visible.action = 'passthrough';
       const st = (result.last ?? result.first)?.stats;
       if (st) quantities = st.budget;
       visible.tokens.trigger = quantities.trigger;
@@ -863,8 +874,12 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   }
 
   function afterChat(r: ChatResult, c: AfterCtx): void {
-    const count = (q: ChatRequest): number => deps.counter.countRequest(q);
-    const attempts = attemptRecords(r, count, cfg);
+    const afterCounter = deps.counter;
+    const afterEngine = deps.engine;
+    const afterCfg = cfg;
+    const afterMode: CounterKind = afterCounter.mode === 'exact' ? 'exact' : 'estimate';
+    const count = (q: ChatRequest): number => afterCounter.countRequest(q);
+    const attempts = attemptRecords(r, count, afterCfg);
     for (let i = 0; i < attempts.length; i++) {
       const a = attempts[i]!;
       if (a.kind === 'ok') continue;
@@ -886,11 +901,11 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     const e0 = deps.state.entry(c.key);
     const sent = r.sent;
     const usage = r.tap?.usage ?? null;
-    status.completionUsage(usage?.completion_tokens, budgetQuantities(cfg, e0).allowance);
-    const budgetOf = (a: OutgoingAttempt): number => a.result?.stats?.budget?.budget ?? serverLimits(cfg, e0, a.extraTighten).budget;
+    status.completionUsage(usage?.completion_tokens, budgetQuantities(afterCfg, e0).allowance);
+    const budgetOf = (a: OutgoingAttempt): number => a.result?.stats?.budget?.budget ?? serverLimits(afterCfg, e0, a.extraTighten).budget;
     const learnSample = (counted: number, reported: number, source: 'usage' | 'endpoint', a: OutgoingAttempt): void => {
       const v = judgeSample({
-        cfg, mode: counterMode, budget: budgetOf(a), counted, reported, source, complete: r.complete, finishReason: r.tap?.finishReason ?? null,
+        cfg: afterCfg, mode: afterMode, budget: budgetOf(a), counted, reported, source, complete: r.complete, finishReason: r.tap?.finishReason ?? null,
         sameAttempt: true, silentTruncate: mode === 'silent_truncate',
       });
       if (v.warning) status.warn('silent_truncate', v.warning);
@@ -901,9 +916,12 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       }
       if (v.verdict !== 'accepted') return;
       const cur = deps.state.entry(c.key);
-      const applied = applyAcceptedRatio(cur, v.ratio, cfg, counterMode, now());
+      const applied = applyAcceptedRatio(cur, v.ratio, afterCfg, afterMode, now());
       deps.state.set(c.key, applied.entry);
-      if (applied.correctionChanged) deps.engine.setLearned(c.key, applied.entry);
+      if (applied.correctionChanged) {
+        if (deps.modelRuntimes) deps.modelRuntimes.setLearned(c.creq.model, c.key, applied.entry);
+        else afterEngine.setLearned(c.key, applied.entry);
+      }
     };
     if (sent && r.final.type === 'relayed') {
       status.forwardedPrompt(c.creq.model, c.clientSession, usage?.prompt_tokens ?? null);
@@ -934,7 +952,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     status.latency(totalMs, (c.reqPathMs ?? 0) + (c.respPathMs ?? 0), r.engineMs);
     deps.stats.write(buildStatsRecord({
       seq: c.seq, ts: c.ts, path: c.pathname, first: r.first, last: r.last, action: r.action, attempts, clientStatus: c.clientStatus,
-      tokensIn, correction: e0.correction, engineMs: r.engineMs, totalMs, compacted: r.compacted, shadow: cfg.shadow,
+      tokensIn, correction: e0.correction, engineMs: r.engineMs, totalMs, compacted: r.compacted, shadow: afterCfg.shadow,
       forwarded: r.attempts.length === 0 ? 'none' : r.attempts[r.attempts.length - 1]!.attempt.original ? 'original' : 'engine',
       usage: usage ? { ...(typeof usage.prompt_tokens === 'number' ? { prompt_tokens: usage.prompt_tokens } : {}), ...(typeof usage.completion_tokens === 'number' ? { completion_tokens: usage.completion_tokens } : {}) } : null,
       usageMismatch, rewriteRejected: r.rewriteRejected !== undefined,
@@ -958,11 +976,13 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     async probe() {
       const p = await upstream.probe();
       discoveredWindows = p.discovered_window ?? {};
-      setDiscoveredWindows(cfg, discoveredWindows);
+      if (deps.modelRuntimes) deps.modelRuntimes.setDiscoveredWindows(discoveredWindows);
+      else setDiscoveredWindows(cfg, discoveredWindows);
       status.setDiscoveredWindows(discoveredWindows);
       for (const [model, window] of Object.entries(discoveredWindows)) {
-        if (window !== cfg.budget.window) {
-          const message = `Model ${JSON.stringify(model)} reports context window ${window}; budget.window is ${cfg.budget.window}${isAutoWindow(cfg) ? ' (auto fallback); using the discovered window' : '; set budget.window=auto to use the discovered window'}.`;
+        const modelCfg = deps.modelRuntimes?.forModel(model).cfg ?? cfg;
+        if (window !== modelCfg.budget.window) {
+          const message = `Model ${JSON.stringify(model)} reports context window ${window}; budget.window is ${modelCfg.budget.window}${isAutoWindow(modelCfg) ? ' (auto fallback); using the discovered window' : '; set budget.window=auto to use the discovered window'}.`;
           status.warn(`window_mismatch:${model}`, message);
           log('warn', message);
         }
