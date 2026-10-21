@@ -38,8 +38,8 @@ Use the organisation's normal script policy. No administrator rights are needed 
 For multiple models, put each exact gateway model ID in the OpenCode provider's `models`
 map. Route `small_model` through that Kitzur provider if it should be compacted. For
 example, Qwen may use context 252000/output 32000; GPT-OSS may use context 131071/output
-32000. Kitzur's corresponding clientPoint/hard limits are 200000/193000 and 92071 hard
-with a 32000 planned output reservation.
+32000. Qwen has clientPoint 200000 and hard limit 193000; GPT-OSS has
+planMaxTokens 32000 and hard limit 92071.
 
 Use `-Action Stop` to stop accepting requests and drain active requests for up to 30 seconds.
 `-Action Start` starts it again. `-Action Diagnose` writes a safe count-only report in

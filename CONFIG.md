@@ -587,9 +587,12 @@ wire model against its own profile; unknown IDs use root defaults and produce a 
 {
   "budget": { "window": 100000 },
   "models": {
-    "org/qwen.v1": { "budget": { "window": 252000 } },
+    "org/qwen.v1": {
+      "budget": { "window": 252000 },
+      "client": { "compactionPointTokens": 200000 }
+    },
     "org/gpt-oss": {
-      "budget": { "window": 131071, "maxTokensClamp": { "enabled": true } },
+      "budget": { "window": 131071, "planMaxTokens": 32000, "maxTokensClamp": { "enabled": true } },
       "tokenizer": { "mode": "estimate", "template": { "name": "generic" } }
     }
   }
@@ -648,8 +651,10 @@ For example, OpenCode can route two exact wire IDs through one provider:
 }
 ```
 
-The corresponding profiles use Qwen clientPoint 200,000 and hard limit 193,000;
-GPT-OSS uses `budget.planMaxTokens: 32000` and hard limit 92,071. OpenCode's
+The corresponding profiles set Qwen `client.compactionPointTokens: 200000`, giving
+clientPoint 200,000 and hard limit 193,000. GPT-OSS sets
+`budget.planMaxTokens: 32000`, giving T_plan 32,000 and hard limit 92,071. These
+figures are derived, engine, and proxy budgets for their respective profiles. OpenCode's
 `small_model` must name a model in a provider routed through Kitzur to be compacted.
 If the model emits output equal to its context window, the client must advertise a
 smaller output limit (here 32,000); enable `maxTokensClamp` for strict-total servers.

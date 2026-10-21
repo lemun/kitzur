@@ -7,6 +7,8 @@ import type { DoctorCheck } from './doctor.js';
 const object = (v: unknown): Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v) ? v as Record<string, unknown> : {};
 const positive = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
+const safeId = (v: unknown): string => typeof v === 'string'
+  ? v.replace(/[\u0000-\u001f\u007f-\u009f]/gu, '\uFFFD').slice(0, 80) : 'unknown';
 
 /** Read-only OpenCode diagnostics; never echo URLs, credentials or configuration contents. */
 export function clientConfigChecks(cfg: Config, input: unknown, profiles: ModelProfiles = {}): DoctorCheck[] {
@@ -17,8 +19,7 @@ export function clientConfigChecks(cfg: Config, input: unknown, profiles: ModelP
   const root = object(input);
   const compaction = object(root.compaction);
   const providerEntries = Object.entries(object(root.provider)).map(([key, value]) => [key, object(value)] as const);
-  const providers = providerEntries.map(([, value]) => value);
-  const matches = providers.filter((p) => {
+  const matches = providerEntries.filter(([, p]) => {
     try {
       const u = new URL(String(object(p.options).baseURL));
       return (u.protocol === 'http:' || u.protocol === 'https:') && hostMatches(u.hostname) &&
@@ -37,15 +38,16 @@ export function clientConfigChecks(cfg: Config, input: unknown, profiles: ModelP
     }
     const [providerId, ...modelParts] = selection.split('/');
     const modelId = modelParts.join('/');
-    const provider = providerEntries.find(([key]) => key === providerId)?.[1];
+    const providerEntry = providerEntries.find(([key]) => key === providerId);
+    const provider = providerEntry?.[1];
     const found = provider && Object.entries(object(provider.models)).some(([key, value]) =>
       key === modelId || object(value).id === modelId);
-    if (!found) warn('routing', `${field} ${selection} does not resolve to a model in an OpenCode provider.`);
+    if (!found || !matches.some(([key]) => key === providerEntry?.[0]))
+      warn('routing', `${field} ${safeId(selection)} does not resolve to a model in a Kitzur-routed OpenCode provider.`);
   };
   routed(root.model, 'model');
   routed(root.small_model, 'small_model');
-  const b = computeBudget(cfg);
-  for (const p of matches) {
+  for (const [providerKey, p] of matches) {
     if (p.npm !== '@ai-sdk/openai-compatible')
       warn('npm', 'Use @ai-sdk/openai-compatible; the OpenAI provider uses /responses, which Kitzur forwards untouched.');
     const modelEntries = Object.entries(object(p.models)).map(([key, value]) => [key, object(value)] as const);
@@ -54,9 +56,9 @@ export function clientConfigChecks(cfg: Config, input: unknown, profiles: ModelP
     for (const { key, value: model, wireId } of models) {
       const modelCfg = resolveModelConfig(cfg, profiles, wireId);
       const b = computeBudget(modelCfg);
-      const label = `${String(p.name ?? 'provider')}/${key}`;
+      const label = `${safeId(providerKey)}/${safeId(key)}`;
       if (!Object.hasOwn(profiles, wireId) && Object.keys(profiles).length)
-        warn('profile', `${label}: no Kitzur profile for wire model ${wireId}; root defaults apply.`);
+        warn('profile', `${label}: no Kitzur profile for wire model ${safeId(wireId)}; root defaults apply.`);
       const limit = object(model.limit);
       if (limit.context === 0) continue;
       if (!positive(limit.context)) {
