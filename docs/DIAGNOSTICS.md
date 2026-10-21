@@ -4,7 +4,9 @@
 
 Messages are fixed and safe for display: they include no raw paths, credentials, config values, network error text, or server response body. Doctor exits 0 when checks have no errors, 1 when a diagnostic finds an error, and the CLI uses 2 for configuration or command-line errors.
 
-The optional upstream check sends one bounded `GET /v1/models` request. It sends no prompt and does not generate a completion. A 2xx response is healthy; 401/403 and 404 indicate a reachable server with an auth or route issue; other responses or transport failures are errors. The timeout is capped at 10 seconds.
+The optional upstream check sends one bounded `GET /v1/models` request. It sends no prompt and does not generate a completion. A 2xx response is healthy; 401/403 are healthy when the client supplies the key, but warn when upstream.headers contains an authorization-like header; 404 warns about a missing route; other responses or transport failures are errors. The timeout is capped at 10 seconds. Set KITZUR_PROBE_TOKEN in the environment to send a Bearer key for this probe only: 2xx reports “key accepted”, and 401/403 warns “key rejected”. The token is never printed; there is no CLI token value.
+
+Client usable-context checks accept equality at the trigger plus output allowance boundary. When the client would compact first, the fix names the client.inputLimit, client.reservedTokens (for an explicit input reservation), and client.outputLimit values to mirror in kitzur.jsonc, where applicable.
 
 ```sh
 kitzur doctor
