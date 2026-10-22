@@ -149,6 +149,8 @@ test('a first-event in-stream overflow is recovered: the client sees only the re
     assert.equal(e.window, 2500, 'learned from the in-stream body');
     const rec = (await waitRecords(f, 1))[0]!;
     assert.deepEqual(rec.attempts.map((a) => [a.kind, a.inStream]), [['overflow_prompt', true], ['ok', false]]);
+    const status = (await request(f.port, { method: 'GET', path: '/status' })).json();
+    assert.equal((status.model_counters as Record<string, { retries: number }>).m1!.retries, 1);
   }, { counter, config: { budget: { window: 4000, defaultMaxTokens: 500, planMaxTokens: 500 } } });
 });
 

@@ -516,7 +516,10 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       status.forwardedPrompt(creq.model, clientSession, a.original ? visible.tokens.in : a.result?.stats.tokensOut ?? visible.tokens.in);
       upstreamCalls++;
       dropRest(); // a retry: the previous attempt's error is not relayed
-      if (a.n > 1) status.retries++;
+      if (a.n > 1) {
+        status.retries++;
+        status.modelRetry(creq.model ?? null);
+      }
       if (!firstClientByte) firstUpByte = 0; // respPath is measured on the attempt that reaches the client
       let up: UpstreamResponse;
       try {
