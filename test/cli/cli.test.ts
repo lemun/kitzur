@@ -143,6 +143,19 @@ test('config show: every leaf with its source, derived budget, masked headers', 
   assert.match(bad.out, /# ERROR: compaction\.triggerFraction/);
 });
 
+test('config show and validate recognize the runtime probe token without exposing it', async () => {
+  for (const command of ['show', 'validate']) {
+    for (const format of [[], ['--json']]) {
+      const args = ['config', command, ...format];
+      const baseline = await run(args);
+      const result = await run(args, { env: { KITZUR_PROBE_TOKEN: 'secret-probe-token' } });
+      assert.equal(result.code, 0);
+      assert.deepEqual(result, baseline);
+      assert.doesNotMatch(result.out + result.err, /secret-probe-token|KITZUR_PROBE_TOKEN/);
+    }
+  }
+});
+
 test('config validate: exit codes, warnings, JSON', async () => {
   const ok = await run(['config', 'validate', '--preset', '100k', '--upstream', 'http://127.0.0.1:8000']);
   assert.equal(ok.code, 0);

@@ -1,6 +1,8 @@
 import test, { mock } from 'node:test';
 import http from 'node:http';
 import net from 'node:net';
+import { Readable } from 'node:stream';
+import { Upstream } from '../../src/proxy/upstream.js';
 import { EventEmitter } from 'node:events';
 import { syncBuiltinESMExports } from 'node:module';
 import assert from 'node:assert/strict';
@@ -53,7 +55,7 @@ test('doctor recognizes reachable auth and missing-route responses and bounds a 
   assert.ok(address && typeof address === 'object');
   const origin = `http://127.0.0.1:${address.port}`;
   try {
-    for (const [path, expectedStatus] of [['/auth', 'warn'], ['/missing', 'warn'], ['/stall', 'error']] as const) {
+    for (const [path, expectedStatus] of [['/auth', 'ok'], ['/missing', 'warn'], ['/stall', 'error']] as const) {
       const timeoutMs = path === '/stall' ? 80 : 5_000;
       const cfg = defaultConfig(); cfg.upstream.origin = origin; cfg.upstream.timeoutMs = timeoutMs;
       // Upstream's GET probe path is fixed; route by request header for independent status cases.
@@ -188,4 +190,43 @@ test('doctor still reports diagnostics when upstream.headers is not a record', a
   const result = await doctor(cfg);
   assert.equal(result.checks.find((c) => c.code === 'config.valid')?.status, 'error');
   assert.equal(result.checks.find((c) => c.code === 'listen.token'), undefined);
+});
+
+test('upstream authentication diagnostics distinguish client keys, stored keys and probe tokens', async () => {
+  let status = 200, expected = '';
+  const server = createServer((req, res) => {
+    assert.equal(req.headers.authorization ?? '', expected);
+    res.writeHead(status); res.end('{}');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    for (status of [200, 401, 403, 404, 500]) for (const header of ['', 'Authorization', 'X-Api-Key', 'Proxy-Authorization', 'api-key', 'Cookie']) for (const token of ['', 'PROBE_SECRET']) {
+      const cfg = defaultConfig(); cfg.upstream.origin = `http://127.0.0.1:${(server.address() as net.AddressInfo).port}`;
+      cfg.upstream.headers = header ? { [header]: 'STORED_SECRET' } : {};
+      expected = token ? 'Bearer ' + token : header === 'Authorization' ? 'STORED_SECRET' : '';
+      const result = await doctor(cfg, { upstreamCheck: true, env: { KITZUR_PROBE_TOKEN: token } });
+      const check = result.checks.find((c) => c.code === 'upstream.reachable');
+      assert.equal(check?.status, status === 200 || ([401, 403].includes(status) && !header && !token) ? 'ok' : status === 500 ? 'error' : 'warn');
+      if (token && [200, 401, 403].includes(status)) assert.match(check?.message ?? '', status === 200 ? /key accepted/i : /key rejected/i);
+      assert.doesNotMatch(renderDoctor(result) + JSON.stringify(result), /PROBE_SECRET|STORED_SECRET/);
+    }
+  } finally { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); }
+});
+
+test('probe auth status and token forwarding at the request boundary', async () => {
+  for (const status of [200, 401, 403, 404, 500]) for (const stored of [false, true]) for (const token of ['', 'PROBE_SECRET']) {
+    const cfg = defaultConfig(); cfg.upstream.origin = 'http://localhost:1';
+    cfg.upstream.headers = stored ? { AUTHORIZATION: 'STORED_SECRET' } : {};
+    mock.method(Upstream.prototype, 'request', async (req: { headers: Record<string, unknown> }) => {
+      assert.equal(req.headers.authorization, token ? 'Bearer ' + token : stored ? 'STORED_SECRET' : undefined);
+      return { status, body: Readable.from([Buffer.from('{}')]) };
+    });
+    try {
+      const result = await doctor(cfg, { upstreamCheck: true, env: { KITZUR_PROBE_TOKEN: token } });
+      const check = result.checks.find((c) => c.code === 'upstream.reachable');
+      assert.equal(check?.status, status === 200 || ([401, 403].includes(status) && !stored && !token) ? 'ok' : status === 500 ? 'error' : 'warn');
+      if (token && [200, 401, 403].includes(status)) assert.match(check?.message ?? '', status === 200 ? /key accepted/i : /key rejected/i);
+      assert.doesNotMatch(renderDoctor(result) + JSON.stringify(result), /PROBE_SECRET|STORED_SECRET/);
+    } finally { mock.restoreAll(); }
+  }
 });

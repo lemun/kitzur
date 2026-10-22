@@ -5,8 +5,9 @@ import { existsSync, statSync, accessSync, constants, readFileSync } from 'node:
 import { dirname, parse } from 'node:path';
 import { listenTokenWarning, validateConfig } from '../config/validate.js';
 import { computeBudget } from '../config/derived.js';
-import type { Config } from '../config/schema.js';
+import type { Config, ModelProfiles } from '../config/schema.js';
 import { stateDirOf } from '../config/paths.js';
+import { loadTokenizerCached } from '../tokenize/load.js';
 import { loadTokenizer } from '../tokenize/tokenizer.js';
 import { templateTokenizerWarning } from '../tokenize/template.js';
 import { parseJsonc } from '../config/jsonc.js';
@@ -78,7 +79,7 @@ function nearestExistingDirectory(path: string): { path: string; blocked: boolea
 }
 
 /** Read-only local diagnostics. Network access is opt-in and uses the small models endpoint probe. */
-export async function doctor(config: Config, opts: { env?: Record<string, string | undefined>; upstreamCheck?: boolean; timeoutMs?: number; configPath?: string; clientConfigPath?: string } = {}): Promise<DoctorResult> {
+export async function doctor(config: Config, opts: { env?: Record<string, string | undefined>; upstreamCheck?: boolean; timeoutMs?: number; configPath?: string; clientConfigPath?: string; models?: ModelProfiles } = {}): Promise<DoctorResult> {
   const checks: DoctorCheck[] = [];
   const add = (code: string, status: DoctorCheck['status'], message: string, fix?: string): void => { checks.push({ code, status, message, ...(fix ? { fix } : {}) }); };
 
@@ -103,8 +104,29 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
     else add('budget.client_limits', 'ok', 'Configured plan output and client limits are compatible.');
   }
 
+  for (const [model, profile] of Object.entries(opts.models ?? {})) {
+    const code = `model.${model}.tokenizer`;
+    if (profile.tokenizer.mode === 'estimate' || !profile.tokenizer.path) {
+      add(code, 'warn', `counter=estimate; reason=${profile.tokenizer.mode === 'estimate' ? "tokenizer.mode is 'estimate'" : 'tokenizer.path is not set'}; sha256=null; sourceBytes=0; loadMs=0`);
+      continue;
+    }
+    try {
+      const sourceBytes = statSync(profile.tokenizer.path).size;
+      if (sourceBytes > 64 * 1024 * 1024) {
+        add(code, 'warn', `counter=estimate; reason=tokenizer source exceeds 64 MiB; sha256=null; sourceBytes=${sourceBytes}; loadMs=0`);
+        continue;
+      }
+      const started = performance.now();
+      const cachePath = profile.tokenizer.path !== config.tokenizer.path && profile.tokenizer.cachePath === config.tokenizer.cachePath ? null : profile.tokenizer.cachePath;
+      const tok = loadTokenizerCached(profile.tokenizer.path, cachePath);
+      add(code, 'ok', `counter=exact; sha256=${tok.sha256}; sourceBytes=${sourceBytes}; loadMs=${Math.round(performance.now() - started)}`);
+    } catch (error) {
+      add(code, 'warn', `counter=estimate; reason=${(error as Error).message}; sha256=null; sourceBytes=0; loadMs=0`);
+    }
+  }
+
   if (opts.clientConfigPath) {
-    try { checks.push(...clientConfigChecks(config, parseJsonc(readFileSync(opts.clientConfigPath, 'utf8')))); }
+    try { checks.push(...clientConfigChecks(config, parseJsonc(readFileSync(opts.clientConfigPath, 'utf8')), opts.models)); }
     catch { add('client.config', 'error', 'Client configuration could not be read as JSON/JSONC.'); }
   }
 
@@ -173,10 +195,15 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
       const requestedTimeout = opts.timeoutMs ?? config.upstream.timeoutMs;
       cfg.timeoutMs = Number.isFinite(requestedTimeout) ? Math.max(1, Math.min(10_000, Math.floor(requestedTimeout))) : 3000;
       upstream = new Upstream(cfg);
-      const result = await upstream.probe();
+      const token = (opts.env ?? process.env).KITZUR_PROBE_TOKEN;
+      const hasAuth = Object.keys(cfg.headers).some((key) => /authorization|api[-_]?key|token|cookie/i.test(key));
+      if (token) for (const key of Object.keys(cfg.headers)) if (key.toLowerCase() === 'authorization') delete cfg.headers[key];
+      const result = await upstream.probe('/v1/models', token ? { authorization: 'Bearer ' + token } : {});
       const status = result.status ?? 0;
-      if (status >= 200 && status < 300) add('upstream.reachable', 'ok', `Upstream responded to the lightweight models probe (HTTP ${status}).`);
-      else if (status === 401 || status === 403) add('upstream.reachable', 'warn', `Upstream is reachable but the models probe requires authorization (HTTP ${status}).`, 'Check upstream.headers authorization configuration.');
+      if (status >= 200 && status < 300) add('upstream.reachable', 'ok', `Upstream responded to the lightweight models probe (HTTP ${status}).${token ? ' Key accepted.' : ''}`);
+      else if (status === 401 || status === 403) add('upstream.reachable', token || hasAuth ? 'warn' : 'ok',
+        token ? 'Upstream is reachable; probe key rejected.' : hasAuth ? 'Upstream is reachable; configured key rejected.' : 'Upstream is reachable; gateway requires a key; the client supplies it.',
+        token ? 'Check KITZUR_PROBE_TOKEN.' : hasAuth ? 'Check upstream.headers authorization configuration.' : undefined);
       else if (status === 404) add('upstream.reachable', 'warn', 'Upstream is reachable but /v1/models is unavailable (HTTP 404).', 'Check the upstream gateway route.');
       else add('upstream.reachable', 'error', 'Upstream probe failed.', 'Check upstream.origin, TLS settings, and network availability.');
     } catch { add('upstream.reachable', 'error', 'Upstream probe could not be completed.', 'Check upstream.origin and upstream configuration.'); }
