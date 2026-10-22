@@ -10,7 +10,7 @@ const ALLOWED = new Set([
   'budget.safetyMarginTokens', 'budget.safetyMarginFraction', 'budget.maxTokensClamp.enabled',
   'budget.maxTokensClamp.floorTokens', 'budget.maxTokensRestore.enabled', 'budget.maxTokensRestore.toTokens',
   'client.compactionPointTokens', 'client.inputLimit', 'client.reservedTokens', 'client.outputLimit',
-  'client.outputTokenMax', 'client.outputAllowanceTokens', 'tokenizer.mode', 'tokenizer.template.name',
+  'client.outputTokenMax', 'client.outputAllowanceTokens', 'tokenizer.mode', 'tokenizer.path', 'tokenizer.template.name',
 ]);
 const FORBIDDEN = new Set(['__proto__', 'prototype', 'constructor']);
 

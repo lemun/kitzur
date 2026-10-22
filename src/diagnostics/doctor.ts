@@ -7,6 +7,7 @@ import { listenTokenWarning, validateConfig } from '../config/validate.js';
 import { computeBudget } from '../config/derived.js';
 import type { Config, ModelProfiles } from '../config/schema.js';
 import { stateDirOf } from '../config/paths.js';
+import { loadTokenizerCached } from '../tokenize/load.js';
 import { loadTokenizer } from '../tokenize/tokenizer.js';
 import { templateTokenizerWarning } from '../tokenize/template.js';
 import { parseJsonc } from '../config/jsonc.js';
@@ -101,6 +102,27 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
     if (b.hard <= 1) add('budget.client_limits', 'error', `Client compaction point ${b.clientPoint} minus output allowance ${b.allowance} leaves no usable prompt budget.`, 'Adjust client.compactionPointTokens and client.outputAllowanceTokens.');
     else if (config.client.outputLimit !== null && b.planMaxTokens < config.client.outputLimit) add('budget.client_limits', 'warn', `Planned output limit ${b.planMaxTokens} is below the client output limit ${config.client.outputLimit}; long replies may be fitted down.`, 'Align budget.planMaxTokens/defaultMaxTokens with client.outputLimit.');
     else add('budget.client_limits', 'ok', 'Configured plan output and client limits are compatible.');
+  }
+
+  for (const [model, profile] of Object.entries(opts.models ?? {})) {
+    const code = `model.${model}.tokenizer`;
+    if (profile.tokenizer.mode === 'estimate' || !profile.tokenizer.path) {
+      add(code, 'warn', `counter=estimate; reason=${profile.tokenizer.mode === 'estimate' ? "tokenizer.mode is 'estimate'" : 'tokenizer.path is not set'}; sha256=null; sourceBytes=0; loadMs=0`);
+      continue;
+    }
+    try {
+      const sourceBytes = statSync(profile.tokenizer.path).size;
+      if (sourceBytes > 64 * 1024 * 1024) {
+        add(code, 'warn', `counter=estimate; reason=tokenizer source exceeds 64 MiB; sha256=null; sourceBytes=${sourceBytes}; loadMs=0`);
+        continue;
+      }
+      const started = performance.now();
+      const cachePath = profile.tokenizer.path !== config.tokenizer.path && profile.tokenizer.cachePath === config.tokenizer.cachePath ? null : profile.tokenizer.cachePath;
+      const tok = loadTokenizerCached(profile.tokenizer.path, cachePath);
+      add(code, 'ok', `counter=exact; sha256=${tok.sha256}; sourceBytes=${sourceBytes}; loadMs=${Math.round(performance.now() - started)}`);
+    } catch (error) {
+      add(code, 'warn', `counter=estimate; reason=${(error as Error).message}; sha256=null; sourceBytes=0; loadMs=0`);
+    }
   }
 
   if (opts.clientConfigPath) {
