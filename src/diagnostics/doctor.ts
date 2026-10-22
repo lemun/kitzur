@@ -201,8 +201,8 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
       const result = await upstream.probe('/v1/models', token ? { authorization: 'Bearer ' + token } : {});
       const status = result.status ?? 0;
       if (status >= 200 && status < 300) add('upstream.reachable', 'ok', `Upstream responded to the lightweight models probe (HTTP ${status}).${token ? ' Key accepted.' : ''}`);
-      else if (status === 401 || status === 403) add('upstream.reachable', token || hasAuth ? 'warn' : 'ok',
-        token ? 'Upstream is reachable; probe key rejected.' : hasAuth ? 'Upstream is reachable; configured key rejected.' : 'Upstream is reachable; gateway requires a key; the client supplies it.',
+      else if (status === 401 || status === 403) add('upstream.reachable', 'warn',
+        token ? 'Metadata needs a key; the probe key was rejected.' : hasAuth ? 'Metadata needs a key; the configured key was rejected.' : 'Metadata needs a key to read /v1/models.',
         token ? 'Check KITZUR_PROBE_TOKEN.' : hasAuth ? 'Check upstream.headers authorization configuration.' : undefined);
       else if (status === 404) add('upstream.reachable', 'warn', 'Upstream is reachable but /v1/models is unavailable (HTTP 404).', 'Check the upstream gateway route.');
       else add('upstream.reachable', 'error', 'Upstream probe failed.', 'Check upstream.origin, TLS settings, and network availability.');

@@ -55,7 +55,7 @@ test('doctor recognizes reachable auth and missing-route responses and bounds a 
   assert.ok(address && typeof address === 'object');
   const origin = `http://127.0.0.1:${address.port}`;
   try {
-    for (const [path, expectedStatus] of [['/auth', 'ok'], ['/missing', 'warn'], ['/stall', 'error']] as const) {
+    for (const [path, expectedStatus] of [['/auth', 'warn'], ['/missing', 'warn'], ['/stall', 'error']] as const) {
       const timeoutMs = path === '/stall' ? 80 : 5_000;
       const cfg = defaultConfig(); cfg.upstream.origin = origin; cfg.upstream.timeoutMs = timeoutMs;
       // Upstream's GET probe path is fixed; route by request header for independent status cases.
@@ -206,8 +206,8 @@ test('upstream authentication diagnostics distinguish client keys, stored keys a
       expected = token ? 'Bearer ' + token : header === 'Authorization' ? 'STORED_SECRET' : '';
       const result = await doctor(cfg, { upstreamCheck: true, env: { KITZUR_PROBE_TOKEN: token } });
       const check = result.checks.find((c) => c.code === 'upstream.reachable');
-      assert.equal(check?.status, status === 200 || ([401, 403].includes(status) && !header && !token) ? 'ok' : status === 500 ? 'error' : 'warn');
-      if (token && [200, 401, 403].includes(status)) assert.match(check?.message ?? '', status === 200 ? /key accepted/i : /key rejected/i);
+      assert.equal(check?.status, status === 200 ? 'ok' : status === 500 ? 'error' : 'warn');
+      if (token && [200, 401, 403].includes(status)) assert.match(check?.message ?? '', status === 200 ? /key accepted/i : /key was rejected/i);
       assert.doesNotMatch(renderDoctor(result) + JSON.stringify(result), /PROBE_SECRET|STORED_SECRET/);
     }
   } finally { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); }
@@ -224,8 +224,8 @@ test('probe auth status and token forwarding at the request boundary', async () 
     try {
       const result = await doctor(cfg, { upstreamCheck: true, env: { KITZUR_PROBE_TOKEN: token } });
       const check = result.checks.find((c) => c.code === 'upstream.reachable');
-      assert.equal(check?.status, status === 200 || ([401, 403].includes(status) && !stored && !token) ? 'ok' : status === 500 ? 'error' : 'warn');
-      if (token && [200, 401, 403].includes(status)) assert.match(check?.message ?? '', status === 200 ? /key accepted/i : /key rejected/i);
+      assert.equal(check?.status, status === 200 ? 'ok' : status === 500 ? 'error' : 'warn');
+      if (token && [200, 401, 403].includes(status)) assert.match(check?.message ?? '', status === 200 ? /key accepted/i : /key was rejected/i);
       assert.doesNotMatch(renderDoctor(result) + JSON.stringify(result), /PROBE_SECRET|STORED_SECRET/);
     } finally { mock.restoreAll(); }
   }
