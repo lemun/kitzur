@@ -97,7 +97,7 @@ test('main: every command answers --help / -h with its usage on stdout, exit 0',
     }
   }
   const d = await run(['doctor', '--json', '--help']);
-  assert.match(d.out, /doctor \[--client-config PATH\].*\n[\s\S]*-c, --config FILE/);
+  assert.match(d.out, /doctor \[options\].*\n[\s\S]*doctor \[--model ID\] \[--client-config PATH\].*\n[\s\S]*-c, --config FILE/);
   // doctor reads the config, so the config-options header names it
   assert.match(d.out, /config options \([^)]*\bdoctor\b[^)]*\):/);
   const c = await run(['config', 'show', '--help']);
