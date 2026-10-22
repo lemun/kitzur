@@ -726,7 +726,9 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         const served = Object.hasOwn(discoveredWindows, model) ? discoveredWindows[model] : undefined;
         const persisted = deps.state.entry(key);
         const promptCap = deps.modelRuntimes?.limitsFor(creq.model).maxPrompt;
-        const withoutMetadataCap = promptCap === undefined ? e : { ...e, maxPrompt: persisted.maxPrompt };
+        const withoutMetadataCap = promptCap !== undefined && e.maxPrompt === promptCap
+          ? { ...e, maxPrompt: persisted.maxPrompt }
+          : e;
         const stored = isAutoWindow(requestCfg) && e.window === served
           ? { ...withoutMetadataCap, window: persisted.window }
           : withoutMetadataCap;
@@ -1005,7 +1007,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       for (const [model, limits] of Object.entries(p.discovered_limits ?? {})) {
         const modelCfg = deps.modelRuntimes?.forModel(model).cfg ?? cfg;
         if (limits.maxOutput !== undefined) {
-          const configured = modelCfg.client.outputLimit ?? modelCfg.budget.planMaxTokens ?? modelCfg.budget.defaultMaxTokens;
+          const configured = modelCfg.budget.planMaxTokens ?? modelCfg.budget.defaultMaxTokens;
           if (limits.maxOutput < configured) {
             const message = `Model ${JSON.stringify(model)} upstream caps output at ${limits.maxOutput}, you configured ${configured}: expect mid-answer truncation.`;
             status.warn(`output_cap:${model}`, message);
@@ -1013,7 +1015,6 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
           }
           if (limits.window !== undefined && limits.maxOutput >= limits.window) {
             const message = `Model ${JSON.stringify(model)} max output ${limits.maxOutput} is at least its context window ${limits.window}.`;
-            status.warn(`output_window:${model}`, message);
             log('info', message);
           }
         }
