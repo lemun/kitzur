@@ -17,6 +17,7 @@
 //   src/proxy/stats.js         StatsWriter(stats.path)
 //   src/proxy/server.js        createProxyServer(config, { engine, counter, remote, state, stats, log })
 import { RuntimeLog, LoopWatchdog } from './diagnostics/runtime.js';
+import { formatPaths } from './proxy/status.js';
 import { chmodSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -257,7 +258,7 @@ export interface App extends EngineSetup {
  */
 export async function buildApp(
   config: Config,
-  opts: { log?: Logger; modules?: AppModules; env?: Record<string, string | undefined>; models?: ModelProfiles } = {},
+  opts: { log?: Logger; modules?: AppModules; env?: Record<string, string | undefined>; models?: ModelProfiles; configPath?: string | null } = {},
 ): Promise<App> {
   const runtimeLog = opts.log instanceof RuntimeLog ? opts.log : opts.log ? undefined : new RuntimeLog({ dir: join(stateDirOf(config, opts.env), 'logs'), file: config.log.file, console: config.log.console, level: config.logLevel });
   const log = opts.log ?? runtimeLog!;
@@ -288,6 +289,9 @@ export async function buildApp(
       watchdog,
       modelRuntimes,
     });
+    const logPath = opts.log instanceof RuntimeLog ? opts.log.path : runtimeLog?.path ?? config.log.file;
+    if (server.status) server.status.paths = () => ({ config: opts.configPath ?? null, state_dir: es.stateDir, log_file: logPath });
+    log.info(formatPaths({ config: opts.configPath ?? null, state_dir: es.stateDir, log_file: logPath }));
     return {
       ...es,
       config,
