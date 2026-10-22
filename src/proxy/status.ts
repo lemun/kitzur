@@ -59,25 +59,28 @@ export class StatusTracker {
   private readonly recent: RecentRequest[] = [];
   private readonly modelCounts = new Map<string, { actions: Record<string, number>; errors: number; retries: number }>();
   private readonly modelOther = { actions: {} as Record<string, number>, errors: 0, retries: 0 };
+  private modelBucket(model: string | null): { actions: Record<string, number>; errors: number; retries: number } {
+    const id = model && model.length <= 256 && !/[\u0000-\u001f\u007f-\u009f]/u.test(model) ? model : null;
+    let counts = id && id !== 'other' ? this.modelCounts.get(id) : undefined;
+    if (!counts && id && id !== 'other' && this.modelCounts.size < 64) {
+      counts = { actions: {}, errors: 0, retries: 0 };
+      this.modelCounts.set(id, counts);
+    }
+    return counts ?? this.modelOther;
+  }
   private lastCompaction: { at: string; in: number | null; out: number | null; trigger: number | null } | null = null;
 
   recordRequest(r: RecentRequest): void {
     this.recent.push({ ...r, tokens: { ...r.tokens } });
     if (this.recent.length > 64) this.recent.shift();
     if (r.action === 'compact') this.lastCompaction = { at: new Date(this.now()).toISOString(), ...r.tokens };
-    const id = r.model && r.model.length <= 256 && !/[\u0000-\u001f\u007f-\u009f]/u.test(r.model) ? r.model : null;
-    let counts = id ? this.modelCounts.get(id) : undefined;
-    if (!counts && id && this.modelCounts.size < 64) { counts = { actions: {}, errors: 0, retries: 0 }; this.modelCounts.set(id, counts); }
-    counts ??= this.modelOther;
+    const counts = this.modelBucket(r.model);
     counts.actions[r.action] = (counts.actions[r.action] ?? 0) + 1;
     if (r.action === 'refuse') counts.errors++;
   }
 
   modelRetry(model: string | null): void {
-    const id = model && model.length <= 256 && !/[\u0000-\u001f\u007f-\u009f]/u.test(model) ? model : null;
-    let counts = id ? this.modelCounts.get(id) : undefined;
-    if (!counts && id && this.modelCounts.size < 64) { counts = { actions: {}, errors: 0, retries: 0 }; this.modelCounts.set(id, counts); }
-    (counts ?? this.modelOther).retries++;
+    this.modelBucket(model).retries++;
   }
 
   private readonly forwarded = new Map<string, number>();

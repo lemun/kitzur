@@ -105,9 +105,16 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
   }
 
   const modelEntries = Object.entries(opts.models ?? {}).filter(([model]) => !opts.model || model === opts.model);
+  if (opts.model && !(opts.models && Object.hasOwn(opts.models, opts.model))) {
+    add(`model.${opts.model}.profile`, 'warn', 'No exact model profile is configured; root defaults apply.');
+  }
   for (const [model, profile] of modelEntries) {
-    const budget = computeBudget(profile);
-    add(`model.${model}.budget`, budget.budget > 0 && budget.hard > 1 ? 'ok' : 'error', `window=${budget.window}; prompt=${budget.budget}; hard=${budget.hard}`);
+    try {
+      const budget = computeBudget(profile);
+      add(`model.${model}.budget`, budget.budget > 0 && budget.hard > 1 ? 'ok' : 'error', `window=${budget.window}; prompt=${budget.budget}; hard=${budget.hard}`);
+    } catch {
+      add(`model.${model}.budget`, 'error', 'Profile budget could not be calculated.');
+    }
     const code = `model.${model}.tokenizer`;
     if (profile.tokenizer.mode === 'estimate' || !profile.tokenizer.path) {
       add(code, 'warn', `counter=estimate; reason=${profile.tokenizer.mode === 'estimate' ? "tokenizer.mode is 'estimate'" : 'tokenizer.path is not set'}; sha256=null; sourceBytes=0; loadMs=0`);

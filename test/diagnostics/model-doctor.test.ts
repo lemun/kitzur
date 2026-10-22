@@ -16,6 +16,12 @@ test('doctor checks selected profile budget and tokenizer/template pair offline'
   assert.ok(!result.checks.some((c) => c.code === 'upstream.reachable'));
 });
 
+test('doctor warns when --model does not exactly match a configured profile', async () => {
+  const result = await doctor(defaultConfig(), { models: {}, model: 'unknown' });
+  assert.ok(result.checks.some((c) => c.code === 'model.unknown.profile' && c.status === 'warn'));
+  assert.ok(!result.checks.some((c) => c.code.startsWith('model.') && c.code !== 'model.unknown.profile'));
+});
+
 test('status model counters cap named models and aggregate overflow under other', () => {
   const tracker = new StatusTracker(testConfig(), 'test');
   for (let i = 0; i < 66; i++) tracker.recordRequest({ action: 'passthrough', tokens: { in: 1, out: 1, trigger: null }, model: `m${i}`, ms: 1 });
