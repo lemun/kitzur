@@ -1,0 +1,66 @@
+/*
+ * Kitzur visual tokens (from docs/assets/logo.svg and how-it-works.svg),
+ * mapped onto Starlight's color variables. Plain CSS, no framework.
+ */
+:root {
+  --kz-ink: #141923;
+  --kz-ink-raised: #1c2330;
+  --kz-slate: #526174;
+  --kz-steel: #687386;
+  --kz-line: #cbd5e1;
+  --kz-mist: #edf2f7;
+  --kz-paper: #f8fafc;
+  --kz-white: #ffffff;
+  --kz-violet: #6248c8;
+  --kz-violet-light: #a99aff;
+  --kz-violet-wash: #eee9ff;
+  --kz-mint: #136b59;
+  --kz-mint-light: #61dbc3;
+  --kz-mint-wash: #e0f5ee;
+  --kz-font: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Arial, Helvetica, sans-serif;
+  --kz-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --kz-radius: 16px;
+}
+
+/* Dark theme (Starlight default). */
+:root {
+  --sl-font: var(--kz-font);
+  --sl-font-mono: var(--kz-font-mono);
+  --sl-color-accent-low: #2a2250;
+  --sl-color-accent: var(--kz-violet);
+  --sl-color-accent-high: var(--kz-violet-light);
+  --sl-color-white: var(--kz-paper);
+  --sl-color-gray-1: #e2e8f0;
+  --sl-color-gray-2: var(--kz-line);
+  --sl-color-gray-3: #94a3b8;
+  --sl-color-gray-4: var(--kz-steel);
+  --sl-color-gray-5: #333d4d;
+  --sl-color-gray-6: var(--kz-ink-raised);
+  --sl-color-black: var(--kz-ink);
+  --sl-color-green-low: #12352e;
+  --sl-color-green: var(--kz-mint-light);
+  --sl-color-green-high: var(--kz-mint-wash);
+}
+
+/* Light theme. */
+:root[data-theme='light'] {
+  --sl-color-accent-low: var(--kz-violet-wash);
+  --sl-color-accent: var(--kz-violet);
+  --sl-color-accent-high: #3f2b95;
+  --sl-color-white: var(--kz-ink);
+  --sl-color-gray-1: #1e2633;
+  --sl-color-gray-2: #333d4d;
+  --sl-color-gray-3: var(--kz-slate);
+  --sl-color-gray-4: var(--kz-steel);
+  --sl-color-gray-5: var(--kz-line);
+  --sl-color-gray-6: var(--kz-mist);
+  --sl-color-gray-7: var(--kz-paper);
+  --sl-color-black: var(--kz-white);
+  --sl-color-green-low: var(--kz-mint-wash);
+  --sl-color-green: var(--kz-mint);
+  --sl-color-green-high: #0c4a3e;
+}
+
+.sl-markdown-content :is(img, pre, table) {
+  border-radius: var(--kz-radius);
+}
