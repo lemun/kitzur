@@ -247,7 +247,7 @@ export async function buildApp(
       watchdog,
     });
     const paths = () => ({ config: opts.configPath ?? null, state_dir: es.stateDir, log_file: runtimeLog?.path ?? config.log.file });
-    server.status.paths = paths;
+    if (server.status) server.status.paths = paths;
     runtimeLog?.info(formatPaths(paths()));
     return {
       ...es,

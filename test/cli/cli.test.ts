@@ -392,7 +392,7 @@ test('count: exact per-message counts without content', { skip: testTokenizerPat
 // ---------------------------------------------------------------- replay and serve with injected modules
 
 /** A fake engine: drops every other message after the first two; `flaky` makes a fresh engine differ. */
-function fakeModules(opts: { flaky?: boolean; listenError?: Error; onClose?: (ms: number) => void; probe?: () => Promise<{ ok: boolean; tlsError?: string }> } = {}): AppModules & { built: number } {
+function fakeModules(opts: { flaky?: boolean; listenError?: Error; onClose?: (ms: number) => void; probe?: () => Promise<{ ok: boolean; tlsError?: string }>; bareStatus?: boolean } = {}): AppModules & { built: number } {
   let built = 0;
   const mods = {
     get built() {
@@ -433,7 +433,7 @@ function fakeModules(opts: { flaky?: boolean; listenError?: Error; onClose?: (ms
         },
         close: async (ms?: number) => opts.onClose?.(ms ?? -1),
         probe: opts.probe ?? (async () => ({ ok: true })),
-        status: { warn: () => undefined },
+        ...(opts.bareStatus ? {} : { status: { warn: () => undefined } }),
       }) as unknown as ReturnType<AppModules['createProxyServer']>,
   };
   return mods as unknown as AppModules & { built: number };
@@ -584,3 +584,10 @@ test('app status exposes resolved config, state and current log paths', () => wi
     assert.match(paths.log_file, /kitzur-\d{4}-\d{2}-\d{2}\.log$/);
   } finally { await app.close(0); }
 }));
+
+test('buildApp accepts an injected proxy server without a status tracker', async () => {
+  const { buildApp } = await import('../../src/app.js');
+  const cfg = loadConfig({ env: {}, sets: ['upstream.origin=http://127.0.0.1:9'] }).config;
+  const app = await buildApp(cfg, { env: {}, modules: fakeModules({ bareStatus: true }), log: { error() {}, warn() {}, info() {}, debug() {} } });
+  await app.close(0);
+});
