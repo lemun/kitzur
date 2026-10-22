@@ -79,7 +79,7 @@ function nearestExistingDirectory(path: string): { path: string; blocked: boolea
 }
 
 /** Read-only local diagnostics. Network access is opt-in and uses the small models endpoint probe. */
-export async function doctor(config: Config, opts: { env?: Record<string, string | undefined>; upstreamCheck?: boolean; timeoutMs?: number; configPath?: string; clientConfigPath?: string; models?: ModelProfiles } = {}): Promise<DoctorResult> {
+export async function doctor(config: Config, opts: { env?: Record<string, string | undefined>; upstreamCheck?: boolean; timeoutMs?: number; configPath?: string; clientConfigPath?: string; models?: ModelProfiles; model?: string } = {}): Promise<DoctorResult> {
   const checks: DoctorCheck[] = [];
   const add = (code: string, status: DoctorCheck['status'], message: string, fix?: string): void => { checks.push({ code, status, message, ...(fix ? { fix } : {}) }); };
 
@@ -104,7 +104,10 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
     else add('budget.client_limits', 'ok', 'Configured plan output and client limits are compatible.');
   }
 
-  for (const [model, profile] of Object.entries(opts.models ?? {})) {
+  const modelEntries = Object.entries(opts.models ?? {}).filter(([model]) => !opts.model || model === opts.model);
+  for (const [model, profile] of modelEntries) {
+    const budget = computeBudget(profile);
+    add(`model.${model}.budget`, budget.budget > 0 && budget.hard > 1 ? 'ok' : 'error', `window=${budget.window}; prompt=${budget.budget}; hard=${budget.hard}`);
     const code = `model.${model}.tokenizer`;
     if (profile.tokenizer.mode === 'estimate' || !profile.tokenizer.path) {
       add(code, 'warn', `counter=estimate; reason=${profile.tokenizer.mode === 'estimate' ? "tokenizer.mode is 'estimate'" : 'tokenizer.path is not set'}; sha256=null; sourceBytes=0; loadMs=0`);
@@ -120,6 +123,8 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
       const cachePath = profile.tokenizer.path !== config.tokenizer.path && profile.tokenizer.cachePath === config.tokenizer.cachePath ? null : profile.tokenizer.cachePath;
       const tok = loadTokenizerCached(profile.tokenizer.path, cachePath);
       add(code, 'ok', `counter=exact; sha256=${tok.sha256}; sourceBytes=${sourceBytes}; loadMs=${Math.round(performance.now() - started)}`);
+      const warning = templateTokenizerWarning(profile.tokenizer.template.name, tok);
+      if (warning) add(`model.${model}.template`, 'warn', warning);
     } catch (error) {
       add(code, 'warn', `counter=estimate; reason=${(error as Error).message}; sha256=null; sourceBytes=0; loadMs=0`);
     }
