@@ -10,6 +10,11 @@ import { firstText } from '../engine/message.js';
 import type { ChatRequest, LearnedEntry } from '../types.js';
 import { budgetQuantities } from './budget.js';
 
+export interface ResolvedPaths { config: string | null; state_dir: string; log_file: string | null }
+export function formatPaths(paths: ResolvedPaths): string {
+  return `Paths: config=${paths.config ?? 'defaults only'}; state_dir=${paths.state_dir}; log_file=${paths.log_file ?? '?'}`;
+}
+
 /** A fixed-size ring of samples for percentiles. */
 class Ring {
   private readonly xs: number[] = [];
@@ -56,6 +61,7 @@ export interface RecentRequest {
 }
 
 export class StatusTracker {
+  paths: (() => ResolvedPaths) | undefined;
   private readonly recent: RecentRequest[] = [];
   private lastCompaction: { at: string; in: number | null; out: number | null; trigger: number | null } | null = null;
 
@@ -197,6 +203,7 @@ export class StatusTracker {
       budgets[k] = budgetQuantities(cfg, e);
     }
     return {
+      paths: this.paths?.(),
       client_compactions: this.clientCompactions,
       last_client_compaction: this.lastClientCompaction && { ...this.lastClientCompaction },
       completion_tokens_p99: this.completions.pct(0.99),
