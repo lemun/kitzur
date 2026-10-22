@@ -91,6 +91,12 @@ export interface ProxyServer {
   probe(): Promise<ProbeResult>;
 }
 
+export function declaredOutputCapWarning(model: string, maxOutput: number, planLimit: number, clientLimit: number | null): string | undefined {
+  const exceeded = [planLimit, clientLimit].filter((value): value is number => value !== null && maxOutput < value);
+  if (!exceeded.length) return undefined;
+  return `Model ${JSON.stringify(model)} upstream caps output at ${maxOutput}, you configured ${[...new Set(exceeded)].join(' and ')}: expect mid-answer truncation.`;
+}
+
 const MAX_JSON_TAP = 4 * 1024 * 1024;
 const JSON_CT = 'application/json';
 
@@ -1007,9 +1013,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       for (const [model, limits] of Object.entries(p.discovered_limits ?? {})) {
         const modelCfg = deps.modelRuntimes?.forModel(model).cfg ?? cfg;
         if (limits.maxOutput !== undefined) {
-          const configured = modelCfg.budget.planMaxTokens ?? modelCfg.budget.defaultMaxTokens;
-          if (limits.maxOutput < configured) {
-            const message = `Model ${JSON.stringify(model)} upstream caps output at ${limits.maxOutput}, you configured ${configured}: expect mid-answer truncation.`;
+          const message = declaredOutputCapWarning(model, limits.maxOutput, modelCfg.budget.planMaxTokens ?? modelCfg.budget.defaultMaxTokens, modelCfg.client.outputLimit);
+          if (message) {
             status.warn(`output_cap:${model}`, message);
             log('warn', message);
           }

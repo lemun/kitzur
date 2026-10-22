@@ -8,6 +8,13 @@ import { Upstream, type UpstreamResponse } from '../../src/proxy/upstream.js';
 import { freshLearnedEntry } from '../../src/proxy/state.js';
 import { testConfig } from './harness.js';
 import type { Engine } from '../../src/types.js';
+import { declaredOutputCapWarning } from '../../src/proxy/server.js';
+
+test('declared output cap warns when below either planning or client output limit', () => {
+  assert.match(declaredOutputCapWarning('alpha', 1000, 2000, 3000)!, /you configured 2000 and 3000/);
+  assert.match(declaredOutputCapWarning('alpha', 2500, 2000, 3000)!, /you configured 3000/);
+  assert.equal(declaredOutputCapWarning('alpha', 3000, 2000, 2500), undefined);
+});
 
 function response(body: unknown, status = 200): UpstreamResponse {
   return {
