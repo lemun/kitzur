@@ -170,9 +170,11 @@ export class StatusTracker {
     } else this.warnings.set(key, { message, count: 1, last: at });
   }
   private discoveredWindows: Record<string, number> = {};
+  private discoveredLimits: Record<string, { window?: number; maxPrompt?: number; maxOutput?: number }> = {};
   setDiscoveredWindows(windows: Record<string, number>): void {
     this.discoveredWindows = { ...windows };
   }
+  setDiscoveredLimits(limits: Record<string, { window?: number; maxPrompt?: number; maxOutput?: number }>): void { this.discoveredLimits = { ...limits }; }
   setProbe(p: Record<string, unknown>): void {
     this.probe = p;
   }
@@ -199,6 +201,7 @@ export class StatusTracker {
       last_client_compaction: this.lastClientCompaction && { ...this.lastClientCompaction },
       completion_tokens_p99: this.completions.pct(0.99),
       discovered_window: { ...this.discoveredWindows },
+      discovered_limits: { ...this.discoveredLimits },
       last_compaction: this.lastCompaction && { ...this.lastCompaction },
       recent_requests: this.recent.map((r) => ({ ...r, tokens: { ...r.tokens } })),
       name: 'kitzur',
