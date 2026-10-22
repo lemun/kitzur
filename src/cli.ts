@@ -178,7 +178,7 @@ const USAGE = `usage: kitzur <command> [options]
   tls-probe [origin] [--ca-file FILE] [--json] [--timeout-ms N]  inspect the TLS chain
   report <stats.jsonl> [--json]  aggregate request stats; sizes only
   config init [--preset 100k] [--upstream URL] [--tokenizer FILE] [--out FILE|-] [--force]
-  config show [--changed] [--json]      effective config with the source of every value
+  config show [--changed] [--json] [--model ID]      effective config with the source of every value
   config validate [--json]              errors and startup warnings
   config import-eval <dir|file>... [--out FILE] [--merge FILE] [--provenance FILE] [--dry-run]
   config export-opencode --model ID [--small-model ID] [--provider NAME] [--key-env NAME]
@@ -661,16 +661,20 @@ async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
       return 0;
     }
     case 'show': {
-      const p = parseArgs(rest, { ...CONFIG_OPTS, json: { type: 'boolean' }, changed: { type: 'boolean' }, full: { type: 'boolean' } });
+      const p = parseArgs(rest, { ...CONFIG_OPTS, json: { type: 'boolean' }, changed: { type: 'boolean' }, full: { type: 'boolean' }, model: { type: 'string' } });
       const l = loadFromArgs(p, io);
       const v = validateConfig(l.config, { provenance: l.provenance });
+      const selected = p.values['model'] as string | undefined;
+      const profiles = selected === undefined ? Object.entries(l.models) : (Object.hasOwn(l.models, selected) ? [[selected, l.models[selected]!]] : []);
+      const profileErrors = selected !== undefined && profiles.length === 0 ? [`models[${JSON.stringify(selected)}]: unknown model profile`] : [];
       if (p.values['json']) {
         io.stdout(JSON.stringify({
           preset: l.preset, configPath: l.configPath, layers: l.layers, config: maskedConfig(l.config), provenance: l.provenance,
           derived: computeBudget(l.config, { counterFixedTokens: l.config.budget.observedFixedPromptTokens }),
-          errors: v.errors, warnings: [...l.warnings, ...v.warnings],
+          ...(profiles.length ? { derivedByModel: Object.fromEntries(profiles.map(([id, cfg]) => [id, computeBudget(cfg, { counterFixedTokens: cfg.budget.observedFixedPromptTokens })])) } : {}),
+          errors: [...v.errors, ...profileErrors], warnings: [...l.warnings, ...v.warnings],
         }, null, 1) + '\n');
-        return v.errors.length ? 2 : 0;
+        return v.errors.length || profileErrors.length ? 2 : 0;
       }
       io.stdout(`# kitzur ${packageInfo().version} effective config: ${l.layers.join(' < ')}\n`);
       const leaves = DEFAULT_LEAVES.filter((k) => !p.values['changed'] || l.provenance[k] !== 'default');
@@ -679,22 +683,26 @@ async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
         io.stdout(`${k.padEnd(w)} = ${display(k, k === 'budget.window' && isAutoWindow(l.config) ? 'auto' : getPath(l.config, k), p.values['full'] === true)}   (${l.provenance[k]})\n`);
       }
       io.stdout('\n' + derivedLines(l.config).join('\n') + '\n');
+      if (selected !== undefined && profileErrors.length) io.stdout(`# ERROR: ${profileErrors[0]}\n`);
+      for (const [id, cfg] of profiles) io.stdout(`\n# model ${JSON.stringify(id)}\n${derivedLines(cfg).map((line) => line.replace(/^W             /u, `W             ${isAutoWindow(cfg) ? `auto (fallback ${cfg.budget.window})` : cfg.budget.window}  `)).join('\n')}\n`);
       for (const x of [...l.warnings, ...v.warnings]) io.stdout(`# warning: ${x}\n`);
       for (const x of v.errors) io.stdout(`# ERROR: ${x}\n`);
-      return v.errors.length ? 2 : 0;
+      return v.errors.length || profileErrors.length ? 2 : 0;
     }
     case 'validate': {
       const p = parseArgs(rest, { ...CONFIG_OPTS, json: { type: 'boolean' } });
       const l = loadFromArgs(p, io);
       const v = validateConfig(l.config, { provenance: l.provenance, checkFiles: true });
-      const warnings = [...l.warnings, ...v.warnings];
-      if (p.values['json']) io.stdout(JSON.stringify({ ok: v.errors.length === 0, errors: v.errors, warnings }, null, 1) + '\n');
+      const profileResults = Object.entries(l.models).map(([id, cfg]) => ({ id, result: validateConfig(cfg, { checkFiles: true }) }));
+      const errors = [...v.errors, ...profileResults.flatMap(({ id, result }) => result.errors.map((e) => `models[${JSON.stringify(id)}]: ${e}`))];
+      const warnings = [...l.warnings, ...v.warnings, ...profileResults.flatMap(({ id, result }) => result.warnings.map((w) => `models[${JSON.stringify(id)}]: ${w}`))];
+      if (p.values['json']) io.stdout(JSON.stringify({ ok: errors.length === 0, errors, warnings }, null, 1) + '\n');
       else {
-        for (const e of v.errors) io.stdout(`error: ${e}\n`);
+        for (const e of errors) io.stdout(`error: ${e}\n`);
         for (const x of warnings) io.stdout(`warning: ${x}\n`);
-        io.stdout(v.errors.length ? `${v.errors.length} error(s)\n` : `ok (${warnings.length} warning(s))\n`);
+        io.stdout(errors.length ? `${errors.length} error(s)\n` : `ok (${warnings.length} warning(s))\n`);
       }
-      return v.errors.length ? 2 : 0;
+      return errors.length ? 2 : 0;
     }
     case 'import-eval':
       return cmdImportEval(rest, io);
