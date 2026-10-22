@@ -310,10 +310,16 @@ export class Upstream {
   }
 
   /** Startup probe: GET <origin>/v1/models. A TLS verification failure is reported as tlsError. */
-  async probe(path = '/v1/models', headers: Record<string, string> = {}): Promise<ProbeResult> {
+  async probe(path = '/v1/models', headers: Record<string, string> = {}, includeProps = true): Promise<ProbeResult> {
     try {
-      const res = await this.request({ method: 'GET', path, headers: forwardRequestHeaders([], { ...this.cfg.headers, ...headers }), body: Buffer.alloc(0), signal: AbortSignal.timeout(this.cfg.timeoutMs) });
-      const result: ProbeResult = { ok: res.status >= 200 && res.status < 500, status: res.status };
+      // Header names are case-insensitive: configured credentials must win even when their casing
+      // differs from the Authorization header supplied by the first local client.
+      const selected = new Map<string, [string, string]>();
+      for (const [name, value] of Object.entries(headers)) selected.set(name.toLowerCase(), [name, value]);
+      for (const [name, value] of Object.entries(this.cfg.headers)) selected.set(name.toLowerCase(), [name, value]);
+      const res = await this.request({ method: 'GET', path, headers: forwardRequestHeaders([], Object.fromEntries([...selected.values()])), body: Buffer.alloc(0), signal: AbortSignal.timeout(this.cfg.timeoutMs) });
+      // Redirects are never followed; treat them as an unusable metadata response.
+      const result: ProbeResult = { ok: res.status >= 200 && res.status < 300 || res.status >= 400 && res.status < 500, status: res.status };
       const readJson = async (response: UpstreamResponse): Promise<unknown> => {
         const { body, complete } = await readBody(response.body, 1024 * 1024);
         if (!complete || body.length > 1024 * 1024 || response.status < 200 || response.status >= 300) return null;
@@ -322,7 +328,7 @@ export class Upstream {
       const found = modelLimits(await readJson(res));
       // llama.cpp's active context may be smaller than its training context. /props reports
       // the per-slot default; do not divide it by total_slots or apply it across several models.
-      if (res.status >= 200 && res.status < 300 && !found.vllm) {
+      if (includeProps && res.status >= 200 && res.status < 300 && !found.vllm) {
         try {
           const propsRes = await this.request({ method: 'GET', path: '/props', headers: forwardRequestHeaders([], { ...this.cfg.headers, ...headers }), body: Buffer.alloc(0), signal: AbortSignal.timeout(this.cfg.timeoutMs) });
           const props = object(await readJson(propsRes));

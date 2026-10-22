@@ -128,6 +128,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   if (deps.state.lastError) status.warn('state', deps.state.lastError);
 
   let discoveredWindows: Record<string, number> = {};
+  let lazyProbe: Promise<void> | null = null;
   // models already warned about with window_auto_fallback: warn once per model, not per request
   const fallbackWarned = new Set<string>();
   let inflight = 0;
@@ -200,6 +201,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       sendJson(res, 403, errorBody('kitzur: OPTIONS is not served', 'permission_error', 'method_not_allowed'));
       return;
     }
+    // The listener token authenticates this client only. Never use it as an upstream credential.
+    const clientAuthorization = cfg.listen.token === null ? req.headers.authorization : undefined;
     if (cfg.listen.token !== null) {
       const expected = Buffer.from('Bearer ' + cfg.listen.token);
       const supplied = Buffer.from(req.headers.authorization ?? '');
@@ -230,6 +233,12 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       sendJson(res, 200, JSON.stringify(snapshot(), null, 1));
       return;
     }
+    // Probe once after local auth, sharing the first eligible request's credential across callers.
+    if (lazyProbe === null) {
+      const headers: Record<string, string> = typeof clientAuthorization === 'string' ? { authorization: clientAuthorization } : {};
+      lazyProbe = upstream.probe('/v1/models', headers, false).then(applyProbe);
+    }
+    await lazyProbe;
     if (isChatCompletionsPath(req.method ?? '', pathname) && !isJsonContentType(req.headers['content-type'])) {
       sendJson(res, 415, errorBody('kitzur: chat requests must have Content-Type application/json', 'invalid_request_error', 'unsupported_media_type'));
       return;
@@ -987,15 +996,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     }));
   }
 
-  // ------------------------------------------------------------------ lifecycle
-  return {
-    server,
-    status,
-    upstream,
-    active: () => inflight,
-    snapshot,
-    async probe() {
-      const p = await upstream.probe();
+  function applyProbe(p: ProbeResult): void {
       discoveredWindows = p.discovered_window ?? {};
       deps.modelRuntimes?.setDiscoveredLimits(p.discovered_limits ?? {});
       if (deps.modelRuntimes) deps.modelRuntimes.setDiscoveredWindows(discoveredWindows);
@@ -1032,6 +1033,18 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       status.setProbe({ ...p, at: now().toISOString() });
       if (p.status === 401 || p.status === 403) status.warn('upstream_probe', 'Metadata needs a key to read /v1/models.');
       else if (!p.ok) status.warn('upstream_probe', p.tlsError ? `TLS verification failed: ${p.tlsError}` : `upstream probe failed: ${p.error ?? p.status}`);
+  }
+
+  // ------------------------------------------------------------------ lifecycle
+  return {
+    server,
+    status,
+    upstream,
+    active: () => inflight,
+    snapshot,
+    async probe() {
+      const p = await upstream.probe();
+      applyProbe(p);
       return p;
     },
     listen() {
