@@ -55,4 +55,4 @@ nonempty session ID. A zero count with missing IDs is not evidence of zero sessi
 The byte-stream API `reportStream` and string convenience API `report` use the
 same limits; the CLI uses streaming and never loads the entire file.
 
-For optional external viewing of legacy stats, see [Gobstopper interop](GOBSTOPPER-INTEROP.md), including estimate semantics and an isolated synthetic import example.
+For optional external viewing of legacy stats, see [Gobstopper interop](https://github.com/lemun/kitzur/blob/main/docs/GOBSTOPPER-INTEROP.md), including estimate semantics and an isolated synthetic import example.
