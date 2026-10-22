@@ -28,3 +28,5 @@ test('README relative links resolve to existing files', () => {
     assert.ok(existsSync(join(ROOT, path)), `README.md: ${target}`);
   }
 });
+
+test('docs index routes common tasks', () => assert.match(readFileSync(join(ROOT, 'docs/README.md'), 'utf8'), /OpenCode.*offline.*diagnostics.*retention/s));

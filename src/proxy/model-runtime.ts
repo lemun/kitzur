@@ -1,5 +1,6 @@
 import type { Config, ModelProfiles } from '../config/schema.js';
 import { setDiscoveredWindows } from '../config/window.js';
+import type { ModelLimits } from './upstream.js';
 import type { Counter } from '../tokenize/counter.js';
 import type { Engine, LearnedEntry } from '../types.js';
 
@@ -15,6 +16,7 @@ export interface ModelRuntime {
 export class ModelRuntimeMap {
   private readonly byModel = new Map<string, ModelRuntime>();
   private readonly unknownModels = new Set<string>();
+  private limits: Record<string, ModelLimits> = {};
 
   constructor(readonly root: ModelRuntime, profiles: ModelProfiles, runtimes: ReadonlyMap<string, ModelRuntime>) {
     for (const id of Object.keys(profiles)) {
@@ -69,6 +71,13 @@ export class ModelRuntimeMap {
     for (const [runtime, discovered] of owned) {
       setDiscoveredWindows(runtime.cfg, discovered);
     }
+  }
+
+  setDiscoveredLimits(limits: Readonly<Record<string, ModelLimits>>): void { this.limits = { ...limits }; }
+  limitsFor(model?: string): ModelLimits { return model === undefined ? {} : this.limits[model] ?? {}; }
+  learnedFor(model: string | undefined, entry: LearnedEntry): LearnedEntry {
+    const cap = this.limitsFor(model).maxPrompt;
+    return cap === undefined ? entry : { ...entry, maxPrompt: entry.maxPrompt === null ? cap : Math.min(entry.maxPrompt, cap) };
   }
 }
 
