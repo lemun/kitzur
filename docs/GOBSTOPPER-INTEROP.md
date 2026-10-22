@@ -29,5 +29,6 @@ completion tokens. Attempts, failures and usage coverage do not become native
 request events. Rejection forwards zero tokens; zero can also mean unknown, so
 these rows must not be treated as successful savings.
 
-Validation: the focused test checks exact emitted JSONL and field types. Actual import
-and duplicate behavior need a compatible binary; available v0.5.0 lacks `data`.
+Validation: the focused test checks exact emitted JSONL and field types. The
+import command and duplicate behavior are based on source inspection of the
+stated Gobstopper commit; an actual import was not run here.
