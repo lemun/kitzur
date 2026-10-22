@@ -192,6 +192,12 @@ test('doctor still reports diagnostics when upstream.headers is not a record', a
   assert.equal(result.checks.find((c) => c.code === 'listen.token'), undefined);
 });
 
+test('doctor reports resolved config, state and log paths', async () => {
+  const cfg = defaultConfig(); cfg.stateDir = '/tmp/kitzur-paths'; cfg.log.file = '/tmp/kitzur.log';
+  const result = await doctor(cfg, { configPath: '/tmp/kitzur.jsonc', timeoutMs: 1 });
+  assert.equal(result.checks.find((c) => c.code === 'paths')?.message, 'Paths: config=/tmp/kitzur.jsonc; state_dir=/tmp/kitzur-paths; log_file=/tmp/kitzur.log');
+});
+
 test('upstream authentication diagnostics distinguish client keys, stored keys and probe tokens', async () => {
   let status = 200, expected = '';
   const server = createServer((req, res) => {

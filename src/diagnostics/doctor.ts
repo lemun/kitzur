@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { createConnection } from 'node:net';
 import { request } from 'node:http';
 import { existsSync, statSync, accessSync, constants, readFileSync } from 'node:fs';
-import { dirname, parse } from 'node:path';
+import { dirname, join, parse } from 'node:path';
 import { listenTokenWarning, validateConfig } from '../config/validate.js';
 import { computeBudget } from '../config/derived.js';
 import type { Config, ModelProfiles } from '../config/schema.js';
@@ -13,6 +13,7 @@ import { templateTokenizerWarning } from '../tokenize/template.js';
 import { parseJsonc } from '../config/jsonc.js';
 import { clientConfigChecks } from './client-config.js';
 import { Upstream } from '../proxy/upstream.js';
+import { formatPaths } from '../proxy/status.js';
 
 export interface DoctorCheck { code: string; status: 'ok' | 'warn' | 'error'; message: string; fix?: string }
 export interface DoctorResult { checks: DoctorCheck[]; exitCode: number }
@@ -163,6 +164,7 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
     } catch { add(code, 'warn', `${label} directory is not accessible.`, 'Check directory permissions and configured path.'); }
   };
   const statePath = stateDirOf(config, opts.env);
+  add('paths', 'ok', formatPaths({ config: opts.configPath ?? null, state_dir: statePath, log_file: config.log.file ?? join(statePath, 'logs', `kitzur-${new Date().toISOString().slice(0, 10)}.log`) }));
   pathCheck('state.directory', statePath, 'State');
   if (config.stats.path) {
     try {
