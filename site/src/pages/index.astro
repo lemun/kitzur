@@ -1,0 +1,197 @@
+---
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+import { Code } from '@astrojs/starlight/components';
+import diagramLight from '../../../docs/assets/how-it-works.svg';
+import diagramDark from '../../../docs/assets/how-it-works-dark.svg';
+import demo from '../../../docs/assets/compaction.mp4';
+
+// Home page copy is drawn from the facts in the repo README; keep the two in step.
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const repo = 'https://github.com/lemun/kitzur';
+const tagline =
+  'A zero-dependency local proxy between your coding agent and its model server. It compacts each request to fit the window your model actually serves. No second LLM is called to do it.';
+
+// No ratings or reviews: there are none to cite.
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'Kitzur',
+  description:
+    'Zero-dependency context compaction proxy for coding agents using local LLMs. Keep coding in the context window your local model actually serves.',
+  url: new URL(`${base}/`, Astro.site).href,
+  applicationCategory: 'DeveloperApplication',
+  operatingSystem: 'Windows, macOS, Linux',
+  softwareRequirements: 'Node.js 22+',
+  license: `${repo}/blob/main/LICENSE`,
+  downloadUrl: repo,
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+};
+
+const fromSource = `git clone https://github.com/lemun/kitzur.git
+cd kitzur
+npm ci
+npm run build
+node dist/src/cli.js config init --preset 32k --out ~/.config/kitzur/kitzur.jsonc \\
+  --upstream http://127.0.0.1:8000 --tokenizer /path/to/tokenizer.json
+node dist/src/cli.js serve --config ~/.config/kitzur/kitzur.jsonc`;
+
+const globalCommand = `npm pack                        # after npm run build; writes kitzur-<version>.tgz
+npm install -g ./kitzur-*.tgz
+kitzur version`;
+---
+
+<StarlightPage
+	frontmatter={{
+		title: 'Kitzur',
+		description: 'Keep coding in the context window your local model actually serves.',
+		template: 'splash',
+		head: [{ tag: 'script', attrs: { type: 'application/ld+json' }, content: JSON.stringify(jsonLd) }],
+		hero: {
+			title: 'Keep coding in the context window your local model actually serves',
+			tagline,
+			actions: [
+				{ text: 'Quick start', link: `${base}/docs/quick-start/`, icon: 'right-arrow' },
+				{ text: 'View on GitHub', link: repo, variant: 'minimal', icon: 'external' },
+			],
+		},
+	}}
+>
+	<h2 id="how-it-works">How it works</h2>
+	<p>
+		Kitzur shrinks each request before it reaches your model: older history becomes a structured,
+		mechanical summary of instructions, decisions and open work, recent messages stay intact, and
+		oversized tool output is trimmed.
+	</p>
+	<img
+		class="kz-diagram dark:sl-hidden"
+		src={diagramLight.src}
+		width={diagramLight.width}
+		height={diagramLight.height}
+		alt="Diagram: a coding agent sends a long context to the Kitzur proxy, which extracts a structured summary, keeps recent work and trims oversized outputs, then forwards a smaller request to the model server."
+	/>
+	<img
+		class="kz-diagram light:sl-hidden"
+		src={diagramDark.src}
+		width={diagramDark.width}
+		height={diagramDark.height}
+		alt="Diagram: a coding agent sends a long context to the Kitzur proxy, which extracts a structured summary, keeps recent work and trims oversized outputs, then forwards a smaller request to the model server."
+	/>
+
+	<h2 id="benefits">Why use it</h2>
+	<div class="kz-cards">
+		<section>
+			<h3>Fits the served window</h3>
+			<p>
+				Compacts before the request overflows, keeps recent tool calls paired with their results, and
+				retries recognized overflows with smaller requests.
+			</p>
+		</section>
+		<section>
+			<h3>No second model</h3>
+			<p>
+				Deterministic extraction and trimming run locally with zero runtime dependencies. Transcript
+				files are left unchanged.
+			</p>
+		</section>
+		<section>
+			<h3>You can see it work</h3>
+			<p>
+				Every response carries <code>x-kitzur-action</code> and <code>x-kitzur-tokens</code>;
+				<code>kitzur status</code> shows recent requests. Default logs omit message content.
+			</p>
+		</section>
+	</div>
+
+	<h2 id="demo">Demo</h2>
+	<figure class="kz-demo">
+		<video src={demo} controls muted playsinline preload="metadata">
+			<a href={demo}>Watch the compaction demo (MP4)</a>
+		</video>
+		<figcaption>
+			Scripted demo against a stub upstream, not a model. A session grows past a 32k window through
+			Kitzur; the proxy reports passthrough, compact and reuse actions, and <code>kitzur status</code>
+			shows the last compaction from 52,147 to 6,432 tokens.
+		</figcaption>
+	</figure>
+
+	<h2 id="evidence">Evidence</h2>
+	<aside class="kz-evidence">
+		<p>
+			<strong>46/46 steps completed through Kitzur · 7/7 planted facts retained · No client errors.</strong>
+			In a 46-step simulated browser session with a 100,000-token window and 32,000 tokens reserved
+			for output, the direct client was rejected at step 11. Kitzur processed 31.4% fewer prompt
+			tokens than the offline OpenCode compaction simulation.
+		</p>
+		<p><strong>Limits.</strong></p>
+		<ul>
+			<li>These are measured mock-server requests, not a live model solving a task.</li>
+			<li>Fact retention checks marker presence, not model comprehension.</li>
+			<li>
+				They establish compaction behavior, not inference speed, billing savings or real-model task
+				quality; live-model coding validation is pending.
+			</li>
+			<li>Summaries are mechanical and budget-bounded: under pressure, facts and user text can be shortened.</li>
+		</ul>
+		<p><a href={`${base}/docs/benchmarks/`}>Benchmark methodology</a></p>
+	</aside>
+
+	<h2 id="compatibility">Compatibility</h2>
+	<table>
+		<thead>
+			<tr><th>HTTP format</th><th>Clients</th><th>Intended environment</th></tr>
+		</thead>
+		<tbody>
+			<tr>
+				<td>OpenAI Chat Completions only</td>
+				<td>OpenCode example; any compatible client</td>
+				<td>Local or intranet model with a known served window</td>
+			</tr>
+		</tbody>
+	</table>
+	<p>
+		Anthropic Messages and OpenAI Responses are unsupported. Presets cover 32k, 64k, 100k and 128k
+		windows. Requires Node.js 22+.
+	</p>
+
+	<h2 id="install">Install</h2>
+	<h3>From source</h3>
+	<Code code={fromSource} lang="sh" />
+	<h3>As a <code>kitzur</code> command</h3>
+	<Code code={globalCommand} lang="sh" />
+	<h3>Offline or as a service</h3>
+	<p>
+		Build the offline bundle with <code>scripts/pack-offline.sh</code>, or run Kitzur as a
+		Windows, macOS or Linux service: see <a href={`${base}/docs/deployment/`}>deployment</a>. Then
+		<a href={`${base}/docs/quick-start/`}>point your agent at the proxy</a>.
+	</p>
+</StarlightPage>
+
+<style>
+	.kz-diagram {
+		width: 100%;
+		height: auto;
+		border-radius: var(--kz-radius);
+	}
+	.kz-cards {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+		gap: 1rem;
+	}
+	.kz-cards section,
+	.kz-evidence {
+		border: 1px solid var(--sl-color-gray-5);
+		border-radius: var(--kz-radius);
+		padding: 1rem 1.25rem;
+	}
+	.kz-cards section > :first-child {
+		margin-top: 0;
+	}
+	.kz-demo video {
+		width: 100%;
+		border-radius: var(--kz-radius);
+	}
+	.kz-demo figcaption {
+		color: var(--sl-color-gray-3);
+		font-size: var(--sl-text-sm);
+	}
+</style>
