@@ -2,6 +2,9 @@
   "name": "kitzur-site",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.22.0"
+  },
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
@@ -10,6 +13,9 @@
   "dependencies": {
     "@astrojs/sitemap": "^3.7.4",
     "@astrojs/starlight": "^0.42.6",
-    "astro": "^7.4.2"
+    "astro": "7.4.1"
+  },
+  "overrides": {
+    "@astrojs/mdx": "8.1.0"
   }
 }
