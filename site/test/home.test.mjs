@@ -28,4 +28,5 @@ test('home page JSON-LD is a SoftwareApplication without ratings', async () => {
   assert.equal(data.url, 'https://lemun.github.io/kitzur/');
   assert.equal(data.aggregateRating, undefined);
   assert.equal(data.review, undefined);
+  assert.equal(data.offers, undefined);
 });
