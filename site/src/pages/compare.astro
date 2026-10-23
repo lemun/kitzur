@@ -1,0 +1,123 @@
+---
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+
+// Cite only sources that support their row; update the date and sources together.
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const blob = 'https://github.com/lemun/kitzur/blob/main/';
+const reviewed = 'October 23, 2026';
+const notCompared = 'Not compared: no independent source yet';
+const sources = [
+	{ n: 1, href: `${blob}DESIGN.md`, text: 'Kitzur design (DESIGN.md)' },
+	{ n: 2, href: `${blob}README.md#benchmarks`, text: 'Kitzur README: what is kept, summarized and lost' },
+	{ n: 3, href: `${blob}CONFIG.md#client-setup-opencode-and-kilo`, text: 'Client setup: OpenCode and Kilo (CONFIG.md)' },
+	{ n: 4, href: `${blob}bench/README.md#historical-gobstopper-comparison`, text: 'Historical Gobstopper comparison (bench/README.md)' },
+	{ n: 5, href: `${blob}docs/GOBSTOPPER-INTEROP.md`, text: 'Gobstopper legacy stats interop (docs/GOBSTOPPER-INTEROP.md)' },
+];
+---
+
+<StarlightPage
+	frontmatter={{
+		title: 'Compare',
+		description:
+			'How Kitzur behaves next to an agent’s own compaction and Gobstopper, dimension by dimension, with sources.',
+	}}
+>
+	<p>
+		<strong>Reviewed {reviewed}.</strong> This compares behaviour, not quality. Where no independent
+		source is available yet, a cell says so instead of describing the other tool. The native column is
+		OpenCode. The Gobstopper column is v0.7.2, the version Kitzur adapted code from and benchmarked.
+		Later releases of either may behave differently. Kitzur was inspired by Gobstopper.
+	</p>
+
+	<table>
+		<thead>
+			<tr>
+				<th>Dimension</th>
+				<th>Kitzur</th>
+				<th>Native client compaction (OpenCode)</th>
+				<th>Gobstopper v0.7.2</th>
+			</tr>
+		</thead>
+		<tbody>
+			<tr>
+				<th scope="row">Where it runs</th>
+				<td>Loopback proxy between the agent and its model server <sup>[1]</sup></td>
+				<td>{notCompared}</td>
+				<td>{notCompared}</td>
+			</tr>
+			<tr>
+				<th scope="row">Who writes the summary</th>
+				<td>Deterministic extraction. No model is called <sup>[1]</sup></td>
+				<td>{notCompared}</td>
+				<td>{notCompared}</td>
+			</tr>
+			<tr>
+				<th scope="row">When it compacts</th>
+				<td>When a request would exceed the prompt budget for the served window, below the client’s own compaction point <sup>[1]</sup></td>
+				<td>{notCompared}</td>
+				<td>At a configurable token threshold (<code>--threshold</code>), as used in the historical run <sup>[4]</sup></td>
+			</tr>
+			<tr>
+				<th scope="row">What stays word for word</th>
+				<td>System prompts, tool definitions and recent messages, with tool calls kept next to their results <sup>[1][2]</sup></td>
+				<td>{notCompared}</td>
+				<td>A configurable recent tail (<code>--keep-recent</code>), as used in the historical run <sup>[4]</sup></td>
+			</tr>
+			<tr>
+				<th scope="row">Large tool output</th>
+				<td>Old snapshots become stubs; other oversized results keep a head and tail <sup>[1]</sup></td>
+				<td>{notCompared}</td>
+				<td>{notCompared}</td>
+			</tr>
+			<tr>
+				<th scope="row">Repeated prefixes</th>
+				<td>Forwarded messages stay unchanged between compactions under the default policy <sup>[1]</sup></td>
+				<td>{notCompared}</td>
+				<td>{notCompared}</td>
+			</tr>
+			<tr>
+				<th scope="row">Wire formats</th>
+				<td>OpenAI Chat Completions only <sup>[1]</sup></td>
+				<td>{notCompared}</td>
+				<td>{notCompared}</td>
+			</tr>
+			<tr>
+				<th scope="row">Historical <code>qa46-ref</code> run, 100k/32k: planted facts</th>
+				<td>7/7 (Kitzur predecessor, defaults) <sup>[4]</sup></td>
+				<td>Not evaluated <sup>[4]</sup></td>
+				<td>4/7 (tuned) <sup>[4]</sup></td>
+			</tr>
+			<tr>
+				<th scope="row">Same run: prompt tokens, all attempts</th>
+				<td>1,710,746 <sup>[4]</sup></td>
+				<td>2,492,784 (offline simulation) <sup>[4]</sup></td>
+				<td>1,734,118 <sup>[4]</sup></td>
+			</tr>
+			<tr>
+				<th scope="row">Stats</th>
+				<td>JSONL stats that a Gobstopper release with <code>data import-legacy</code> can import as estimates <sup>[5]</sup></td>
+				<td>{notCompared}</td>
+				<td>{notCompared}</td>
+			</tr>
+		</tbody>
+	</table>
+
+	<h2 id="reading">Reading the table</h2>
+	<ul>
+		<li>
+			Kitzur does not replace native compaction. Kitzur’s client setup keeps the agent’s own compaction
+			on as a fallback <sup>[3]</sup>.
+		</li>
+		<li>
+			The historical rows are simulated sessions against a mock server, measured before scenario
+			sanitation. They are not a test of current Gobstopper or of real-model quality, and are not
+			comparable with the <a href={`${base}/benchmarks/`}>current benchmark figures</a> <sup>[4]</sup>.
+		</li>
+		<li>Fact counts show whether planted markers survive, not whether a model understands them.</li>
+	</ul>
+
+	<h2 id="sources">Sources</h2>
+	<ol>
+		{sources.map((s) => <li id={`source-${s.n}`}><a href={s.href}>{s.text}</a></li>)}
+	</ol>
+</StarlightPage>
