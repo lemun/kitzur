@@ -97,7 +97,7 @@ test('main: every command answers --help / -h with its usage on stdout, exit 0',
     }
   }
   const d = await run(['doctor', '--json', '--help']);
-  assert.match(d.out, /doctor \[--client-config PATH\].*\n[\s\S]*-c, --config FILE/);
+  assert.match(d.out, /doctor \[options\].*\n[\s\S]*doctor \[--model ID\] \[--client-config PATH\].*\n[\s\S]*-c, --config FILE/);
   // doctor reads the config, so the config-options header names it
   assert.match(d.out, /config options \([^)]*\bdoctor\b[^)]*\):/);
   const c = await run(['config', 'show', '--help']);
@@ -363,6 +363,7 @@ test('status: GET /status of a running instance', async () => {
     assert.equal(r.code, 0, r.err);
     assert.match(r.out, /kitzur.*uptime 3s/);
     assert.match(r.out, /Last compaction: none since startup/);
+    assert.match(r.out, /Paths: config=defaults only; state_dir=\?; log_file=\?/);
     const raw = await run(['status', '--port', String(port), '--json']);
     assert.equal(raw.code, 0, raw.err);
     assert.deepEqual(JSON.parse(raw.out), { name: 'kitzur', uptime_s: 3 });
@@ -500,6 +501,7 @@ test('serve logs the bound address to a file and drains on SIGTERM', () => withT
   assert.equal(closedWith, 1234);
   const logs = readFileSync(file, 'utf8');
   assert.match(logs, /listening on http:\/\/127.0.0.1:45678/);
+  assert.match(logs, /Paths: config=defaults only; state_dir=/);
   assert.match(logs, /SIGTERM: stopping; draining/);
   assert.deepEqual(x.errBuf, []);
   const r = await run(['serve', '--log-file', file], { modules: fakeModules() });

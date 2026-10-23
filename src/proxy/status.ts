@@ -10,6 +10,11 @@ import { firstText } from '../engine/message.js';
 import type { ChatRequest, LearnedEntry } from '../types.js';
 import { budgetQuantities } from './budget.js';
 
+export interface ResolvedPaths { config: string | null; state_dir: string; log_file: string | null }
+export function formatPaths(paths: ResolvedPaths): string {
+  return `Paths: config=${paths.config ?? 'defaults only'}; state_dir=${paths.state_dir}; log_file=${paths.log_file ?? '?'}`;
+}
+
 /** A fixed-size ring of samples for percentiles. */
 class Ring {
   private readonly xs: number[] = [];
@@ -56,13 +61,32 @@ export interface RecentRequest {
 }
 
 export class StatusTracker {
+  paths: (() => ResolvedPaths) | undefined;
   private readonly recent: RecentRequest[] = [];
+  private readonly modelCounts = new Map<string, { actions: Record<string, number>; errors: number; retries: number }>();
+  private readonly modelOther = { actions: {} as Record<string, number>, errors: 0, retries: 0 };
+  private modelBucket(model: string | null): { actions: Record<string, number>; errors: number; retries: number } {
+    const id = model && model.length <= 256 && !/[\u0000-\u001f\u007f-\u009f]/u.test(model) ? model : null;
+    let counts = id && id !== 'other' ? this.modelCounts.get(id) : undefined;
+    if (!counts && id && id !== 'other' && this.modelCounts.size < 64) {
+      counts = { actions: {}, errors: 0, retries: 0 };
+      this.modelCounts.set(id, counts);
+    }
+    return counts ?? this.modelOther;
+  }
   private lastCompaction: { at: string; in: number | null; out: number | null; trigger: number | null } | null = null;
 
   recordRequest(r: RecentRequest): void {
     this.recent.push({ ...r, tokens: { ...r.tokens } });
     if (this.recent.length > 64) this.recent.shift();
     if (r.action === 'compact') this.lastCompaction = { at: new Date(this.now()).toISOString(), ...r.tokens };
+    const counts = this.modelBucket(r.model);
+    counts.actions[r.action] = (counts.actions[r.action] ?? 0) + 1;
+    if (r.action === 'refuse') counts.errors++;
+  }
+
+  modelRetry(model: string | null): void {
+    this.modelBucket(model).retries++;
   }
 
   private readonly forwarded = new Map<string, number>();
@@ -170,9 +194,11 @@ export class StatusTracker {
     } else this.warnings.set(key, { message, count: 1, last: at });
   }
   private discoveredWindows: Record<string, number> = {};
+  private discoveredLimits: Record<string, { window?: number; maxPrompt?: number; maxOutput?: number }> = {};
   setDiscoveredWindows(windows: Record<string, number>): void {
     this.discoveredWindows = { ...windows };
   }
+  setDiscoveredLimits(limits: Record<string, { window?: number; maxPrompt?: number; maxOutput?: number }>): void { this.discoveredLimits = { ...limits }; }
   setProbe(p: Record<string, unknown>): void {
     this.probe = p;
   }
@@ -195,10 +221,12 @@ export class StatusTracker {
       budgets[k] = budgetQuantities(cfg, e);
     }
     return {
+      paths: this.paths?.(),
       client_compactions: this.clientCompactions,
       last_client_compaction: this.lastClientCompaction && { ...this.lastClientCompaction },
       completion_tokens_p99: this.completions.pct(0.99),
       discovered_window: { ...this.discoveredWindows },
+      discovered_limits: { ...this.discoveredLimits },
       last_compaction: this.lastCompaction && { ...this.lastCompaction },
       recent_requests: this.recent.map((r) => ({ ...r, tokens: { ...r.tokens } })),
       name: 'kitzur',
@@ -238,6 +266,7 @@ export class StatusTracker {
         fail_open: this.failOpen,
       },
       actions: obj(this.actions),
+      model_counters: Object.fromEntries([...this.modelCounts, ['other', this.modelOther]]),
       error_kinds: obj(this.errorKinds),
       guard: obj(this.guards),
       replan: obj(this.replans),

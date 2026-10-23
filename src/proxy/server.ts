@@ -91,6 +91,12 @@ export interface ProxyServer {
   probe(): Promise<ProbeResult>;
 }
 
+export function declaredOutputCapWarning(model: string, maxOutput: number, planLimit: number, clientLimit: number | null): string | undefined {
+  const exceeded = [planLimit, clientLimit].filter((value): value is number => value !== null && maxOutput < value);
+  if (!exceeded.length) return undefined;
+  return `Model ${JSON.stringify(model)} upstream caps output at ${maxOutput}, you configured ${[...new Set(exceeded)].join(' and ')}: expect mid-answer truncation.`;
+}
+
 const MAX_JSON_TAP = 4 * 1024 * 1024;
 const JSON_CT = 'application/json';
 
@@ -473,7 +479,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       const model = creq.model ?? '';
       const window = Object.hasOwn(discoveredWindows, model) ? discoveredWindows[model] : undefined;
       if (isAutoWindow(requestCfg) && window !== undefined) entry.window = entry.window === null ? window : Math.min(entry.window, window);
-      return entry;
+      return deps.modelRuntimes?.learnedFor(creq.model, entry) ?? entry;
     };
     if (isAutoWindow(requestCfg) && !Object.hasOwn(discoveredWindows, creq.model ?? '') && !fallbackWarned.has(creq.model ?? '')) {
       fallbackWarned.add(creq.model ?? '');
@@ -510,7 +516,10 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       status.forwardedPrompt(creq.model, clientSession, a.original ? visible.tokens.in : a.result?.stats.tokensOut ?? visible.tokens.in);
       upstreamCalls++;
       dropRest(); // a retry: the previous attempt's error is not relayed
-      if (a.n > 1) status.retries++;
+      if (a.n > 1) {
+        status.retries++;
+        status.modelRetry(creq.model ?? null);
+      }
       if (!firstClientByte) firstUpByte = 0; // respPath is measured on the attempt that reaches the client
       let up: UpstreamResponse;
       try {
@@ -724,11 +733,16 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         // out of persisted entries so a restart can discover a larger active context.
         const model = creq.model ?? '';
         const served = Object.hasOwn(discoveredWindows, model) ? discoveredWindows[model] : undefined;
-        const stored = isAutoWindow(requestCfg) && e.window === served
-          ? { ...e, window: deps.state.entry(key).window }
+        const persisted = deps.state.entry(key);
+        const promptCap = deps.modelRuntimes?.limitsFor(creq.model).maxPrompt;
+        const withoutMetadataCap = promptCap !== undefined && e.maxPrompt === promptCap
+          ? { ...e, maxPrompt: persisted.maxPrompt }
           : e;
+        const stored = isAutoWindow(requestCfg) && e.window === served
+          ? { ...withoutMetadataCap, window: persisted.window }
+          : withoutMetadataCap;
         deps.state.set(key, stored); // immediate memory update; async coalesced checkpoint
-        if (deps.modelRuntimes) deps.modelRuntimes.setLearned(creq.model, key, stored);
+        if (deps.modelRuntimes) deps.modelRuntimes.setLearned(creq.model, key, learnedForModel());
         else requestEngine.setLearned(key, stored);
       },
       process: (r: ChatRequest, o: ProcessOptions): EngineResult => {
@@ -986,9 +1000,11 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     async probe() {
       const p = await upstream.probe();
       discoveredWindows = p.discovered_window ?? {};
+      deps.modelRuntimes?.setDiscoveredLimits(p.discovered_limits ?? {});
       if (deps.modelRuntimes) deps.modelRuntimes.setDiscoveredWindows(discoveredWindows);
       else setDiscoveredWindows(cfg, discoveredWindows);
       status.setDiscoveredWindows(discoveredWindows);
+      status.setDiscoveredLimits(p.discovered_limits ?? {});
       for (const [model, window] of Object.entries(discoveredWindows)) {
         const modelCfg = deps.modelRuntimes?.forModel(model).cfg ?? cfg;
         if (window !== modelCfg.budget.window) {
@@ -997,13 +1013,28 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
           log('warn', message);
         }
       }
+      for (const [model, limits] of Object.entries(p.discovered_limits ?? {})) {
+        const modelCfg = deps.modelRuntimes?.forModel(model).cfg ?? cfg;
+        if (limits.maxOutput !== undefined) {
+          const message = declaredOutputCapWarning(model, limits.maxOutput, modelCfg.budget.planMaxTokens ?? modelCfg.budget.defaultMaxTokens, modelCfg.client.outputLimit);
+          if (message) {
+            status.warn(`output_cap:${model}`, message);
+            log('warn', message);
+          }
+          if (limits.window !== undefined && limits.maxOutput >= limits.window) {
+            const message = `Model ${JSON.stringify(model)} max output ${limits.maxOutput} is at least its context window ${limits.window}.`;
+            log('info', message);
+          }
+        }
+      }
       if (isAutoWindow(cfg) && !Object.keys(discoveredWindows).length) {
         const message = `No upstream context window discovered; budget.window=auto uses fallback ${cfg.budget.window}.`;
         status.warn('window_auto_fallback', message);
         log('warn', message);
       }
       status.setProbe({ ...p, at: now().toISOString() });
-      if (!p.ok) status.warn('upstream_probe', p.tlsError ? `TLS verification failed: ${p.tlsError}` : `upstream probe failed: ${p.error ?? p.status}`);
+      if (p.status === 401 || p.status === 403) status.warn('upstream_probe', 'Metadata needs a key to read /v1/models.');
+      else if (!p.ok) status.warn('upstream_probe', p.tlsError ? `TLS verification failed: ${p.tlsError}` : `upstream probe failed: ${p.error ?? p.status}`);
       return p;
     },
     listen() {
