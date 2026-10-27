@@ -5,13 +5,11 @@
 // error; `config import-eval` also returns 10 (a safety-critical knob fell back to a default) and 11
 // (conflicting measurements). Nothing here prints message content: replay and count print sizes only.
 import { spawnSync } from 'node:child_process';
-import { createReadStream, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import http from 'node:http';
-import https from 'node:https';
-import { basename, dirname, join, resolve } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildApp, buildEngine, createLogger, setupCounter, AppModuleError, type Logger } from './app.js';
-import { ConfigError, loadConfig, type LoadedConfig } from './config/load.js';
+import { ConfigError, loadConfig } from './config/load.js';
 import { validateConfig } from './config/validate.js';
 import { computeBudget, requestMaxTokens, serverFits } from './config/derived.js';
 import { DEFAULT_LEAVES, getPath, isPlainObject } from './config/spec.js';
@@ -24,144 +22,18 @@ import {
 } from './config/import-eval.js';
 import { counterFromConfig } from './tokenize/counter.js';
 import { canonicalJSON } from './tokenize/canonical.js';
-import type { ChatRequest, EngineResult, LearnedState } from './types.js';
-import { doctor, renderDoctor } from './diagnostics/doctor.js';
+import type { EngineResult } from './types.js';
 import { formatPaths } from './proxy/status.js';
-import { inspectTlsChain, renderTlsChain } from './diagnostics/tls-chain.js';
-import { reportStream, renderReport } from './diagnostics/report.js';
 import { exportOpenCode } from './config/export-opencode.js';
 import { defaultIO, UsageError, type CliIO } from './cli/io.js';
 import { CONFIG_OPTS, loadFromArgs, parseArgs } from './cli/args.js';
 import { HELP_COMMANDS, USAGE, usageOf, wantsHelp } from './cli/usage.js';
-import { derivedLines, display, fmtHost, maskedConfig, parseNoEcho } from './cli/format.js';
-
-// ---------------------------------------------------------------- helpers
-
-function readRequestFile(path: string): unknown[] {
-  const text = readFileSync(path, 'utf8');
-  if (path.endsWith('.jsonl')) {
-    return text.split('\n').flatMap((l, i) => (l.trim() ? [parseNoEcho(l, i + 1)] : []));
-  }
-  const j = parseNoEcho(text);
-  return Array.isArray(j) ? j : [j];
-}
-
-/** A chat request from a captured record: the body itself, or {body}/{request} holding it (object or JSON text). */
-export function asRequest(x: unknown): ChatRequest | null {
-  if (isPlainObject(x) && Array.isArray(x['messages'])) return x as unknown as ChatRequest;
-  if (isPlainObject(x)) {
-    for (const k of ['body', 'request']) {
-      const v = x[k];
-      const o = typeof v === 'string' ? (() => { try { return JSON.parse(v) as unknown; } catch { return null; } })() : v;
-      if (isPlainObject(o) && Array.isArray(o['messages'])) return o as unknown as ChatRequest;
-    }
-  }
-  return null;
-}
-
-/** Captured request files in replay order: directories sorted by name (numeric-aware), then files as given. */
-export function collectRequests(paths: string[], cwd: string): Array<{ label: string; req: ChatRequest | null }> {
-  const out: Array<{ label: string; req: ChatRequest | null }> = [];
-  const collator = new Intl.Collator('en', { numeric: true });
-  for (const p0 of paths) {
-    const p = resolve(cwd, p0);
-    if (!existsSync(p)) throw new UsageError(`not found: ${p0}`);
-    const files = statSync(p).isDirectory()
-      ? readdirSync(p).filter((f) => f.endsWith('.json') || f.endsWith('.jsonl')).sort(collator.compare).map((f) => join(p, f))
-      : [p];
-    for (const f of files) {
-      let items: unknown[];
-      try {
-        items = readRequestFile(f);
-      } catch (e) {
-        throw new UsageError(`${f}: not JSON (${(e as Error).message.split('\n')[0]})`);
-      }
-      items.forEach((it, i) => out.push({ label: items.length > 1 ? `${basename(f)}:${i + 1}` : basename(f), req: asRequest(it) }));
-    }
-  }
-  return out;
-}
-
-function httpGet(url: string, timeoutMs: number, token: string | null = null): Promise<{ status: number; body: string }> {
-  return new Promise((resolveP, reject) => {
-    const u = new URL(url);
-    const mod = u.protocol === 'https:' ? https : http;
-    const req = mod.get(u, { agent: false, timeout: timeoutMs, headers: token === null ? {} : { authorization: 'Bearer ' + token } }, (res) => {
-      const chunks: Buffer[] = [];
-      res.on('data', (c: Buffer) => chunks.push(c));
-      res.on('end', () => resolveP({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }));
-      res.on('error', reject);
-    });
-    req.on('timeout', () => req.destroy(new Error(`timed out after ${timeoutMs} ms`)));
-    req.on('error', reject);
-  });
-}
-
-async function importState(): Promise<{
-  showState(dir: string, filter?: string): { path: string; state: LearnedState; error: string | null };
-  resetState(dir: string, filter?: string): string[];
-}> {
-  const spec = './proxy/state.js';
-  try {
-    return (await import(new URL(spec, import.meta.url).href)) as Awaited<ReturnType<typeof importState>>;
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ERR_MODULE_NOT_FOUND') throw new AppModuleError('this build has no src/proxy/state.ts');
-    throw e;
-  }
-}
+import { derivedLines, display, fmtHost, maskedConfig } from './cli/format.js';
+import { collectRequests } from './cli/requests.js';
+import { httpGet, importState } from './cli/http.js';
+import { cmdDoctor, cmdReport, cmdTlsProbe } from './cli/commands/diagnostics.js';
 
 // ---------------------------------------------------------------- commands
-
-async function cmdTlsProbe(argv: string[], io: CliIO): Promise<number> {
-  const p = parseArgs(argv, { ...CONFIG_OPTS, 'ca-file': { type: 'string' }, json: { type: 'boolean' }, 'timeout-ms': { type: 'string' } });
-  if (p.positionals.length > 1) throw new UsageError('tls-probe takes at most one origin');
-  const timeoutMs = Number(p.values['timeout-ms'] ?? 5000);
-  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000) throw new UsageError('--timeout-ms must be an integer from 1 to 10000');
-  const config = loadFromArgs(p, io).config;
-  const origin = p.positionals[0] ?? config.upstream.origin;
-  if (!origin) throw new UsageError('tls-probe needs an origin or upstream.origin in config');
-  let url: URL;
-  try { url = new URL(origin); } catch { throw new UsageError('tls-probe requires an https origin'); }
-  if (url.protocol !== 'https:' || url.username || url.password) throw new UsageError('tls-probe requires an https origin without credentials');
-  const caFile = p.values['ca-file'] as string | undefined ?? config.upstream.caFile;
-  try {
-    const result = await inspectTlsChain({ origin, caFile: caFile ? resolve(io.cwd, caFile) : null, timeoutMs });
-    io.stdout((p.values['json'] ? JSON.stringify(result, null, 2) : renderTlsChain(result)) + '\n');
-    return result.diagnosis === 'ok' ? 0 : 1;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    io.stdout((p.values['json'] ? JSON.stringify({ error: message }) : `TLS probe failed: ${message}`) + '\n');
-    return 1;
-  }
-}
-
-async function cmdDoctor(argv: string[], io: CliIO): Promise<number> {
-  const p = parseArgs(argv, { ...CONFIG_OPTS, json: { type: 'boolean' }, model: { type: 'string' }, 'client-config': { type: 'string' }, 'check-upstream': { type: 'boolean' }, 'timeout-ms': { type: 'string' } });
-  if (p.positionals.length) throw new UsageError('doctor takes no positional arguments');
-  const timeoutMs = p.values['timeout-ms'] === undefined ? 3000 : Number(p.values['timeout-ms']);
-  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000) throw new UsageError('--timeout-ms must be an integer from 1 to 10000');
-  let loaded: LoadedConfig;
-  try { loaded = loadFromArgs(p, io); }
-  catch (e) {
-    if (!(e instanceof ConfigError)) throw e;
-    const result = { checks: [{ code: 'config.load', status: 'error' as const, message: 'Configuration could not be loaded.', fix: 'Check the config file exists and contains valid JSON/JSONC with supported settings.' }], exitCode: 2 };
-    io.stdout(p.values['json'] ? JSON.stringify(result, null, 2) + '\n' : renderDoctor(result) + '\n');
-    return 2;
-  }
-  const result = await doctor(loaded.config, { env: io.env, upstreamCheck: p.values['check-upstream'] === true, timeoutMs, configPath: loaded.configPath ?? undefined, clientConfigPath: p.values['client-config'] as string | undefined, models: loaded.models, model: p.values.model as string | undefined });
-  io.stdout(p.values['json'] ? JSON.stringify(result, null, 2) + '\n' : renderDoctor(result) + '\n');
-  return result.exitCode;
-}
-
-async function cmdReport(argv: string[], io: CliIO): Promise<number> {
-  const p = parseArgs(argv, { json: { type: 'boolean' } });
-  if (p.positionals.length !== 1) throw new UsageError('report needs one stats JSONL file');
-  let result;
-  try { result = await reportStream(createReadStream(resolve(io.cwd, p.positionals[0]!))); }
-  catch { io.stderr('kitzur: report could not read the stats file\n'); return 1; }
-  io.stdout(p.values['json'] ? JSON.stringify(result, null, 2) + '\n' : renderReport(result) + '\n');
-  return result.coverage.malformed ? 1 : 0;
-}
 
 async function cmdServe(argv: string[], io: CliIO): Promise<number> {
   const p = parseArgs(argv, { ...CONFIG_OPTS, 'drain-ms': { type: 'string' } });
@@ -723,4 +595,5 @@ if (isEntryPoint()) {
 
 export { defaultIO, UsageError, type CliIO } from './cli/io.js';
 export { CONFIG_OPTS, parseArgs, setOpsOf } from './cli/args.js';
+export { asRequest, collectRequests } from './cli/requests.js';
 export type { Logger };
