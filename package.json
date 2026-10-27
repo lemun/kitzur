@@ -37,7 +37,8 @@
     "test": "npm run build && node scripts/run-tests.mjs --test-reporter=dot",
     "bench": "npm run build && node dist/bench/run-all.js",
     "crosscheck": "npm run build && node dist/bench/crosscheck.js",
-    "check:pack": "npm run build && node scripts/check-pack.mjs"
+    "check:pack": "npm run build && node scripts/check-pack.mjs",
+    "sbom": "npm run build && node scripts/sbom.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
