@@ -4,110 +4,35 @@
 // Arguments are parsed here without dependencies. Exit codes: 0 ok, 1 runtime failure, 2 usage or config
 // error; `config import-eval` also returns 10 (a safety-critical knob fell back to a default) and 11
 // (conflicting measurements). Nothing here prints message content: replay and count print sizes only.
-import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildEngine, createLogger, setupCounter, AppModuleError, type Logger } from './app.js';
+import { setupCounter, AppModuleError, type Logger } from './app.js';
 import { ConfigError, loadConfig } from './config/load.js';
 import { validateConfig } from './config/validate.js';
 import { computeBudget } from './config/derived.js';
 import { DEFAULT_LEAVES, getPath, isPlainObject } from './config/spec.js';
 import { isAutoWindow } from './config/window.js';
 import { renderInitConfig } from './config/init.js';
-import { packageInfo, stateDirOf } from './config/paths.js';
+import { packageInfo } from './config/paths.js';
 import { parseJsonc } from './config/jsonc.js';
 import {
   mapEvalResults, mergeImport, readEvalInputs, renderImportReport, sidecarPath, type ImportSidecar, type KnobRecord, type MergeResult,
 } from './config/import-eval.js';
-import { counterFromConfig } from './tokenize/counter.js';
-import { canonicalJSON } from './tokenize/canonical.js';
-import type { EngineResult } from './types.js';
 import { exportOpenCode } from './config/export-opencode.js';
 import { defaultIO, UsageError, type CliIO } from './cli/io.js';
 import { CONFIG_OPTS, loadFromArgs, parseArgs } from './cli/args.js';
 import { HELP_COMMANDS, USAGE, usageOf, wantsHelp } from './cli/usage.js';
 import { derivedLines, display, maskedConfig } from './cli/format.js';
-import { collectRequests } from './cli/requests.js';
-import { importState } from './cli/http.js';
 import { cmdDoctor, cmdReport, cmdTlsProbe } from './cli/commands/diagnostics.js';
 import { cmdServe } from './cli/commands/serve.js';
 import { cmdCount } from './cli/commands/count.js';
 import { cmdStatus } from './cli/commands/status.js';
+import { cmdReplay } from './cli/commands/replay.js';
+import { cmdState } from './cli/commands/state.js';
+import { cmdBench } from './cli/commands/bench.js';
 
 // ---------------------------------------------------------------- commands
-
-async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
-  const p = parseArgs(argv, { ...CONFIG_OPTS, json: { type: 'boolean' }, 'no-fresh': { type: 'boolean' } });
-  if (!p.positionals.length) throw new UsageError('replay needs a file or directory of captured request bodies');
-  const l = loadFromArgs(p, io);
-  const cfg = l.config;
-  const log = createLogger(cfg.logLevel === 'debug' ? 'debug' : 'warn', io.stderr);
-  const reqs = collectRequests(p.positionals, io.cwd);
-  const live = await buildEngine(cfg, { log, modules: io.modules, env: io.env });
-  const fresh = async () =>
-    (await buildEngine(cfg, {
-      modules: live.modules,
-      env: io.env,
-      counter: { counter: counterFromConfig(cfg, { tokenizer: live.tokenizer }), tokenizer: live.tokenizer, estimateReason: live.estimateReason },
-    })).engine;
-  const rows: Array<Record<string, unknown>> = [];
-  let mismatches = 0;
-  let failures = 0;
-  const fingerprint = (r: EngineResult): string => canonicalJSON({ request: r.request, maxTokens: r.maxTokens, error: r.error ?? null });
-  for (const [i, { label, req }] of reqs.entries()) {
-    if (!req) {
-      rows.push({ i: i + 1, file: label, error: 'not a chat request' });
-      failures++;
-      continue;
-    }
-    let row: Record<string, unknown>;
-    try {
-      const r = live.engine.process(req, { attempt: 1 });
-      row = {
-        i: i + 1, file: label, action: r.action, replan: r.replan ?? null, fit: r.plan?.fit ?? null, compactions: r.plan?.compactions ?? 0,
-        ...(r.plan?.retention ? { retention: r.plan.retention } : {}),
-        ...(r.stats.retention ? { retentionCounts: r.stats.retention } : {}),
-        messagesIn: r.stats.messagesIn, messagesOut: r.stats.messagesOut, tokensIn: r.stats.tokensIn, tokensOut: r.stats.tokensOut,
-        budget: r.stats.budget.budget, trigger: r.stats.budget.trigger, maxTokens: r.maxTokens?.value ?? null, engineMs: Math.round(r.stats.engineMs * 10) / 10,
-      };
-      if (!p.values['no-fresh']) {
-        const f = (await fresh()).process(req, { attempt: 1 });
-        row['deterministic'] = fingerprint(f) === fingerprint(r);
-        if (!row['deterministic']) mismatches++;
-      }
-    } catch (e) {
-      row = { i: i + 1, file: label, error: `${(e as Error).name}: ${(e as Error).message.split('\n')[0]!.slice(0, 200)}` };
-      failures++;
-    }
-    rows.push(row);
-  }
-  if (p.values['json']) {
-    io.stdout(JSON.stringify({ counter: live.counter.mode, requests: rows, mismatches, failures }, null, 1) + '\n');
-  } else {
-    io.stdout(`counter ${live.counter.mode}${live.estimateReason ? ` (${live.estimateReason})` : ''}; ${reqs.length} request(s)\n`);
-    io.stdout(`${'#'.padStart(4)}  ${'file'.padEnd(24)} ${'action'.padEnd(14)} ${'msgs'.padStart(9)} ${'tokens in -> out'.padStart(19)} ${'budget'.padStart(7)} ${'trigger'.padStart(7)} ${'fit'.padEnd(11)} cmp ${'max_tok'.padStart(7)}  det\n`);
-    for (const r of rows) {
-      if (r['error']) {
-        io.stdout(`${String(r['i']).padStart(4)}  ${String(r['file']).padEnd(24)} ERROR ${r['error']}\n`);
-        continue;
-      }
-      const det = r['deterministic'] === undefined ? '-' : r['deterministic'] ? 'ok' : 'DIFF';
-      io.stdout(
-        `${String(r['i']).padStart(4)}  ${String(r['file']).slice(0, 24).padEnd(24)} ${String(r['action']).padEnd(14)} ` +
-          `${`${r['messagesIn']}->${r['messagesOut']}`.padStart(9)} ${`${r['tokensIn']} -> ${r['tokensOut']}`.padStart(19)} ` +
-          `${String(r['budget']).padStart(7)} ${String(r['trigger']).padStart(7)} ${String(r['fit'] ?? '-').padEnd(11)} ${String(r['compactions']).padStart(3)} ` +
-          `${String(r['maxTokens'] ?? '-').padStart(7)}  ${det}\n`,
-      );
-    }
-    const actions: Record<string, number> = {};
-    for (const r of rows) if (r['action']) actions[String(r['action'])] = (actions[String(r['action'])] ?? 0) + 1;
-    io.stdout(`actions: ${Object.entries(actions).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}\n`);
-    if (!p.values['no-fresh']) io.stdout(`determinism (live == fresh): ${rows.length - failures - mismatches}/${rows.length - failures} ok\n`);
-    if (failures) io.stdout(`failures: ${failures}\n`);
-  }
-  return mismatches || failures ? 1 : 0;
-}
 
 async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
   const [sub, ...rest] = argv;
@@ -309,55 +234,6 @@ async function cmdImportEval(argv: string[], io: CliIO): Promise<number> {
     io.stderr(`kitzur: wrote ${out} and ${provPath}\n`);
   }
   return exitCode;
-}
-
-async function cmdState(argv: string[], io: CliIO): Promise<number> {
-  const [sub, ...rest] = argv;
-  if (sub !== 'show' && sub !== 'reset') throw new UsageError('state needs a subcommand: show, reset');
-  const p = parseArgs(rest, { ...CONFIG_OPTS, key: { type: 'string' }, json: { type: 'boolean' }, plans: { type: 'boolean' } });
-  const cfg = loadFromArgs(p, io).config;
-  const dir = stateDirOf(cfg, io.env);
-  const st = await importState();
-  const key = p.values['key'] as string | undefined;
-  if (sub === 'show') {
-    const r = st.showState(dir, key);
-    if (r.error) io.stderr(`kitzur: ${r.path}: ${r.error}\n`);
-    if (p.values['json']) {
-      io.stdout(JSON.stringify({ path: r.path, ...r.state }, null, 1) + '\n');
-      return r.error ? 1 : 0;
-    }
-    const entries = Object.entries(r.state.entries);
-    io.stdout(`${r.path}: ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'}${key ? ` matching ${key}` : ''}\n`);
-    for (const [k, e] of entries) {
-      io.stdout(
-        `${k}\n  window ${e.window ?? '-'} (configured ${e.configuredWindow}), maxPrompt ${e.maxPrompt ?? '-'}, maxBodyBytes ${e.maxBodyBytes ?? '-'}, ` +
-          `tighten ${e.tighten}, correction ${e.correction} (${e.samples} samples), includeUsageRejected ${e.includeUsageRejected}, updated ${e.updatedAt ?? '-'}\n`,
-      );
-      for (const t of e.tightenLog ?? []) io.stdout(`  tighten: ${t.at} ${t.rule} rejected raw ${t.rejectedRaw}\n`);
-    }
-    return r.error ? 1 : 0;
-  }
-  const gone = st.resetState(dir, key);
-  io.stdout(gone.length ? `removed ${gone.length} entr${gone.length === 1 ? 'y' : 'ies'}: ${gone.join(', ')}\n` : 'no matching entries\n');
-  if (p.values['plans']) {
-    const plans = join(dir, 'plans');
-    if (existsSync(plans)) {
-      rmSync(plans, { recursive: true, force: true });
-      io.stdout(`removed ${plans}\n`);
-    }
-  }
-  io.stdout('restart a running proxy: it keeps its entries in memory and writes them back\n');
-  return 0;
-}
-
-function cmdBench(argv: string[], io: CliIO): number {
-  const runAll = join(dirname(fileURLToPath(import.meta.url)), '..', 'bench', 'run-all.js');
-  if (!existsSync(runAll)) {
-    io.stderr(`kitzur: the benchmark suite is not in this build (${runAll}); run it from a source checkout: npm run bench\n`);
-    return 1;
-  }
-  const r = spawnSync(process.execPath, [runAll, ...argv], { stdio: 'inherit', env: io.env as NodeJS.ProcessEnv, cwd: io.cwd });
-  return r.status ?? 1;
 }
 
 // ---------------------------------------------------------------- main
