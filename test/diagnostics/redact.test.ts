@@ -77,6 +77,38 @@ test('redact keeps every string length and line count, and no 4-character run of
   for (const [, s] of b) for (let i = 0; i + 4 <= s.length; i++) assert.ok(!grams.has(s.slice(i, i + 4)), 'no run of the original text');
 });
 
+test('redact leaves no 4-character run of non-ASCII text, including text made of the stand-in characters', () => {
+  const req = session(1);
+  const inputs = ['ä'.repeat(6), '–'.repeat(5) + ' x', '\u{1d41a}'.repeat(4), 'éääääü∑––––€\u{1d41a}\u{1d41a}\u{1d41a}\u{1d41a}🚀',
+    Array.from({ length: 20 }, (_, k) => String.fromCharCode(0xe0 + k)).join('').repeat(2), '\udbff\udbff\udbff\udbff \udbf0\udbf0'];
+  for (const text of inputs) req.messages.push({ role: 'user', content: text });
+  req.messages[2]!.tool_calls![0]!.function.arguments = JSON.stringify({ q: inputs[3], e: 'ääää' });
+  const r = redactRequest(req);
+  const bytes = (x: unknown): number => Buffer.byteLength(JSON.stringify(x), 'utf8');
+  assert.equal(bytes(r), bytes(req));
+  assert.equal(JSON.stringify(r).length, JSON.stringify(req).length);
+  const pairs: Array<[string, string]> = inputs.map((text, i) => [text, r.messages.at(i - inputs.length)!.content as string]);
+  pairs.push([req.messages[2]!.tool_calls![0]!.function.arguments, r.messages[2]!.tool_calls![0]!.function.arguments]);
+  for (const [a, b] of pairs) {
+    assert.equal(b.length, a.length);
+    for (let i = 0; i + 4 <= b.length; i++) if (/[^\x00-\x7f]/.test(b.slice(i, i + 4))) assert.ok(!a.includes(b.slice(i, i + 4)), 'no non-ASCII run of the input');
+  }
+});
+
+test('redact keeps name only on tool definitions, tool calls and tool results', () => {
+  const req = session(1) as ChatRequest & Record<string, unknown>;
+  req['extension'] = { function: { name: 'secretword' } };
+  req.messages.push({ role: 'user', name: 'secretuser', content: [{ type: 'text', text: 'x', function: { name: 'secretpart' } }] } as unknown as ChatMessage);
+  req.messages.push({ role: 'tool', tool_call_id: 'call_0', name: 'read_file', content: 'ok' } as ChatMessage);
+  req['tool_choice'] = { type: 'function', function: { name: 'read_file' } };
+  const r = redactRequest(req);
+  assert.ok(!/secret/.test(JSON.stringify(r)), 'non-tool names redacted');
+  assert.deepEqual(r.tools, redactRequest(session(1)).tools);
+  assert.equal(r.messages[2]!.tool_calls![0]!.function.name, 'read_file');
+  assert.equal((r.messages.at(-1) as ChatMessage & { name: string }).name, 'read_file');
+  assert.deepEqual(r['tool_choice'], req['tool_choice']);
+});
+
 async function run(argv: string[], cwd: string): Promise<{ code: number; out: string; err: string }> {
   const out: string[] = [];
   const err: string[] = [];

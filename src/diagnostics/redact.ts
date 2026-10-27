@@ -3,7 +3,8 @@
 // becomes a placeholder of the same length with newlines in the same places, so token counts and truncation stay
 // comparable; each character's UTF-8 width and JSON escaping cost are kept too, so the encoded body has the same size.
 // Kept: object keys, numbers, booleans, roles, ids and their pairing, tool and function names, types, the model.
-// The placeholder depends only on the length, newline positions and character widths of the original, never its text.
+// The placeholder depends only on the length, newline positions and character widths of the original, never its text,
+// except that a non-ASCII stand-in is one the original does not contain.
 
 /** Keys whose string values (or arrays of strings) are structure, not content. */
 const PROTECTED = new Set(['model', 'role', 'id', 'tool_call_id', 'type', 'required', 'tool_choice', 'format']);
@@ -29,25 +30,47 @@ function fillerOf(len: number): string {
   return filler.slice(0, len);
 }
 
+/** Same-width stand-ins for non-ASCII characters, 16 per UTF-8 width: 2-byte, 3-byte BMP, astral pairs, lone surrogates. */
+const POOLS = [
+  Array.from({ length: 16 }, (_, k) => String.fromCharCode(0xe0 + k)),
+  Array.from({ length: 16 }, (_, k) => String.fromCharCode(0x4e00 + k)),
+  Array.from({ length: 16 }, (_, k) => String.fromCodePoint(0x1d41a + k)),
+  Array.from({ length: 16 }, (_, k) => String.fromCharCode(0xdbf0 + k)),
+] as const;
+
+type Pick = (pool: readonly string[], orig: string) => string;
+
+/** For each pool, the first character that occurs nowhere in `s` (so no filler can rebuild a run of `s`); when `s`
+ *  uses the whole pool, the first one that differs from the original character at that position. */
+function picker(s: string): Pick {
+  const memo = new Map<readonly string[], string | undefined>();
+  return (pool, orig) => {
+    if (!memo.has(pool)) memo.set(pool, pool.find((p) => !s.includes(p)));
+    return memo.get(pool) ?? pool.find((p) => p !== orig)!;
+  };
+}
+
 /** The filler for the character at s[i]: same UTF-16 length (a surrogate pair stays two units), same UTF-8 bytes and
  *  the same JSON-escaped length. Newlines and carriage returns stay; `ascii` stands in for a plain ASCII character. */
-function fillAt(s: string, i: number, ascii: string): string {
+function fillAt(s: string, i: number, ascii: string, pick: Pick): string {
   const c = s.charCodeAt(i);
   if (c === 10 || c === 13) return s[i]!;
   if (c === 8 || c === 9 || c === 12 || c === 0x22 || c === 0x5c) return '\t';
   if (c < 0x20) return '\u0001';
   if (c < 0x80) return ascii;
-  if (c < 0x800) return '\u00e4';
-  if (c < 0xd800 || c >= 0xe000) return '\u2013';
-  return c < 0xdc00 && (s.charCodeAt(i + 1) & 0xfc00) === 0xdc00 ? '\u{1d41a}' : '\udbff';
+  if (c < 0x800) return pick(POOLS[0], s[i]!);
+  if (c < 0xd800 || c >= 0xe000) return pick(POOLS[1], s[i]!);
+  const pair = c < 0xdc00 && (s.charCodeAt(i + 1) & 0xfc00) === 0xdc00;
+  return pair ? pick(POOLS[2], s.slice(i, i + 2)) : pick(POOLS[3], s[i]!);
 }
 
 /** A placeholder with the length, UTF-8 size and JSON-encoded size of `s`, and its newlines where they were. */
 export function placeholder(s: string): string {
   const f = fillerOf(s.length);
+  const pick = picker(s);
   let out = '';
   for (let i = 0; i < s.length; ) {
-    const r = fillAt(s, i, f[i]!);
+    const r = fillAt(s, i, f[i]!, pick);
     out += r;
     i += r.length;
   }
@@ -59,10 +82,11 @@ export function placeholder(s: string): string {
  *  two-character escapes \t (so the arguments string re-encodes to the same size inside the body). */
 function maskEncoded(inner: string): string {
   const f = fillerOf(inner.length);
+  const pick = picker(inner);
   let out = '';
   for (let i = 0, n = 0; i < inner.length; ) {
     if (inner[i] !== '\\') {
-      const r = fillAt(inner, i, f[n]!);
+      const r = fillAt(inner, i, f[n]!, pick);
       out += r;
       i += r.length;
       n += r.length;
@@ -103,20 +127,26 @@ export function redactArguments(s: string): string {
   return out;
 }
 
-/** True for the `name` of a tool or function: under a `function` object, or on a tool or function result message. */
-function isToolName(o: Record<string, unknown>, k: string, key: string | null): boolean {
-  return k === 'name' && typeof o[k] === 'string' && (key === 'function' || o['role'] === 'tool' || o['role'] === 'function');
+/** Paths (array indices as #) of the objects whose `name` is a tool or function name, kept as is. */
+const TOOL_NAME_AT = new Set(['tools.#.function', 'functions.#', 'tool_choice.function', 'function_call',
+  'messages.#.tool_calls.#.function', 'messages.#.function_call']);
+
+/** True for the `name` of a tool definition, tool choice or tool call, or of a tool or function result message. */
+function isToolName(o: Record<string, unknown>, k: string, path: string): boolean {
+  if (k !== 'name' || typeof o[k] !== 'string') return false;
+  return TOOL_NAME_AT.has(path) || (path === 'messages.#' && (o['role'] === 'tool' || o['role'] === 'function'));
 }
 
-function redactValue(v: unknown, key: string | null): unknown {
+function redactValue(v: unknown, key: string | null, path: string): unknown {
   if (typeof v === 'string') {
     if (key !== null && PROTECTED.has(key)) return v;
     return key === 'arguments' ? redactArguments(v) : placeholder(v);
   }
-  if (Array.isArray(v)) return v.map((x) => redactValue(x, key === 'required' ? key : null));
+  if (Array.isArray(v)) return v.map((x) => redactValue(x, key === 'required' ? key : null, path + '.#'));
   if (v !== null && typeof v === 'object') {
     const o: Record<string, unknown> = {};
-    for (const [k, x] of Object.entries(v)) o[k] = isToolName(v as Record<string, unknown>, k, key) ? x : redactValue(x, k);
+    const at = (k: string): string => (path ? path + '.' + k : k);
+    for (const [k, x] of Object.entries(v)) o[k] = isToolName(v as Record<string, unknown>, k, path) ? x : redactValue(x, k, at(k));
     return o;
   }
   return v;
@@ -124,7 +154,7 @@ function redactValue(v: unknown, key: string | null): unknown {
 
 /** The redacted copy of a request body; the input is not modified. */
 export function redactRequest<T>(body: T): T {
-  return redactValue(body, null) as T;
+  return redactValue(body, null, '') as T;
 }
 
 /** True when a parsed file looks like captured HTTP headers (which may hold credentials) rather than a body. */
