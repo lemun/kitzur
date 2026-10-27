@@ -5,7 +5,7 @@ import type { ChatMessage, ContentPart, TextPart, ToolCall } from '../types.js';
 /** The message role as a string ('' when missing or not a string). */
 export const roleOf = (m: ChatMessage | undefined): string => (m && typeof m.role === 'string' ? m.role : '');
 
-/** Roles that start a unit (DESIGN §5.1, ); every other role attaches to the previous unit. */
+/** Roles that start a unit; every other role attaches to the previous unit. */
 export const isUnitStart = (m: ChatMessage): boolean => {
   const r = roleOf(m);
   return r === 'assistant' || r === 'user' || r === 'system' || r === 'developer';

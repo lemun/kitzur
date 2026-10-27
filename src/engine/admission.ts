@@ -1,7 +1,7 @@
-// Admission rewrites (DESIGN.mda, ). At every boundary b, before the fit check, every tool
-// result in [prevBoundary(b), b) above admitTokens is slimmed (snapshots, §5.6 step 1) and/or truncated
+// Admission rewrites (DESIGN.md). At every boundary b, before the fit check, every tool
+// result in [prevBoundary(b), b) above admitTokens is slimmed (snapshots) and/or truncated
 // head+tail to admitTokens. Those messages have never been forwarded (the request at b is the first to
-// contain them), so I6 holds; they go into plan.rewrites with stage 'admission'.
+// contain them), so prefix stability holds; they go into plan.rewrites with stage 'admission'.
 import type { Plan, Rewrite } from '../types.js';
 import { ffloor } from './budget.js';
 import { isToolResult } from './message.js';

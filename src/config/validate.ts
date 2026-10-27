@@ -1,6 +1,6 @@
-// Config validation (DESIGN.md, §10): the type and range of every leaf (spec.ts), regex and glob
-// compilation, the  trigger/target rules, the  budget-mode conflict, an unusable budget, and the
-// startup warnings ( clamp unreachable,  one snapshot per epoch,  T_plan below the client's
+// Config validation (DESIGN.md): the type and range of every leaf (spec.ts), regex and glob
+// compilation, the trigger/target rules, the budget-mode conflict, an unusable budget, and the
+// startup warnings (clamp unreachable, one snapshot per epoch, T_plan below the client's
 // output, a window that does not match its preset). Pure; file checks are opt-in (`checkFiles`).
 import { existsSync, statSync } from 'node:fs';
 import { loadTokenizerCached } from '../tokenize/load.js';
@@ -288,7 +288,7 @@ export function validateConfig(cfg: Config, opts: ValidateOptions = {}): Validat
     warnings.push(`compaction.targetTokens ${c.targetTokens} is not below trigger ${b.trigger}; it is clamped to ${b.trigger - 1} ()`);
   }
 
-  // ---- startup warnings (DESIGN §10)
+  // ---- startup warnings
   if (cfg.budget.maxTokensClamp.enabled && b.budget > 0) {
     const r = clampRange(cfg, b);
     if (!r.reachable) warnings.push(`clamp enabled but unreachable: ${r.reason} (; it needs a client point above budget + allowance, see CONFIG.md "Client setup")`);
@@ -340,7 +340,7 @@ export function validateConfig(cfg: Config, opts: ValidateOptions = {}): Validat
   if (opts.checkFiles) {
     const missing = (p: string | null): p is string => typeof p === 'string' && !(existsSync(p) && statSync(p).isFile());
     // a missing CA file would fail every TLS connection: fatal. A missing tokenizer falls back to the
-    // estimate (tokenizer.mode 'auto', §4), so it is a warning.
+    // estimate (tokenizer.mode 'auto'), so it is a warning.
     if (missing(cfg.upstream.caFile)) errors.push(`upstream.caFile: file not found: ${cfg.upstream.caFile}${src(prov, 'upstream.caFile')}`);
     if (cfg.tokenizer.mode === 'auto' && missing(cfg.tokenizer.path)) {
       warnings.push(`tokenizer.path: file not found: ${cfg.tokenizer.path}${src(prov, 'tokenizer.path')}; counting falls back to the estimate`);

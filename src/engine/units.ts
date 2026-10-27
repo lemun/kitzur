@@ -2,7 +2,7 @@
 //
 // The head rule (first assistant, trailing prior summaries left out) is derived from gobstopper v0.7.2
 // (MIT), crates/gobstopper-adapters/src/request/mod.rs:295-302 and chat.rs:124-127. Units are finer
-// than gobstopper's turns (ADR-12, ): every assistant/user/system/developer message starts one.
+// than gobstopper's turns: every assistant/user/system/developer message starts one.
 import type { ChatMessage } from '../types.js';
 import type { Config } from '../config/schema.js';
 import { SUMMARY_HEADER } from './contracts.js';
@@ -13,7 +13,7 @@ export const isPriorSummary = (m: ChatMessage): boolean => roleOf(m) === 'user' 
 
 /**
  * hEnd of the request msgs[0..n): the first assistant (or n), minus trailing prior summaries, plus
- * one when a client-written summary follows the client's compaction marker (). Pure in msgs[0..hEnd].
+ * one when a client-written summary follows the client's compaction marker. Pure in msgs[0..hEnd].
  */
 export function headEnd(msgs: readonly ChatMessage[], n: number, client: Config['client']): number {
   let h = n;
@@ -87,7 +87,7 @@ export function keptStart(units: readonly Unit[], keep: number, h: number): numb
 
 /**
  * Boundaries of msgs[0..n): every b in [1, n) where msgs[b] is an assistant and msgs[b-1] is not,
- * plus n. Every client request ends at a boundary (§5.1); the fold steps at each one.
+ * plus n. Every client request ends at a boundary; the fold steps at each one.
  */
 export function boundaries(msgs: readonly ChatMessage[]): number[] {
   const n = msgs.length;

@@ -154,7 +154,7 @@ test('import-eval: mock-vllm specifics ( allowance from the capture p99, derived
   assert.deepEqual(res.unsafe, []);
   const report = renderImportReport(res, { inputs: inputs.sources });
   assert.match(report, /client baseURL = http:\/\/127\.0\.0\.1:8270\/v1/);
-  assert.match(report, /derived \(DESIGN §3\): mode strict_total, W 100000, T_plan 32000, margin 1000, budget 67000, clientPoint 84000, allowance 2000, hard 67000/);
+  assert.match(report, /derived: mode strict_total, W 100000, T_plan 32000, margin 1000, budget 67000, clientPoint 84000, allowance 2000, hard 67000/);
   assert.match(report, /proposed: 46\/46 steps, 7 compactions, peak prompt 60984, sum 1734118/);
   assert.match(report, /exit code 0/);
   // deterministic: same input, same output

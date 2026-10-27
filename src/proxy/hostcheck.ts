@@ -1,4 +1,4 @@
-// Host-header check against DNS rebinding (DESIGN.md "Security"). The proxy binds to loopback, but a
+// Host-header check against DNS rebinding (SECURITY.md). The proxy binds to loopback, but a
 // browser page on a rebinding domain can still reach it; such requests carry the attacker's host name
 // in `Host`. Only the configured names are served (port ignored); a missing Host (HTTP/1.0 tools) is
 // allowed, as in gobstopper; `['*']` turns the check off.

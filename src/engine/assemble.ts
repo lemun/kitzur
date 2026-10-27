@@ -6,7 +6,7 @@
 //      ++ [ rewrites[i]?.message ?? H[i]  for i in c..m )
 //
 // With compaction.summaryRole = 'merge-into-first-user' the summary is appended to the first user
-// message of the head after a blank line instead (an I4 relaxation).
+// message of the head after a blank line instead (a relaxation of head preservation).
 import type { ChatMessage, Plan, Rewrite } from '../types.js';
 import type { Config } from '../config/schema.js';
 import { Lru } from './lru.js';

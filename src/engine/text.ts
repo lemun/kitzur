@@ -1,4 +1,4 @@
-// Head+tail truncation of one text (DESIGN.md, ), code-point safe, with the exact marker.
+// Head+tail truncation of one text (DESIGN.md), code-point safe, with the exact marker.
 //
 // Cut sizes come from ONE count of the original (its chars-per-token ratio) and a proportional estimate
 // of the kept head and tail; one verification count follows, and when the result is over the room both
@@ -50,14 +50,14 @@ const SAVED_RE = /Full output saved to: ([^\n]+)/;
  */
 export const MAX_SAVED_PATH_CHARS = 4096;
 
-/** OpenCode's `Full output saved to: <path>` notice (§5.6), or null (also for a path over MAX_SAVED_PATH_CHARS). */
+/** OpenCode's `Full output saved to: <path>` notice, or null (also for a path over MAX_SAVED_PATH_CHARS). */
 export function savedPathOf(text: string): string | null {
   const m = SAVED_RE.exec(text);
   const p = m?.[1]?.trim();
   return p && p.length <= MAX_SAVED_PATH_CHARS ? p : null;
 }
 
-/** The §5.6 marker. `savedPath` (OpenCode's saved output) replaces the re-run advice. */
+/** The omission marker. `savedPath` (OpenCode's saved output) replaces the re-run advice. */
 export function truncationMarker(keptHead: number, keptTail: number, total: number, savedPath: string | null): string {
   return (
     `[kitzur: this output was truncated to fit the model's context window: kept the first ${fmtInt(keptHead)} and ` +
@@ -89,7 +89,7 @@ export interface CutResult {
   markerOnly: boolean;
 }
 
-/** Max corrections after the first verification count (). */
+/** Max corrections after the first verification count. */
 const MAX_CORRECTIONS = 3;
 const SEP = '\n\n';
 

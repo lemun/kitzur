@@ -1,7 +1,7 @@
-// Counting helpers of one request (DESIGN.md "Counts used for planning", §3 byte limit).
+// Counting helpers of one request (DESIGN.md "Budgets and counting").
 //
 //   raw(x)   = counter.measure(candidate).total, every candidate counted as a standalone request, so
-//              render contexts come from the candidate alone (); per-message pieces are cached by
+//              render contexts come from the candidate alone; per-message pieces are cached by
 //              the counter under (engine digest, render context)
 //   count(x) = ceil(raw(x) · correction), correction quantized to 1% (integer arithmetic, no FP drift)
 //   bytes(x) = bytes(JSON.stringify(x.messages)) + fixedBytes, from per-message byte sizes cached by digest
@@ -143,15 +143,15 @@ export class Counting implements OpsEnv {
   }
 
   /**
-   * A rewrite's acceptance test (§5.4 , §5.6): strictly smaller in tokens AND not larger in bytes. The guard
-   * compares bytes(out) with bytes(in) too (I3), and a head+tail cut that drops fewer characters than its marker adds
+   * A rewrite's acceptance test: strictly smaller in tokens AND not larger in bytes. The guard
+   * compares bytes(out) with bytes(in) too, and a head+tail cut that drops fewer characters than its marker adds
    * is smaller in tokens but larger in bytes (fuzz seed 7205: −261 characters, +280 marker).
    */
   smaller(a: ChatMessage, b: ChatMessage): boolean {
     return this.size(a) < this.size(b) && this.msgBytes(a) <= this.msgBytes(b);
   }
 
-  /** bytes(JSON.stringify(msgs)) + fixedBytes (§3). */
+  /** bytes(JSON.stringify(msgs)) + fixedBytes. */
   bytes(msgs: readonly ChatMessage[], digests: readonly string[]): number {
     let n = 2 + Math.max(0, msgs.length - 1) + this.d.fixedBytes;
     for (let i = 0; i < msgs.length; i++) {

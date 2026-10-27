@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { parseJsonc } from './jsonc.js';
 import { isPlainObject } from './spec.js';
 
-/** The preset names shipped in presets/, with their DESIGN §3 window / defaultMaxTokens. */
+/** The preset names shipped in presets/, with their window / defaultMaxTokens. */
 export const PRESET_TABLE: Readonly<Record<string, { window: number; defaultMaxTokens: number }>> = {
   '32k': { window: 32_000, defaultMaxTokens: 8_000 },
   '64k': { window: 64_000, defaultMaxTokens: 16_000 },

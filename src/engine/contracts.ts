@@ -1,7 +1,7 @@
 /**
  * Internal contracts between the engine core (src/engine/*.ts) and the summary / ledger / tool-rules
  * modules (src/engine/summary.ts, src/engine/ledger/*, src/engine/rules/*). Owned by the lead.
- * Semantics: DESIGN.md (fit loop), §6 (summary, ledger, eviction), §7 (tool rules).
+ * Semantics: DESIGN.md (fit loop, summary, ledger, eviction, tool rules).
  */
 import type { ChatMessage, ToolCall, TokenCounter } from '../types.js';
 import type { Config } from '../config/schema.js';
@@ -50,7 +50,7 @@ export interface SummaryRender {
   text: string | null;
   /** exact tokens of the summary as a user message in the prompt (counter.measure of that single message) */
   tokens: number;
-  /** tokens of the floor categories alone at userShortenStep 0 (§6.4) — used for summaryBudget */
+  /** tokens of the floor categories alone at userShortenStep 0 — used for summaryBudget */
   floorTokens: number;
   kept: number;
   dropped: number;
@@ -85,18 +85,18 @@ export type ResultKind = 'snapshot' | 'test' | 'other';
 export interface ToolRules {
   /** tool-name role lookup by glob (rules.toolNames) */
   role(toolName: string): Array<keyof Config['rules']['toolNames']>;
-  /** classify a tool result; content detection of snapshots beats the test rule (§7) */
+  /** classify a tool result; content detection of snapshots beats the test rule */
   classify(resultText: string, call: ToolCall | null): ResultKind;
   snapshotInfo(resultText: string): SnapshotInfo | null;
-  /** the stub text that replaces a superseded snapshot (§7) */
+  /** the stub text that replaces a superseded snapshot */
   stubText(info: SnapshotInfo): string;
   /**
-   * Slim a snapshot (§5.6 step 1, ) to at most maxTokens (counted with `count`), keeping the page-state
+   * Slim a snapshot to at most maxTokens (counted with `count`), keeping the page-state
    * header, the saved-output line, interactive/heading elements with refs and, room allowing, their direct
    * text//url children; appends the slim marker. Returns null if slimming cannot get under maxTokens.
    */
   slimSnapshot(resultText: string, maxTokens: number, count: (s: string) => number): string | null;
-  /** condensed one-line result for the summary tool log (§6.3) */
+  /** condensed one-line result for the summary tool log */
   condense(resultText: string, call: ToolCall | null): string;
 }
 

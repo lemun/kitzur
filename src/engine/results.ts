@@ -1,4 +1,4 @@
-// Tool results as the fold sees them (DESIGN.md step 1.1, §5.5, §7): classification through the
+// Tool results as the fold sees them (DESIGN.md): classification through the
 // injected ToolRules (cached by digest), the call a result answers, superseded snapshots and their stubs.
 import type { ChatMessage, ToolCall } from '../types.js';
 import type { ResultKind, ToolRules } from './contracts.js';
@@ -89,7 +89,7 @@ export const isSnapshotResult = (env: ResultsEnv, i: number): boolean =>
 
 /**
  * Snapshot results in [units[0].start, lim) that are superseded: a newer snapshot result exists in a
- * LATER assistant unit before b (§5.4 1.1). Parallel calls in one unit do not supersede each other.
+ * LATER assistant unit before b. Parallel calls in one unit do not supersede each other.
  * Pass lim = the mandatory start, so results inside the mandatory units are never returned.
  */
 export function supersededSnapshots(env: ResultsEnv, units: readonly Unit[], lim: number): number[] {
@@ -108,7 +108,7 @@ export function supersededSnapshots(env: ResultsEnv, units: readonly Unit[], lim
   return snaps.filter((x) => x.u < last && x.i < lim).map((x) => x.i);
 }
 
-/** The stub of snapshot result i (§7), or null when it has no info or would not be smaller. */
+/** The stub of snapshot result i, or null when it has no info or would not be smaller. */
 export function stubFor(env: ResultsEnv, i: number): ChatMessage | null {
   const key = env.digests[i];
   if (env.stubs && key !== undefined) {

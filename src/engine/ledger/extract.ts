@@ -1,4 +1,4 @@
-// Per-message fact extraction (DESIGN.md–§6.3). Each function depends only on its message (and, for a
+// Per-message fact extraction (DESIGN.md). Each function depends only on its message (and, for a
 // tool result, on the call that produced it), so results are cached by digest and a cache hit is identical
 // to a recomputation.
 import type { ChatMessage, ToolCall } from '../../types.js';
@@ -14,9 +14,9 @@ import { explicitIdSpans } from './supersede.js';
 import { capHead, capHeadTail, collapseWs, contentText, splitThink, stripEnvironmentDetails, textParts } from './text.js';
 import { escapeRe } from '../../util.js';
 
-/** Cap of one decision / todo / note / tier-1 line (: 300 characters, head-first). */
+/** Cap of one decision / todo / note / tier-1 line (300 characters, head-first). */
 export const ITEM_MAX_CHARS = 300;
-/** Cap of the tool-log key args (§6.3). */
+/** Cap of the tool-log key args. */
 export const KEY_ARGS_MAX_CHARS = 120;
 /** OpenCode's synthetic user message that carries images extracted from a tool result. */
 const MEDIA_USER_TEXT = 'Attached media from tool result:';
@@ -42,7 +42,7 @@ export interface CallFacts {
   id: string;
   name: string;
   roles: ToolRole[];
-  /** the tool-log key args (§6.3), already capped; '' when there are none */
+  /** the tool-log key args, already capped; '' when there are none */
   keyArgs: string;
   /** file actions from path args and patch headers */
   files: Array<{ path: string; action: string }>;
@@ -62,7 +62,7 @@ export interface AssistantFacts {
   kind: 'assistant';
   /** lines/sentences starting with a ledger tag, in order */
   tagged: Array<{ tag: TagKind; text: string }>;
-  /** narrative tier 1: labelled lines () */
+  /** narrative tier 1: labelled lines */
   labels: Array<{ text: string; priority: boolean }>;
   /** narrative tier 2: the other visible text, capped head+tail at narrativeMaxCharsPerMessage, one line */
   narrative: string;
@@ -82,9 +82,9 @@ export interface ResultFacts {
   pageTitle: string | null;
   /** test tally line when resultKind is 'test' */
   tally: string | null;
-  /** condensed result for the tool log (§6.3) */
+  /** condensed result for the tool log */
   condensed: string;
-  /** output paths (§6.2): per-result cap applied, config-like first */
+  /** output paths: per-result cap applied, config-like first */
   paths: string[];
 }
 
@@ -143,7 +143,7 @@ export interface Extractor {
   user(m: ChatMessage): UserFacts;
   assistant(m: ChatMessage): AssistantFacts;
   result(m: ChatMessage, call: ToolCall | null): ResultFacts;
-  /** tool arguments that name files, for the own-path exclusion of §6.2 */
+  /** tool arguments that name files, for the own-path exclusion of output paths */
   pathArgs(args: Record<string, unknown> | null): string[];
 }
 
@@ -220,7 +220,7 @@ export function createExtractor(cfg: Config, rules: ToolRulesExt): Extractor {
     const starts: number[] = [];
     const lead = /^\s*(?:[-*•>]\s+|\d+[.)]\s+)?(?:\*\*|__)?/.exec(line)![0].length;
     starts.push(lead);
-    // sentence ends as in DESIGN §6.1's split `(?<=[.!?;])\s+`
+    // sentence ends as in the ledger's sentence split `(?<=[.!?;])\s+`
     for (const m of line.matchAll(/[.!?;]\s+(?:\*\*|__)?/g)) {
       const p = m.index + m[0].length;
       if (p < line.length && p > lead) starts.push(p);
@@ -270,7 +270,7 @@ export function createExtractor(cfg: Config, rules: ToolRulesExt): Extractor {
       }
       rest.push(line);
     }
-    // tier 2 is capped here (: only tier 2), so cached facts stay small
+    // tier 2 is capped here (only tier 2), so cached facts stay small
     return { tagged, labels, narrative: collapseWs(capHeadTail(rest.join('\n').trim(), cfg.compaction.narrativeMaxCharsPerMessage)) };
   };
 
