@@ -13,18 +13,17 @@ import { fileURLToPath } from 'node:url';
 import { buildApp, buildEngine, createLogger, setupCounter, AppModuleError, type Logger } from './app.js';
 import { ConfigError, loadConfig, type LoadedConfig } from './config/load.js';
 import { validateConfig } from './config/validate.js';
-import { computeBudget, planMaxTokens, requestMaxTokens, serverFits } from './config/derived.js';
+import { computeBudget, requestMaxTokens, serverFits } from './config/derived.js';
 import { DEFAULT_LEAVES, getPath, isPlainObject } from './config/spec.js';
 import { isAutoWindow } from './config/window.js';
 import { renderInitConfig } from './config/init.js';
 import { packageInfo, stateDirOf } from './config/paths.js';
-import { jsonErrorInfo, lineCol, parseJsonc } from './config/jsonc.js';
+import { parseJsonc } from './config/jsonc.js';
 import {
   mapEvalResults, mergeImport, readEvalInputs, renderImportReport, sidecarPath, type ImportSidecar, type KnobRecord, type MergeResult,
 } from './config/import-eval.js';
 import { counterFromConfig } from './tokenize/counter.js';
 import { canonicalJSON } from './tokenize/canonical.js';
-import type { Config } from './config/schema.js';
 import type { ChatRequest, EngineResult, LearnedState } from './types.js';
 import { doctor, renderDoctor } from './diagnostics/doctor.js';
 import { formatPaths } from './proxy/status.js';
@@ -33,129 +32,10 @@ import { reportStream, renderReport } from './diagnostics/report.js';
 import { exportOpenCode } from './config/export-opencode.js';
 import { defaultIO, UsageError, type CliIO } from './cli/io.js';
 import { CONFIG_OPTS, loadFromArgs, parseArgs } from './cli/args.js';
-
-// ---------------------------------------------------------------- usage
-
-const USAGE = `usage: kitzur <command> [options]
-
-  serve                         run the proxy (logs the bound address to a file)
-  replay <file|dir>...          run captured request bodies through the engine offline; sizes only,
-                                plus a live-vs-fresh determinism check
-  count <request.json>          exact token count of a request (per message, no content)
-  status [--url URL] [--json]   Show a running instance’s status
-  doctor [--model ID] [--client-config PATH] [--json] [--check-upstream] [--timeout-ms N]  read-only setup diagnostics
-  tls-probe [origin] [--ca-file FILE] [--json] [--timeout-ms N]  inspect the TLS chain
-  report <stats.jsonl> [--json]  aggregate request stats; sizes only
-  config init [--preset 100k] [--upstream URL] [--tokenizer FILE] [--out FILE|-] [--force]
-  config show [--changed] [--json]      effective config with the source of every value
-  config validate [--json]              errors and startup warnings
-  config import-eval <dir|file>... [--out FILE] [--merge FILE] [--provenance FILE] [--dry-run]
-  config export-opencode --model ID [--small-model ID] [--provider NAME] [--key-env NAME]
-                     [--force-keys a.b,c] [--allow-pack-version N] [--json-report] [--port N] [--force]
-  state show [--key K] [--json]         learned entries in the state dir
-  state reset [--key K] [--plans]       remove learned entries (and the plan store)
-  bench [args...]                       run the benchmark suite (dist/bench/run-all.js)
-  version
-
-config options (serve, replay, count, status, doctor, config show|validate, state):
-  -c, --config FILE      JSON config file (comments allowed)       also KITZUR_CONFIG;
-                         default ~/.config/kitzur/kitzur.jsonc if it exists
-  -p, --preset NAME      32k | 64k | 100k | 128k, or a preset file   also KITZUR_PRESET
-  -s, --set a.b=v        set any key (repeatable)                    also KITZUR_SET="a.b=v;c.d=w"
-  --upstream URL  --host H  --port N  --tokenizer FILE  --template NAME
-  --state-dir DIR  --stats FILE  --log-level L  --shadow
-  --log-file PATH  --foreground (opt into TTY console echo)
-Precedence: defaults < preset < config file < KITZUR_* env < command line. Every key: CONFIG.md.
-`;
-
-/** Commands that answer --help / -h with their usage (bench forwards help flags to the suite only after `--`). */
-const HELP_COMMANDS = new Set(['serve', 'replay', 'count', 'status', 'doctor', 'tls-probe', 'report', 'config', 'state', 'bench', 'version']);
-
-/** Commands that read no config, so their usage leaves out the config options. */
-const NO_CONFIG_COMMANDS = new Set(['report', 'bench', 'version']);
-
-/** One command's USAGE lines (with their continuation lines), plus the config options unless it reads no config. */
-function usageOf(cmd: string): string {
-  const [, , ...lines] = USAGE.split('\n');
-  const own: string[] = [];
-  let mine = false;
-  for (const l of lines) {
-    if (l === '') break;
-    const m = /^ {2}(\S+)/.exec(l);
-    if (m) mine = m[1] === cmd;
-    if (mine) own.push(l);
-  }
-  const configOpts = NO_CONFIG_COMMANDS.has(cmd) ? '' : `\n${USAGE.slice(USAGE.indexOf('config options'))}`;
-  return `usage: kitzur ${cmd} [options]\n\n${own.join('\n')}\n${configOpts}`;
-}
-
-/** True when argv asks for help (--help or -h before any `--`). */
-const wantsHelp = (argv: readonly string[]): boolean => {
-  const end = argv.indexOf('--');
-  return (end < 0 ? argv : argv.slice(0, end)).some((a) => a === '--help' || a === '-h');
-};
+import { HELP_COMMANDS, USAGE, usageOf, wantsHelp } from './cli/usage.js';
+import { derivedLines, display, fmtHost, maskedConfig, parseNoEcho } from './cli/format.js';
 
 // ---------------------------------------------------------------- helpers
-
-const fmtHost = (h: string): string => (h.includes(':') && !h.startsWith('[') ? `[${h}]` : h);
-
-/** `https://user:secret@gw` -> `https://<credentials>@gw` (an origin with credentials fails validation, but show prints it). */
-function maskUserinfo(v: unknown): unknown {
-  return typeof v === 'string' ? v.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#@]*@/i, '$1<credentials>@') : v;
-}
-
-/** A config value for display: header values and URL credentials masked, long strings shortened. */
-function display(path: string, v: unknown, full = false): string {
-  if (path === 'upstream.headers' && isPlainObject(v)) v = Object.fromEntries(Object.keys(v).map((k) => [k, '<set>']));
-  if (path === 'listen.token' && v !== null) v = '<set>';
-  if (path === 'upstream.origin') v = maskUserinfo(v);
-  const s = JSON.stringify(v) ?? 'undefined';
-  return !full && s.length > 100 ? `${s.slice(0, 90)}… (${s.length} chars)` : s;
-}
-
-function maskedConfig(c: Config): Config {
-  const m = structuredClone(c);
-  if (m.listen.token !== null) m.listen.token = '<set>';
-  m.upstream.headers = Object.fromEntries(Object.keys(m.upstream.headers).map((k) => [k, '<set>']));
-  m.upstream.origin = maskUserinfo(m.upstream.origin) as string | null;
-  if (isAutoWindow(c)) (m.budget as unknown as Record<string, unknown>)['window'] = 'auto';
-  return m;
-}
-
-function derivedLines(cfg: Config): string[] {
-  const head = cfg.budget.observedFixedPromptTokens;
-  const b = computeBudget(cfg, { counterFixedTokens: head });
-  const why = cfg.server.budgetMode ? 'server.budgetMode' : cfg.budget.limitCountsMaxTokens !== null ? 'budget.limitCountsMaxTokens' : `server.type ${cfg.server.type}`;
-  return [
-    `# derived (DESIGN §3; T_req = budget.defaultMaxTokens, no learned entry)`,
-    `mode          ${b.mode}   (from ${why})`,
-    `W             ${b.window}`,
-    `T_plan        ${planMaxTokens(cfg)}`,
-    `margin        ${b.margin}`,
-    `budget        ${b.budget}`,
-    `clientPoint   ${b.clientPoint}`,
-    `allowance     ${b.allowance}`,
-    `hard          ${b.hard}`,
-    `trigger       ${b.trigger}`,
-    `target        ${b.target}`,
-    `summaryBudget ${b.summaryBudget}   (without the ledger floor)`,
-    `headRoom      ${b.headRoom}`,
-    `admitTokens   ${b.admitTokens ?? (cfg.oversize.enabled && cfg.oversize.admission ? 'depends on the head (set budget.observedFixedPromptTokens to see it)' : 'off')}`,
-    `byteLimit     ${b.byteLimit ?? 'none'}`,
-  ];
-}
-
-/** JSON.parse whose error names the line and column but never quotes the text (captured prompts). */
-function parseNoEcho(text: string, lineNo?: number): unknown {
-  try {
-    return JSON.parse(text) as unknown;
-  } catch (e) {
-    const { reason, pos } = jsonErrorInfo((e as Error).message, text);
-    const lc = pos === null ? null : lineCol(text, pos);
-    const where = lineNo !== undefined ? ` at line ${lineNo}${lc ? ` column ${lc.col}` : ''}` : lc ? ` at line ${lc.line} column ${lc.col}` : '';
-    throw new Error(`${reason}${where}`);
-  }
-}
 
 function readRequestFile(path: string): unknown[] {
   const text = readFileSync(path, 'utf8');
