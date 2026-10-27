@@ -20,6 +20,7 @@ export function cmdRedact(argv: string[], io: CliIO): number {
     else for (const f of readdirSync(path).sort()) if (/\.jsonl?$/.test(f) && !REDACTED.test(f)) files.push(join(path, f));
   }
   // every input is checked before anything is written
+  const dests = new Map<string, string>();
   const jobs = files.map((f) => {
     let items: unknown[];
     try {
@@ -36,6 +37,9 @@ export function cmdRedact(argv: string[], io: CliIO): number {
     });
     const dest = out === undefined ? (/\.jsonl?$/.test(f) ? f.replace(/\.(jsonl?)$/, '.redacted.$1') : `${f}.redacted.json`) : join(resolve(io.cwd, out), basename(f));
     if (out !== '-' && dest === f) throw new UsageError(`${basename(f)}: --out would overwrite the input`);
+    const prev = out === '-' ? undefined : dests.get(dest);
+    if (prev !== undefined) throw new UsageError(`${basename(f)}: --out would overwrite the copy of another input with the same name (${prev})`);
+    dests.set(dest, f);
     return { f, bodies, dest };
   });
   for (const { f, bodies, dest } of jobs) {

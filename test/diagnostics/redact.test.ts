@@ -85,6 +85,23 @@ async function run(argv: string[], cwd: string): Promise<{ code: number; out: st
   return { code, out: out.join(''), err: err.join('') };
 }
 
+test('redact keeps the UTF-8 and JSON-encoded size of the body, and redacts names that are not tool names', () => {
+  const req = session(2) as ChatRequest & { response_format?: unknown };
+  req.messages.push({ role: 'user', name: 'Synthetic Person', content: 'Tab\there, "quoted" \\ é ü ∑ € 🚀😀\u0001 end' } as ChatMessage);
+  req.response_format = { type: 'json_schema', json_schema: { name: 'private_schema_name', schema: { type: 'object' } } };
+  const r = redactRequest(req);
+  const bytes = (x: unknown): number => Buffer.byteLength(JSON.stringify(x), 'utf8');
+  assert.equal(bytes(r), bytes(req));
+  assert.equal(JSON.stringify(r).length, JSON.stringify(req).length);
+  const last = r.messages.at(-1) as ChatMessage & { name: string };
+  assert.equal(last.name.length, 'Synthetic Person'.length);
+  assert.ok(!last.name.includes('Synth') && !JSON.stringify(r).includes('private_schema'));
+  assert.equal(r.messages[2]!.tool_calls![0]!.function.name, 'read_file');
+  const args = '{"q": "é🚀 x"}';
+  assert.equal(Buffer.byteLength(redactArguments(args)), Buffer.byteLength(args));
+  assert.equal(redactArguments(args).length, args.length);
+});
+
 test('kitzur redact writes .redacted.json files, never prints content, and replays to the same decisions (32k)', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-redact-'));
   try {
@@ -128,6 +145,12 @@ test('kitzur redact rejects headers files and non-requests before writing anythi
     writeFileSync(join(dir, 'other.json'), '{"x":1}');
     assert.match((await run(['redact', 'other.json'], dir)).err, /other\.json: not a chat request body/);
     assert.match((await run(['redact', 'body.json', '--out', '.'], dir)).err, /would overwrite the input/);
+    mkdirSync(join(dir, 'other'));
+    writeFileSync(join(dir, 'other', 'body.json'), JSON.stringify(session(1)));
+    const clash = await run(['redact', 'body.json', 'other/body.json', '--out', 'shared'], dir);
+    assert.equal(clash.code, 2);
+    assert.match(clash.err, /body\.json: --out would overwrite the copy of another input with the same name/);
+    assert.ok(!existsSync(join(dir, 'shared')), 'nothing written');
     assert.match((await run(['redact'], dir)).err, /redact needs a request file/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
