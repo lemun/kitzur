@@ -21,7 +21,7 @@ const DISPATCH: Record<string, string> = {
   version: 'cli.ts', '--version': 'cli.ts', '-V': 'cli.ts',
   serve: 'commands/serve.ts', replay: 'commands/replay.ts', count: 'commands/count.ts', status: 'commands/status.ts',
   'tls-probe': 'commands/diagnostics.ts', doctor: 'commands/diagnostics.ts', report: 'commands/diagnostics.ts',
-  config: 'commands/config.ts', state: 'commands/state.ts', bench: 'commands/bench.ts',
+  config: 'commands/config.ts', state: 'commands/state.ts', bench: 'commands/bench.ts', redact: 'commands/redact.ts',
 };
 
 test('dispatch: every command main dispatches has an entry in the table', () => {
