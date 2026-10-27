@@ -19,11 +19,13 @@ test('benchmarks page separates demo, replay and coding harness and says live va
 test('compare page is dated and every citation resolves to a listed source', async () => {
   const html = await page('compare/');
   assert.match(html, /<h1[^>]*>Compare<\/h1>/);
-  assert.match(html, /Reviewed October 23, 2026/);
+  assert.match(html, /Reviewed October 27, 2026/);
   assert.match(html, /Native client compaction/);
-  assert.match(html, /Gobstopper v0\.7\.2/);
+  assert.match(html, /Gobstopper v0\.8\.10 \(snapshot 2026-10-19\)/);
+  assert.match(html, /Native client compaction \(OpenCode\): not compared yet \(2026-10-27\)/);
+  assert.equal((html.match(/Native client compaction \(OpenCode\): not compared yet \(2026-10-27\)/g) ?? []).length, 1);
   const cited = new Set([...html.matchAll(/\[(\d+)\]/g)].map((m) => m[1]));
-  const listed = new Set([...html.matchAll(/<li id="source-(\d+)"><a href="https:\/\/github\.com\/lemun\/kitzur\/blob\/main\//g)].map((m) => m[1]));
+  const listed = new Set([...html.matchAll(/<li id="source-(\d+)"><a href="https:\/\/github\.com\//g)].map((m) => m[1]));
   assert.ok(cited.size > 0);
   assert.deepEqual([...cited].filter((n) => !listed.has(n)), []);
   assert.deepEqual([...listed].filter((n) => !cited.has(n)), []);
