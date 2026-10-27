@@ -13,9 +13,9 @@ Run `kitzur doctor` (add `--check-upstream`, `--client-config FILE` or `--json` 
 - Fix: compare the logged `tokens` with `trigger`; turn off `shadow`; fix the budget settings `budget.compatible` names.
 
 ## The client overflows anyway (client limit versus served window)
-- Codes: `budget.client_limits`, `client.config`, `model.<model>.profile`, `model.<model>.budget`.
-- Cause: the client compacts at a point Kitzur does not know, or `budget.window` exceeds the window the server actually serves.
-- Fix: mirror `client.inputLimit`, `client.reservedTokens`, `client.outputLimit` or `client.compactionPointTokens` in kitzur.jsonc; set `budget.window` to the served window; add an exact model profile.
+- Codes: `budget.client_limits`, `model.<model>.profile`, `model.<model>.budget`; with `--client-config`: `client.config`, `client.usable`, `client.context`, `client.output`, `client.profile`, `client.base_url`, `client.routing`, `client.npm` (`client.compatible` when all pass).
+- Cause: the client compacts at a point Kitzur does not know, or `budget.window` exceeds the window the server actually serves; or the client config is unreadable, lacks positive `limit.context`/`limit.output`, does not route through Kitzur's listen address, or uses a provider package that calls `/responses`.
+- Fix: mirror `client.inputLimit`, `client.reservedTokens`, `client.outputLimit` or `client.compactionPointTokens` in kitzur.jsonc (`client.usable` names the values); set `budget.window` to the served window; add an exact model profile; point a provider `baseURL` at Kitzur, select models from that provider, and use `@ai-sdk/openai-compatible`.
 
 ## 401/403 from the upstream or from /v1/models
 - Codes: `upstream.reachable`, `listen.token`.
@@ -35,7 +35,7 @@ Run `kitzur doctor` (add `--check-upstream`, `--client-config FILE` or `--json` 
 ## A hung instance
 - Codes: `instance.responsive`.
 - Cause: the process listens but does not answer `GET /status`; on Windows a paused console (QuickEdit selection) freezes console writes. The log records `event_loop_stall` lines and `/status` reports `stalls_total`.
-- Fix: restart detached with logs to a file, as the doctor fix line shows.
+- Fix: stop the process and start `kitzur serve` detached, with stdout and stderr redirected to log files instead of a console. On Windows (PowerShell): `Start-Process -FilePath node -ArgumentList '"<path>\cli.js" serve' -WindowStyle Hidden -RedirectStandardOutput "$env:TEMP\kitzur-out.log" -RedirectStandardError "$env:TEMP\kitzur-err.log"`; doctor prints this command with your paths filled in.
 
 ## Wrong tokenizer or template
 - Codes: `tokenizer.mode`, `tokenizer.path`, `tokenizer.load`, `tokenizer.count`, `tokenizer.template`, `model.<model>.tokenizer`, `model.<model>.template`.
