@@ -8,10 +8,10 @@ import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildApp, buildEngine, createLogger, setupCounter, AppModuleError, type Logger } from './app.js';
+import { buildEngine, createLogger, setupCounter, AppModuleError, type Logger } from './app.js';
 import { ConfigError, loadConfig } from './config/load.js';
 import { validateConfig } from './config/validate.js';
-import { computeBudget, requestMaxTokens, serverFits } from './config/derived.js';
+import { computeBudget } from './config/derived.js';
 import { DEFAULT_LEAVES, getPath, isPlainObject } from './config/spec.js';
 import { isAutoWindow } from './config/window.js';
 import { renderInitConfig } from './config/init.js';
@@ -23,76 +23,19 @@ import {
 import { counterFromConfig } from './tokenize/counter.js';
 import { canonicalJSON } from './tokenize/canonical.js';
 import type { EngineResult } from './types.js';
-import { formatPaths } from './proxy/status.js';
 import { exportOpenCode } from './config/export-opencode.js';
 import { defaultIO, UsageError, type CliIO } from './cli/io.js';
 import { CONFIG_OPTS, loadFromArgs, parseArgs } from './cli/args.js';
 import { HELP_COMMANDS, USAGE, usageOf, wantsHelp } from './cli/usage.js';
-import { derivedLines, display, fmtHost, maskedConfig } from './cli/format.js';
+import { derivedLines, display, maskedConfig } from './cli/format.js';
 import { collectRequests } from './cli/requests.js';
-import { httpGet, importState } from './cli/http.js';
+import { importState } from './cli/http.js';
 import { cmdDoctor, cmdReport, cmdTlsProbe } from './cli/commands/diagnostics.js';
+import { cmdServe } from './cli/commands/serve.js';
+import { cmdCount } from './cli/commands/count.js';
+import { cmdStatus } from './cli/commands/status.js';
 
 // ---------------------------------------------------------------- commands
-
-async function cmdServe(argv: string[], io: CliIO): Promise<number> {
-  const p = parseArgs(argv, { ...CONFIG_OPTS, 'drain-ms': { type: 'string' } });
-  if (p.positionals.length) throw new UsageError(`serve takes no arguments (got ${p.positionals.join(' ')})`);
-  const l = loadFromArgs(p, io);
-  const cfg = l.config;
-  // Routine serving logs stay off the attached console; fatal startup errors also reach stderr.
-  const { RuntimeLog } = await import('./diagnostics/runtime.js');
-  const log = new RuntimeLog({ dir: join(stateDirOf(cfg, io.env), 'logs'), file: cfg.log.file, console: cfg.log.console, level: cfg.logLevel });
-  const v = validateConfig(cfg, { provenance: l.provenance, checkFiles: true });
-  for (const w of [...l.warnings, ...v.warnings.filter((x) => !/^upstream\.origin is not set/.test(x))]) log.warn(w);
-  if (v.errors.length || !cfg.upstream.origin) {
-    for (const e of v.errors) io.stderr(`kitzur: config error: ${e}\n`);
-    if (!cfg.upstream.origin) io.stderr('kitzur: config error: upstream.origin is required (--upstream http://gateway:8000, KITZUR_UPSTREAM_ORIGIN or the config file)\n');
-    await log.close();
-    return 2;
-  }
-  const drainMs = p.values['drain-ms'] !== undefined ? Number(p.values['drain-ms']) : 30_000;
-  if (!Number.isFinite(drainMs) || drainMs < 0) throw new UsageError('--drain-ms must be a number of milliseconds');
-  const app = await buildApp(cfg, { log, modules: io.modules, env: io.env, models: l.models, configPath: l.configPath });
-  let addr: { host: string; port: number };
-  try { addr = await app.listen(); }
-  catch (e) { await app.close(0); throw e; }
-  // startup probe (§9 TLS): a certificate failure exits non-zero; an unreachable upstream only logs
-  const probe = await app.probe(Math.min(10_000, cfg.upstream.timeoutMs));
-  if (probe.tlsError) {
-    const message = `TLS verification of ${cfg.upstream.origin} failed: ${probe.tlsError} (set upstream.caFile or NODE_EXTRA_CA_CERTS; see deploy/README.md)`;
-    log.error(message);
-    io.stderr(`kitzur: error: ${message}\n`);
-    await app.close(0);
-    return 1;
-  }
-  const b = computeBudget(cfg);
-  log.info(`upstream ${cfg.upstream.origin}; counter ${app.counter.mode}; mode ${b.mode}; budget ${b.budget}, trigger ${b.trigger}, target ${b.target}`);
-  // stdout keeps the documented 'listening on' line (help text, bench harness, supervisors); the file log records it too
-  io.stdout(`listening on http://${fmtHost(addr.host)}:${addr.port}\n`);
-  log.info(`listening on http://${fmtHost(addr.host)}:${addr.port}`);
-  return await new Promise<number>((done) => {
-    let stopping = false;
-    io.onSignal((sig) => {
-      if (stopping) {
-        log.warn(`${sig} again: exiting without waiting for the drain`);
-        done(130);
-        return;
-      }
-      stopping = true;
-      log.info(`${sig}: stopping; draining in-flight requests (up to ${drainMs} ms)`);
-      app.close(drainMs).then(
-        () => {
-          void log.close().then(() => done(0));
-        },
-        (e: unknown) => {
-          log.error(`shutdown: ${(e as Error).message}`);
-          done(1);
-        },
-      );
-    });
-  });
-}
 
 async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
   const p = parseArgs(argv, { ...CONFIG_OPTS, json: { type: 'boolean' }, 'no-fresh': { type: 'boolean' } });
@@ -164,85 +107,6 @@ async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
     if (failures) io.stdout(`failures: ${failures}\n`);
   }
   return mismatches || failures ? 1 : 0;
-}
-
-async function cmdCount(argv: string[], io: CliIO): Promise<number> {
-  const p = parseArgs(argv, { ...CONFIG_OPTS, estimate: { type: 'boolean' }, json: { type: 'boolean' } });
-  if (p.positionals.length !== 1) throw new UsageError('count needs one request file (a Chat Completions body)');
-  const l = loadFromArgs(p, io);
-  const cfg = l.config;
-  const reqs = collectRequests(p.positionals, io.cwd);
-  const req = reqs[0]?.req;
-  if (!req) throw new UsageError(`${p.positionals[0]}: not a chat request (no messages array)`);
-  const cs = setupCounter(cfg, { stateDir: stateDirOf(cfg, io.env) });
-  if (cs.estimateReason && !p.values['estimate']) {
-    io.stderr(`kitzur: no exact count: ${cs.estimateReason}. Pass --tokenizer FILE, or --estimate for the per-class estimate.\n`);
-    return 2;
-  }
-  const m = cs.counter.measure(req);
-  const tReq = requestMaxTokens(req, cfg);
-  const b = computeBudget(cfg, { tReq });
-  const out = {
-    file: reqs[0]!.label,
-    counter: cs.counter.mode,
-    template: cfg.tokenizer.template.name,
-    tokenizerSha256: cs.tokenizer?.sha256 ?? null,
-    messages: req.messages.length,
-    tools: Array.isArray(req.tools) ? req.tools.length : 0,
-    total: m.total,
-    overhead: m.overhead,
-    perMessage: m.perMessage.map((n, i) => ({ i, role: String(req.messages[i]?.role ?? '?'), tokens: n })),
-    tReq,
-    mode: b.mode,
-    budget: b.budget,
-    withinBudget: m.total <= b.budget,
-    serverFits: serverFits(b, m.total, tReq),
-  };
-  if (p.values['json']) {
-    io.stdout(JSON.stringify(out, null, 1) + '\n');
-    return 0;
-  }
-  io.stdout(`${out.file}: ${out.total} tokens (${out.counter}, template ${out.template}${out.tokenizerSha256 ? `, tokenizer ${out.tokenizerSha256.slice(0, 12)}` : ''})\n`);
-  io.stdout(`  ${out.messages} messages, ${out.tools} tools; overhead ${out.overhead} (tools block / generation prompt not attributed to a message)\n`);
-  io.stdout(`  T_req ${tReq}; ${b.mode}: budget ${b.budget} ${out.withinBudget ? 'ok' : `exceeded by ${out.total - b.budget}`}; serverFits ${out.serverFits ? 'yes' : 'no'}\n`);
-  for (const r of out.perMessage) io.stdout(`  #${String(r.i).padEnd(4)} ${r.role.padEnd(10)} ${String(r.tokens).padStart(8)}\n`);
-  return 0;
-}
-
-async function cmdStatus(argv: string[], io: CliIO): Promise<number> {
-  const p = parseArgs(argv, { ...CONFIG_OPTS, url: { type: 'string' }, json: { type: 'boolean' }, 'timeout-ms': { type: 'string' } });
-  let url = p.values['url'] as string | undefined;
-  let token: string | null = null;
-  if (!url) {
-    const cfg = loadFromArgs(p, io).config;
-    token = cfg.listen.token;
-    const host = cfg.listen.host === '0.0.0.0' || cfg.listen.host === '::' ? '127.0.0.1' : cfg.listen.host;
-    url = `http://${fmtHost(host)}:${cfg.listen.port}/status`;
-  }
-  try {
-    const r = await httpGet(url, Number(p.values['timeout-ms'] ?? 5000), token);
-    let body = r.body;
-    try {
-      const s = JSON.parse(r.body);
-      body = p.values['json'] || r.status !== 200 ? JSON.stringify(s, null, 1) : [
-        `${s.name ?? 'kitzur'} ${s.version ?? ''} — uptime ${s.uptime_s ?? '?'}s`,
-        formatPaths(s.paths ?? { config: null, state_dir: '?', log_file: null }),
-        `Chat requests: ${s.counters?.chat_requests ?? 0}; actions: ${Object.entries(s.actions ?? {}).map(([k, v]) => `${k}=${v}`).join(', ') || 'none'}`,
-        `Budget: ${s.budget?.budget ?? '?'}; trigger: ${s.budget?.trigger ?? '?'}; target: ${s.budget?.target ?? '?'}`,
-        s.last_compaction ? `Last compaction: ${s.last_compaction.at} — ${s.last_compaction.in ?? '?'} -> ${s.last_compaction.out ?? '?'} tokens (trigger ${s.last_compaction.trigger ?? '?'})` : 'Last compaction: none since startup',
-        `Recent requests: ${s.recent_requests?.length ?? 0}/64 (in memory; reset on restart)`,
-        ...(s.recent_requests ?? []).slice(-5).map((r: { action: string; tokens: { in: number | null; out: number | null }; model: string | null; ms: number }) => `  ${r.action} ${r.tokens.in ?? '?'} -> ${r.tokens.out ?? '?'} tokens; model=${JSON.stringify(r.model)}; ${r.ms}ms`),
-      ].join('\n');
-    } catch {
-      /* not JSON: print as is */
-    }
-    io.stdout(body.endsWith('\n') ? body : body + '\n');
-    if (r.status !== 200) io.stderr(`kitzur: ${url} returned HTTP ${r.status}\n`);
-    return r.status === 200 ? 0 : 1;
-  } catch (e) {
-    io.stderr(`kitzur: cannot reach ${url}: ${(e as Error).message}\n`);
-    return 1;
-  }
 }
 
 async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
