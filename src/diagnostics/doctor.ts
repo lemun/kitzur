@@ -196,7 +196,7 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
   let writerStats: Record<string, unknown> | undefined;
   const instance = await probeInstance(config.listen.host, config.listen.port, Math.min(opts.timeoutMs ?? 3000, 3000), config.listen.token, (body) => {
     const stats = body.stats;
-    if (stats && typeof stats === 'object') writerStats = stats as Record<string, unknown>;
+    if (body.name === 'kitzur' && stats && typeof stats === 'object') writerStats = stats as Record<string, unknown>;
   });
   if (instance === 'hung') {
     add('instance.responsive', 'error', 'Detected: a Kitzur process is listening but not responding. On Windows, a paused console (including QuickEdit selection) can freeze synchronous console writes.',

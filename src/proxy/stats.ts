@@ -102,7 +102,7 @@ export class StatsWriter {
       const line = this.queue.shift()!;
       this.pendingBytes -= Buffer.byteLength(line);
       try { if (!this.stream.write(line)) { this.writing = true; this.inFlightBytes = Buffer.byteLength(line); return; } }
-      catch (e) { this.lastError = e instanceof Error ? e.message : String(e); this.writeFailures++; this.dropped += this.queue.length + 1; this.queue = []; this.pendingBytes = 0; this.stream = null; return; }
+      catch (e) { this.lastError = e instanceof Error ? e.message : String(e); this.writeFailures++; this.dropped += this.queue.length + 1; this.queue = []; this.pendingBytes = 0; this.stream = null; this.closeResolve?.(); this.closeResolve = null; return; }
     }
   }
 
