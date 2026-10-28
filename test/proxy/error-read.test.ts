@@ -10,6 +10,7 @@ for (const mode of ['chat', 'shadow', 'passthrough'] as const) {
     try {
       const r = await request(f.port, { path: mode === 'passthrough' ? '/other' : '/v1/chat/completions', body: chatBody() });
       assert.equal(r.status, 503);
+      assert.equal(r.headers['content-type'], 'text/plain; charset=utf-8');
       assert.ok(r.body.length <= 64 * 1024, `error body must be bounded; got ${r.body.length}`);
       assert.match(r.text(), /"error":"x{20,}/);
       assert.match(r.text(), /upstream error body truncated/);
@@ -100,6 +101,7 @@ for (const mode of ['chat', 'shadow', 'passthrough'] as const) {
       const start = performance.now();
       const r = await request(f.port, { path: mode === 'passthrough' ? '/other' : '/v1/chat/completions', body: chatBody() });
       assert.equal(r.status, 503);
+      assert.equal(r.headers['content-type'], 'application/json');
       assert.match(r.json().error.message, /truncated.*timeout/);
       assert.ok(performance.now() - start < 8000);
       assert.ok(logs.some((message) => message.includes('upstream error body cut: timeout')));

@@ -341,10 +341,10 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     return { o, fields, inspect, end };
   }
 
-  const cutErrorBodies = new WeakMap<Buffer, Buffer>();
-  async function readUpstreamError(up: UpstreamResponse): Promise<{ body: Buffer; relay: Buffer; cut: boolean }> {
+  const cutErrorBodies = new WeakMap<Buffer, { relay: Buffer; contentType: string }>();
+  async function readUpstreamError(up: UpstreamResponse): Promise<{ body: Buffer; relay: Buffer; contentType?: string }> {
     const read = await readErrorBody(up.body, UPSTREAM_ERROR_READ_TIMEOUT_MS, UPSTREAM_ERROR_BODY_MAX_BYTES);
-    if (read.complete) return { body: read.body, relay: read.body, cut: false };
+    if (read.complete) return { body: read.body, relay: read.body };
     log('warn', `upstream error body cut: ${read.reason} status=${up.status}`);
     const marker = read.reason === 'size' ? UPSTREAM_ERROR_TRUNCATION_MARKER : Buffer.from(`\n\n[kitzur: upstream error body truncated (${read.reason})]\n`);
     const prefix = read.body.subarray(0, UPSTREAM_ERROR_BODY_MAX_BYTES - marker.length);
@@ -354,18 +354,19 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     const relay = read.reason === 'size'
       ? body
       : errorBody(`kitzur: upstream error body truncated (${read.reason})`, 'upstream_error', 'upstream_error_body_truncated');
-    cutErrorBodies.set(body, relay);
-    return { body, relay, cut: true };
+    const contentType = read.reason === 'size' ? 'text/plain; charset=utf-8' : JSON_CT;
+    cutErrorBodies.set(body, { relay, contentType });
+    return { body, relay, contentType };
   }
 
-  function errorHeaders(raw: string[], cut: boolean): string[] {
+  function errorHeaders(raw: string[], contentType?: string): string[] {
     const headers = forwardResponseHeaders(raw, { dropContentLength: true });
-    if (!cut) return headers;
+    if (!contentType) return headers;
     const out: string[] = [];
     for (let i = 0; i < headers.length; i += 2) {
       if (!['content-type', 'content-encoding', 'content-md5', 'digest', 'etag'].includes(headers[i]!.toLowerCase())) out.push(headers[i]!, headers[i + 1]!);
     }
-    out.push('content-type', 'text/plain; charset=utf-8');
+    out.push('content-type', contentType);
     return out;
   }
 
@@ -390,12 +391,12 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       return;
     }
     if (up.status < 200 || up.status >= 300) {
-      const { relay, cut } = await readUpstreamError(up);
+      const { relay, contentType } = await readUpstreamError(up);
       if (ac.signal.aborted) return;
       observation.o.outcome = 'upstream_error';
       observation.o.bytes += relay.length;
       observation.end();
-      const headers = errorHeaders(up.rawHeaders, cut);
+      const headers = errorHeaders(up.rawHeaders, contentType);
       headers.push('content-length', String(relay.length));
       res.writeHead(up.status, up.statusMessage, headers);
       res.end(relay);
@@ -909,8 +910,9 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
             res.writeHead(e.httpStatus, e.statusMessage, forwardResponseHeaders(e.headers, { dropContentLength: true }));
             endWith(res, e.streamBytes ?? e.body, cont, onBytes);
           } else {
-            const body = cutErrorBodies.get(e.body) ?? e.body;
-            const hdrs = errorHeaders(e.headers, cutErrorBodies.has(e.body));
+            const cut = cutErrorBodies.get(e.body);
+            const body = cut?.relay ?? e.body;
+            const hdrs = errorHeaders(e.headers, cut?.contentType);
             hdrs.push('content-length', String(body.length));
             res.writeHead(e.httpStatus, e.statusMessage, hdrs);
             end(body);
