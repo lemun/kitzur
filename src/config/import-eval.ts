@@ -648,7 +648,7 @@ export function mapEvalResults(R: Record<string, J>, opts: MapOptions = {}): Imp
   }
   const tPlan = (prov['budget.planMaxTokens']?.value as number | undefined) ?? defaultMaxTokens;
   if (p99 !== null) {
-    put('client.outputAllowanceTokens', Math.min(tPlan, Math.max(2000, p99)), p99src, 'min(T_plan, max(2000, p99 completion_tokens)) ()', 'measured');
+    put('client.outputAllowanceTokens', Math.min(tPlan, Math.max(2000, p99)), p99src, 'min(T_plan, max(2000, p99 completion_tokens))', 'measured');
   } else {
     put('client.outputAllowanceTokens', null, 'none', 'no completion data: min(7000, floor(T_plan/2))', 'default');
   }

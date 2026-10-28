@@ -143,7 +143,7 @@ test('import-eval: mock-vllm specifics ( allowance from the capture p99, derived
   // min(T_plan 32000, max(2000, p99 137)) = 2000
   assert.equal(bundle.captureP99, 137);
   assert.deepEqual(res.provenance['client.outputAllowanceTokens'], {
-    value: 2000, source: 'capture.jsonl (p99)', rule: 'min(T_plan, max(2000, p99 completion_tokens)) ()', confidence: 'measured',
+    value: 2000, source: 'capture.jsonl (p99)', rule: 'min(T_plan, max(2000, p99 completion_tokens))', confidence: 'measured',
   });
   // without the raw capture: dist.max is the p99 upper bound
   const noCap = mapEvalResults(inputs.results);
