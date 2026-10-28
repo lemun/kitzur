@@ -11,8 +11,12 @@ const pages = [
   { id: 'docs/design', file: 'DESIGN.md' },
   { id: 'docs/deployment', file: 'deploy/README.md' },
   { id: 'docs/diagnostics', file: 'docs/DIAGNOSTICS.md' },
+  { id: 'docs/troubleshooting', file: 'docs/TROUBLESHOOTING.md' },
+  { id: 'docs/upstream-rotation', file: 'docs/UPSTREAM-ROTATION.md' },
+  { id: 'docs/gobstopper-interop', file: 'docs/GOBSTOPPER-INTEROP.md' },
   { id: 'docs/security', file: 'SECURITY.md' },
   { id: 'docs/benchmarks', file: 'bench/README.md' },
+  { id: 'docs/changelog', file: 'CHANGELOG.md' },
 ];
 
 const blob = 'https://github.com/lemun/kitzur/blob/main/';
@@ -23,11 +27,12 @@ function pageFor(path: string, hash: string) {
   return pages.find((p) => p.file === path && (!p.section || hash === `#${slugify(p.section)}`));
 }
 
-/** Rewrites a repo-relative link from `file` to a site route, or else to the file on GitHub. */
+/** Rewrites a repo-relative link (or a GitHub link to a paged file) from `file` to a site route, or else to the file on GitHub. */
 export function rewriteLink(target: string, file: string, base: string, asset = false): string {
-  if (/^([a-z][\w+.-]*:|\/|#)/i.test(target)) return target;
-  const [rel, frag = ''] = target.split(/(?=#)/);
-  const path = posix.normalize(posix.join(posix.dirname(file), rel));
+  const github = target.startsWith(blob);
+  if (!github && /^([a-z][\w+.-]*:|\/|#)/i.test(target)) return target;
+  const [rel, frag = ''] = (github ? target.slice(blob.length) : target).split(/(?=#)/);
+  const path = github ? rel : posix.normalize(posix.join(posix.dirname(file), rel));
   const page = pageFor(path, frag);
   if (page) return `${base}/${page.id}/${page.section ? '' : frag}`;
   return (asset ? raw : blob) + path + frag;
