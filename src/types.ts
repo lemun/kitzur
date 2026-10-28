@@ -301,6 +301,7 @@ export interface StatsRecord {
   carry_chars: number;
   threshold_tokens: number;
   ratio_permille: number;
+  profile?: string;
 }
 
 // ---------------------------------------------------------------- ledger

@@ -50,6 +50,7 @@ export interface StatusExtras {
   statsError?: string | null;
   upstream?: Record<string, unknown>;
   modelTokenizers?: Record<string, unknown>;
+  profiles?: Record<string, { W: number; T_plan: number; hard: number; trigger: number; counter_mode: string }>;
 }
 
 /** Content-free diagnostics, in request completion order. */
@@ -249,6 +250,7 @@ export class StatusTracker {
       budget_by_key: budgets,
       counter: x.counter,
       model_tokenizers: x.modelTokenizers ?? {},
+      ...(x.profiles && Object.keys(x.profiles).length ? { profiles: x.profiles } : {}),
       learned,
       counters: {
         requests: this.requests,
