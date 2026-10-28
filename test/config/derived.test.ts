@@ -10,7 +10,7 @@ import { mulberry32 } from './rng.js';
 
 const withPreset = (name: string): Config => loadConfig({ preset: name, env: {} }).config;
 
-test('computeBudget: the DESIGN §3 preset table, from presets/*.json and the defaults', () => {
+test('computeBudget: the preset table, from presets/*.json and the defaults', () => {
   // | Preset | budget | clientPoint | allowance | hard = trigger | target |
   const table: Record<string, [number, number, number, number, number]> = {
     '32k': [23_488, 24_000, 4_000, 20_000, 7_000],
@@ -42,7 +42,7 @@ test('floorFrac: the 1e-9 epsilon (41,000 · 0.35 is 14,349.999… in IEEE)', ()
   assert.equal(floorFrac(-5, 0.5), -3);
 });
 
-test('computeBudget: admitTokens and summaryBudget with the reference head (DESIGN §5.5a)', () => {
+test('computeBudget: admitTokens and summaryBudget with the reference head', () => {
   // "With the reference head of 9,376 tokens, this is 27,472 at 100k/32k, 18,045 at 64k/16k and 6,586 at 32k/8k."
   const expect: Record<string, number> = { '100k': 27_472, '64k': 18_045, '32k': 6_586 };
   for (const [name, admit] of Object.entries(expect)) {
@@ -72,14 +72,14 @@ test('computeBudget: learned entry, tighten, maxPrompt, byte limit, T_req', () =
   assert.equal(b.tighten, 768);
   assert.equal(b.budget, 98_304 - 32_000 - 984 - 768);
   assert.equal(b.maxTokensRequested, 16_000);
-  assert.equal(b.planMaxTokens, 32_000, 'T_req never changes T_plan (ADR-7)');
+  assert.equal(b.planMaxTokens, 32_000, 'T_req never changes T_plan');
   assert.equal(b.byteLimit, 900_000);
   const mp = computeBudget(cfg, { learned: { window: null, maxPrompt: 50_000, maxBodyBytes: null, tighten: 0 } });
   assert.equal(mp.budget, 49_000);
   assert.equal(mp.byteLimit, 1_048_576);
 });
 
-test('requestMaxTokens / planMaxTokens (§3 T_req, T_plan)', () => {
+test('requestMaxTokens / planMaxTokens (T_req, T_plan)', () => {
   assert.equal(requestMaxTokens({}, DEFAULT_CONFIG), 32_000);
   assert.equal(requestMaxTokens({ max_tokens: 1024 }, DEFAULT_CONFIG), 1024);
   assert.equal(requestMaxTokens({ max_tokens: 1024, max_completion_tokens: 4096 }, DEFAULT_CONFIG), 4096);
@@ -91,7 +91,7 @@ test('requestMaxTokens / planMaxTokens (§3 T_req, T_plan)', () => {
   assert.equal(planMaxTokens(cfg), 12_000);
 });
 
-test('resolveBudgetMode:  precedence and conflicts', () => {
+test('resolveBudgetMode: precedence and conflicts', () => {
   const mk = (type: Config['server']['type'], mode: Config['server']['budgetMode'], lc: boolean | null) => {
     const c = structuredClone(DEFAULT_CONFIG);
     c.server.type = type;
@@ -118,7 +118,7 @@ test('resolveBudgetMode:  precedence and conflicts', () => {
   assert.equal(budgetModeConflict(mk('vllm', null, false)), null);
 });
 
-test('serverFits per mode (§3)', () => {
+test('serverFits per mode', () => {
   const b = { window: 32_000, margin: 512, tighten: 0 };
   assert.equal(serverFits({ ...b, mode: 'strict_total' }, 23_488, 8000), true);
   assert.equal(serverFits({ ...b, mode: 'strict_total' }, 23_489, 8000), false);
@@ -129,7 +129,7 @@ test('serverFits per mode (§3)', () => {
   assert.equal(serverFits({ ...b, tighten: 100, mode: 'prompt_only' }, 31_400, 0), false);
 });
 
-test('clampRange: unreachable with truthful presets, reachable with a declared-large client window ()', () => {
+test('clampRange: unreachable with truthful presets, reachable with a declared-large client window', () => {
   for (const name of Object.keys(PRESET_TABLE)) {
     const cfg = withPreset(name);
     cfg.budget.maxTokensClamp.enabled = true;
@@ -147,7 +147,7 @@ test('clampRange: unreachable with truthful presets, reachable with a declared-l
   assert.equal(clampRange(cfg, computeBudget(cfg)).reachable, false, 'prompt_only mode');
 });
 
-test('snapshotRoom: at most one snapshot per epoch at 32k/8k with the reference head ()', () => {
+test('snapshotRoom: at most one snapshot per epoch at 32k/8k with the reference head', () => {
   const b32 = computeBudget(withPreset('32k'));
   assert.equal(snapshotRoom(b32, 9376, 17_438).warn, true);
   const b100 = computeBudget(withPreset('100k'));
@@ -156,7 +156,7 @@ test('snapshotRoom: at most one snapshot per epoch at 32k/8k with the reference 
   assert.equal(r.warn, false);
 });
 
-test('property: trigger <= hard <= budget and target < trigger for any config, learned window and tighten ()', () => {
+test('property: trigger <= hard <= budget and target < trigger for any config, learned window and tighten', () => {
   const rnd = mulberry32(0xc10);
   const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)]!;
   let checked = 0;
