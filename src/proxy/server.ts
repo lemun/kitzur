@@ -32,7 +32,9 @@ import {
 import { hostAllowed } from './hostcheck.js';
 import { ErrorClassifier } from './errors.js';
 import { runChat, attemptRecords, type AttemptOutcome, type ChatResult, type ErrorOutcome, type Final, type OutgoingAttempt } from './recovery.js';
-import { SseRelay, type RelayStep } from './sse.js';
+import { SseRelay } from './sse.js';
+import { relaySse } from './relay.js';
+import type { Rest } from './relay.js';
 import { Upstream, forwardRequestHeaders, forwardResponseHeaders, readErrorBody, type ProbeResult, type UpstreamResponse } from './upstream.js';
 import { learnedKey, type StateStore } from './state.js';
 import { buildStatsRecord, type StatsWriter } from './stats.js';
@@ -596,7 +598,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       }
       const ctype = String(up.headers['content-type'] ?? '').toLowerCase();
       const sse = ctype.includes('text/event-stream') || (ctype === '' && isStreaming(a.req));
-      return sse ? relaySse(a, up, t0) : relayJson(up, t0);
+      return sse ? relaySse({ attempt: a, upstream: up, startedAt: t0, requestConfig: requestCfg, response: res, observation, isCommitted: () => committed, isClientGone: () => clientGone, setFirstUpByte: (time) => { if (!firstUpByte) firstUpByte = time; }, commit, write, log, setRest: (value) => { rest = value; } }) : relayJson(up, t0);
     };
 
     const write = (bufs: Buffer[], src: IncomingMessage): void => {
@@ -649,122 +651,6 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         up.body.on('error', () => undefined);
       });
 
-    const relaySse = (a: OutgoingAttempt, up: UpstreamResponse, t0: number): Promise<AttemptOutcome> =>
-      new Promise((resolve) => {
-        const hold = requestCfg.stream.holdFirstEvent && !committed;
-        const relay = new SseRelay({ hold, strip: a.injectedUsage, committed, detectErrors: requestCfg.errors.inStream });
-        observation.o.relay = relay;
-        const hdrs = forwardResponseHeaders(up.rawHeaders, { dropContentLength: true });
-        let finished = false;
-        let erroredAt: RelayStep['error'] | null = null;
-        let holdTimer: NodeJS.Timeout | null = null;
-        const apply = (step: RelayStep): void => {
-          if (step.commit) commit(up.status, up.statusMessage, hdrs);
-          write(step.writes, up.body);
-          observation.inspect();
-        };
-        const finish = (o: AttemptOutcome): void => {
-          if (finished) return;
-          finished = true;
-          if (holdTimer) clearTimeout(holdTimer);
-          resolve(o);
-        };
-        const errorOutcome = (): ErrorOutcome => {
-          const err = erroredAt!;
-          const held = relay.heldBytes(); // empty once flushed (commit or hold timeout)
-          return {
-            type: 'error', status: inStreamErrorStatus(err.json, up.status), httpStatus: up.status, statusMessage: up.statusMessage,
-            headers: up.rawHeaders, body: Buffer.from(err.payload, 'utf8'), inStream: true, committed,
-            streamBytes: Buffer.concat([held, err.event.raw, relay.tail()]), upstreamMs: performance.now() - t0,
-          };
-        };
-        if (hold) {
-          // : the hold starts at the upstream headers and ends at the first event, the end of body or the timer
-          holdTimer = setTimeout(() => {
-            holdTimer = null;
-            apply(relay.onHoldTimeout());
-          }, requestCfg.stream.firstEventTimeoutMs);
-          holdTimer.unref();
-        } else {
-          commit(up.status, up.statusMessage, hdrs); // no-op when a previous attempt committed
-        }
-        let cut: NodeJS.Timeout | null = null;
-        // the tail bound (2 s or TAIL_MAX bytes) was hit with the stream still open: stop reading and hand
-        // the rest to writeFinal, which relays it after the error if the error goes back unchanged, and
-        // destroys it otherwise (a retry). Cutting it here instead silently truncated an unchanged relay.
-        const park = (): void => {
-          if (cut) clearTimeout(cut);
-          cut = null;
-          up.body.off('data', onData);
-          const p: Rest = { body: up.body, parked: [], ended: false, closed: false, outcome: null };
-          up.body.on('data', (d: Buffer) => p.parked.push(d)); // a stray resume() never loses bytes
-          up.body.once('end', () => (p.ended = true));
-          up.body.once('close', () => (p.closed = true));
-          up.body.pause();
-          const o = errorOutcome();
-          p.outcome = o;
-          rest = p;
-          finish(o);
-        };
-        const onData = (d: Buffer): void => {
-          if (!firstUpByte) firstUpByte = performance.now();
-          const step = relay.onChunk(d);
-          if (erroredAt) {
-            if (relay.tailFull) park();
-            return;
-          }
-          if (step.error) {
-            erroredAt = step.error;
-            if (holdTimer) {
-              clearTimeout(holdTimer);
-              holdTimer = null;
-            }
-            apply({ ...step, error: undefined }); // held comments stay held; nothing of the error is written
-            // collect the stream's tail (e.g. `data: [DONE]`) briefly, to relay the error unchanged if needed
-            if (relay.tailFull) return park();
-            cut = setTimeout(park, Math.min(requestCfg.upstream.idleTimeoutMs, 2000));
-            cut.unref();
-            up.body.once('close', () => {
-              if (cut) clearTimeout(cut);
-            });
-            return;
-          }
-          apply(step);
-        };
-        up.body.on('data', onData);
-        up.body.on('end', () => {
-          if (erroredAt) {
-            finish(errorOutcome());
-            return;
-          }
-          const last = relay.onEnd();
-          if (last.error) {
-            // an unterminated error event at the end of the body is still a first-event error
-            erroredAt = last.error;
-            finish(errorOutcome());
-            return;
-          }
-          apply(last);
-          observation.end();
-          res.end();
-          finish({ type: 'ok', status: up.status, tap: { usage: relay.usage, finishReason: relay.finishReason }, complete: relay.complete, upstreamMs: performance.now() - t0 });
-        });
-        up.body.on('close', () => {
-          if (erroredAt) {
-            finish(errorOutcome());
-            return;
-          }
-          if (finished) return;
-          if (clientGone) finish({ type: 'aborted', upstreamMs: performance.now() - t0 });
-          else {
-            observation.o.ended = true;
-            observation.o.outcome = 'upstream_error';
-            if (!relay.complete) log('warn', `upstream stream closed without [DONE]/finish_reason ${observation.fields()}`);
-            finish({ type: 'unavailable', committed, error: 'upstream stream failed', upstreamMs: performance.now() - t0 });
-          }
-        });
-        up.body.on('error', () => undefined);
-      });
 
     // ---------------------------------------------------------------- the ladder
     let firstStats = true;
@@ -1136,18 +1022,6 @@ function profileStatus(runtimes: ProxyDeps['modelRuntimes']): StatusExtras['prof
       return [id, { W: b.window, T_plan: b.planMaxTokens, hard: b.hard, trigger: b.trigger, counter_mode: runtime.counter.mode }];
     }));
 }
-
-/** The parked rest of an upstream stream (see relaySse park()). */
-interface Rest {
-  body: IncomingMessage;
-  /** bytes that arrived after the park (a stray resume) */
-  parked: Buffer[];
-  ended: boolean;
-  closed: boolean;
-  /** the error outcome this rest belongs to */
-  outcome: ErrorOutcome | null;
-}
-
 /** Writes `bytes`, then the parked rest of the stream as it arrives (or ends the response at once without one). */
 function endWith(res: ServerResponse, bytes: Buffer, rest: Rest | null, onBytes: (bytes: Buffer) => void = () => undefined): void {
   onBytes(bytes);
