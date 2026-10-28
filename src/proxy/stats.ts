@@ -31,7 +31,7 @@ export interface ProxyStatsRecord extends StatsRecord {
   max_tokens?: number;
   /** a stream ended with no [DONE] and no finish_reason */
   upstream_incomplete?: boolean;
-  /** the  resend of the original happened */
+  /** the resend of the original happened */
   original_resent?: boolean;
   /** kitzur injected include_usage and stripped the usage chunk */
   usage_injected?: boolean;

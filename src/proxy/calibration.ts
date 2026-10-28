@@ -95,7 +95,7 @@ export function correctionFor(ratios: readonly number[], cfg: Config, mode: Coun
   return Math.min(cap, Math.max(1, ceil1pct(p90(ratios))));
 }
 
-/** Adds one accepted ratio and recomputes the correction with the  rules. */
+/** Adds one accepted ratio and recomputes the correction. */
 export function applyAcceptedRatio(e: LearnedEntry, ratio: number, cfg: Config, mode: CounterKind, now: Date): Applied {
   const ratios = [...e.ratios, ratio].slice(-RATIO_WINDOW);
   const samples = e.samples + 1;

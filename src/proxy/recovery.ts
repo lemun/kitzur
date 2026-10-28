@@ -209,7 +209,7 @@ export interface OutgoingAttempt {
   req: ChatRequest;
   /** its bytes (the client's own bytes when unchanged) */
   body: Buffer;
-  /** the request and bytes before any include_usage injection ( retries without it) */
+  /** the request and bytes before any include_usage injection (a retry without it starts from these) */
   baseReq: ChatRequest;
   baseBody: Buffer;
   /** the client's request (messages and max_tokens as sent; include_usage injection aside) */
@@ -282,7 +282,7 @@ export interface ChatResult {
   rewriteRejected?: { ruleId: string; status: number };
   /** any engine result of this request compacted */
   compacted: boolean;
-  /** the  resend of the original happened */
+  /** the resend of the original happened */
   originalResent: boolean;
   engineMs: number;
 }
@@ -429,7 +429,7 @@ export async function runChat(inp: LadderInput, io: LadderIO): Promise<ChatResul
   let E = io.learned();
   let cur: OutgoingAttempt;
   if (inp.shadow) {
-    // shadow mode is transparent: the original bytes go out whatever the engine (or ) would do
+    // shadow mode is transparent: the original bytes go out whatever the engine would do
     if (parsed.unsafeInteger) out.reason = 'unsafe_integer';
     const t0 = performance.now();
     try {
