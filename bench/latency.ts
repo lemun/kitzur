@@ -28,7 +28,7 @@ import http from 'node:http';
 import { join } from 'node:path';
 import { loadavg } from 'node:os';
 import { performance } from 'node:perf_hooks';
-import { p99InterChunkGap } from './stream-gap.js';
+import { p99InterChunkGap, pooledP99InterChunkGap } from './stream-gap.js';
 import type { ChatMessage, ChatRequest } from '../src/types.js';
 import { loadConfig } from '../src/config/load.js';
 import { createEngine } from '../src/engine/engine.js';
@@ -146,7 +146,9 @@ function chunkGaps(base: string, body: Buffer, streams: number): Promise<number[
   })));
 }
 
-async function streamGapClass(run: Run, streamCount: number, streamBody: Buffer, compactBody: Buffer): Promise<{ alone: number; withCompaction: number }> {
+type GapP99 = { worstStream: number; pooled: number };
+
+async function streamGapClass(run: Run, streamCount: number, streamBody: Buffer, compactBody: Buffer): Promise<{ alone: GapP99; withCompaction: GapP99 }> {
   const alone = await chunkGaps(run.base, streamBody, streamCount);
   const compactor = (async () => {
     for (let i = 0; i < 4; i++) {
@@ -156,10 +158,11 @@ async function streamGapClass(run: Run, streamCount: number, streamBody: Buffer,
   })();
   const loaded = chunkGaps(run.base, streamBody, streamCount);
   const [gapSets] = await Promise.all([loaded, compactor]);
-  const p99 = (sets: number[][]): number => {
-    const gaps = sets.flatMap((times) => [p99InterChunkGap(times)]);
-    return Math.round(Math.max(...gaps) * 10) / 10;
-  };
+  // worstStream: the highest per-stream p99; pooled: one p99 over the gaps of all streams together
+  const p99 = (sets: number[][]): GapP99 => ({
+    worstStream: r1(Math.max(...sets.map(p99InterChunkGap))),
+    pooled: r1(pooledP99InterChunkGap(sets)),
+  });
   return { alone: p99(alone), withCompaction: p99(gapSets) };
 }
 
@@ -442,10 +445,11 @@ async function main(): Promise<void> {
           bodyOf(bases.steady), bodyOf([...bases.nearTrigger, ...newUnit('parallel', 50_000, 91)]));
         result['parallel_streams'] = {
           n: 8, mockUpstreamIntervalMs: 10, chunksPerStream: 20,
-          p99InterChunkGapMs: { withoutCompaction: sample.alone, withCompaction: sample.withCompaction },
-          finding: sample.withCompaction > 50 ? 'p99 exceeds ~50 ms: consider yielding in chunks with setImmediate or moving compaction to a worker thread' : 'p99 is at or below ~50 ms at the default sizes',
+          worstStreamP99InterChunkGapMs: { withoutCompaction: sample.alone.worstStream, withCompaction: sample.withCompaction.worstStream },
+          pooledP99InterChunkGapMs: { withoutCompaction: sample.alone.pooled, withCompaction: sample.withCompaction.pooled },
+          finding: sample.withCompaction.worstStream > 50 ? 'worst-stream p99 exceeds ~50 ms: consider yielding in chunks with setImmediate or moving compaction to a worker thread' : 'worst-stream p99 is at or below ~50 ms at the default sizes',
         };
-        console.log(`  (p) parallel streams: p99 gap ${sample.alone} ms alone, ${sample.withCompaction} ms with compaction`);
+        console.log(`  (p) parallel streams: p99 gap worst stream ${sample.alone.worstStream} ms alone, ${sample.withCompaction.worstStream} ms with compaction; pooled ${sample.alone.pooled} ms alone, ${sample.withCompaction.pooled} ms with compaction`);
       } finally {
         await parallel.sys.stop();
         streamUp.child.kill('SIGTERM');

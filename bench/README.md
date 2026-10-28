@@ -161,6 +161,13 @@ A missing comparator or phase is `NOT RUN`, never `PASS`. Historical numerical
 reference targets describe earlier inputs; parity with matching current Python
 inputs is the independent correctness check.
 
+The latency phase's parallel-streams class runs 8 concurrent streams through the
+proxy against a stub upstream that sends 20 chunks per stream, one every 10 ms,
+first alone and then while compactions run. It reports two p99 inter-chunk gaps:
+the worst stream (the p99 of each stream's own gaps, then the highest of those) and
+the pooled value (one p99 over the gaps of all streams together). The worst stream
+shows the stall one client can see; the pooled value shows how often stalls occur.
+
 ## Golden fixtures
 
 Committed `.json.gz` and `.jsonl.gz` files hold synthetic text and expected results;
