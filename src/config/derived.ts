@@ -3,19 +3,19 @@ import { clientCompactionPoint } from './client-point.js';
 // entry and, when known, the head size). Pure, no I/O.
 //
 // This is a standalone implementation for `kitzur config show|validate`, the startup warnings and
-// import-eval reporting. The engine has its own (src/engine/budget.ts); both must follow §3 exactly,
-// and test/config/derived.test.ts pins the §3 preset table so a drift is caught.
+// import-eval reporting. The engine has its own (src/engine/budget.ts); both must compute the same
+// quantities, and test/config/derived.test.ts pins the preset table so a drift is caught.
 import type { Budget, ChatRequest, LearnedEntry } from '../types.js';
 import type { BudgetMode, Config } from './schema.js';
 import { modelWindow } from './window.js';
 
-/** `floor(x · fraction)` as DESIGN §3 defines it: with a 1e-9 epsilon (41,000 · 0.35 = 14,349.999… in IEEE). */
+/** `floor(x · fraction)` with a 1e-9 epsilon (41,000 · 0.35 = 14,349.999… in IEEE). */
 export function floorFrac(x: number, fraction: number): number {
   return Math.floor(x * fraction + 1e-9);
 }
 
 /**
- * Effective server budget mode ( precedence): an explicit server.budgetMode wins; else
+ * Effective server budget mode, by precedence: an explicit server.budgetMode wins; else
  * budget.limitCountsMaxTokens decides (true: strict_total, or tgi for type tgi; false: prompt_only, or
  * silent_truncate for type ollama); else server.type decides.
  */
@@ -39,7 +39,7 @@ export function resolveBudgetMode(cfg: Pick<Config, 'server' | 'budget'>): Budge
 }
 
 /**
- * The  conflict between an explicit server.budgetMode and budget.limitCountsMaxTokens, as an error
+ * The conflict between an explicit server.budgetMode and budget.limitCountsMaxTokens, as an error
  * message, or null when they agree (or either is unset).
  */
 export function budgetModeConflict(cfg: Pick<Config, 'server' | 'budget'>): string | null {
@@ -51,7 +51,7 @@ export function budgetModeConflict(cfg: Pick<Config, 'server' | 'budget'>): stri
   return `server.budgetMode '${m}' ${counts ? 'counts' : 'does not count'} max_tokens, but budget.limitCountsMaxTokens is ${lc}: remove one of them`;
 }
 
-/** T_plan = budget.planMaxTokens ?? budget.defaultMaxTokens (config only; , ADR-7). */
+/** T_plan = budget.planMaxTokens ?? budget.defaultMaxTokens (config only: the request's max_tokens never changes it, so planning stays stable across a session). */
 export function planMaxTokens(cfg: Pick<Config, 'budget'>): number {
   return cfg.budget.planMaxTokens ?? cfg.budget.defaultMaxTokens;
 }
@@ -70,18 +70,18 @@ export interface BudgetInputs {
   model?: string;
   /** T_req of the request; null/undefined = budget.defaultMaxTokens */
   tReq?: number | null;
-  /** learned entry E for (origin, model); the caller has already applied invalidation (§8) */
+  /** learned entry E for (origin, model); the caller has already applied invalidation */
   learned?: Pick<LearnedEntry, 'window' | 'maxPrompt' | 'maxBodyBytes' | 'tighten'> | null;
   /** count(head) when known (admitTokens needs it); null = unknown */
   counterFixedTokens?: number | null;
   /** ProcessOptions.extraTighten (request-local, retries only) */
   extraTighten?: number;
-  /** rendered size of the ledger floor (§6.4), for summaryBudget; default 0 */
+  /** rendered size of the ledger floor, for summaryBudget; default 0 */
   floorTokens?: number;
 }
 
 /**
- * All §3 quantities (types.ts Budget). Values can be <= 0 for an unusable config; validate.ts turns that
+ * All budget quantities (types.ts Budget). Values can be <= 0 for an unusable config; validate.ts turns that
  * into an error. `admitTokens` is null when admission is off or the head size is unknown and not configured.
  */
 export function computeBudget(cfg: Config, inputs: BudgetInputs = {}): Budget {
@@ -129,7 +129,7 @@ export function computeBudget(cfg: Config, inputs: BudgetInputs = {}): Budget {
   };
 }
 
-/** serverFits(x, M) of §3 for a counted prompt `count` and a forwarded max_tokens `M`. */
+/** serverFits(x, M): whether the server accepts a counted prompt `count` and a forwarded max_tokens `M`. */
 export function serverFits(b: Pick<Budget, 'mode' | 'window' | 'margin' | 'tighten'>, count: number, maxTokens: number): boolean {
   const limit = b.window - b.margin - b.tighten;
   switch (b.mode) {
@@ -143,7 +143,7 @@ export function serverFits(b: Pick<Budget, 'mode' | 'window' | 'margin' | 'tight
 }
 
 /**
- * Where the max_tokens clamp (§3, ) can decide: prompt counts c with min(trigger, budget) < c <= hi,
+ * Where the max_tokens clamp can decide: prompt counts c with min(trigger, budget) < c <= hi,
  * hi = min(W − margin − tighten − floorTokens, clientPoint − allowance − 1). `reachable` is false when the
  * range is empty or the mode is not strict_total; `reason` then says why.
  */
@@ -156,7 +156,7 @@ export function clampRange(cfg: Config, b: Budget): { lo: number; hi: number; re
 }
 
 /**
- * One-snapshot-per-epoch check (§3, ): room = trigger − (head + summaryBudget). `warn` when the room is
+ * One-snapshot-per-epoch check: room = trigger − (head + summaryBudget). `warn` when the room is
  * below the snapshot size, i.e. at most one snapshot fits per compaction epoch.
  */
 export function snapshotRoom(b: Budget, headTokens: number, snapshotTokens: number): { room: number; warn: boolean } {

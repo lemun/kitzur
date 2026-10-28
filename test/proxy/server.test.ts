@@ -66,7 +66,7 @@ test('SSE: relayed byte-exactly across arbitrary chunking (CRLF, comments, event
   });
 });
 
-// ---------------------------------------------------------------- first-event hold ()
+// ---------------------------------------------------------------- first-event hold
 
 test('hold: the client status line waits for the first data event; comments are flushed before it', async () => {
   const up = await fakeUpstream(async (_h, res) => {
@@ -112,7 +112,7 @@ test('hold: the timer starts at the upstream headers and commits after firstEven
   }, { config: { stream: { firstEventTimeoutMs: 200 } } });
 });
 
-test('late upstream error status (): the client gets the real HTTP status, not an invented 200', async () => {
+test('late upstream error status: the client gets the real HTTP status, not an invented 200', async () => {
   const up = await fakeUpstream(async (_h, res) => {
     await sleep(250);
     jsonRes(res, 429, { error: { message: 'Rate limit exceeded', type: 'rate_limit_error', code: '429' } });
@@ -194,7 +194,7 @@ test('after a committed 200, a failed overflow recovery is reported in the  shap
   }, { config: { stream: { firstEventTimeoutMs: 100 } } });
 });
 
-// ---------------------------------------------------------------- include_usage (§9, )
+// ---------------------------------------------------------------- include_usage
 
 test('include_usage: injected only for stream:true, the usage chunk is stripped, the tap still sees it', async () => {
   const up = await fakeUpstream(async (hit, res) => {
@@ -240,7 +240,7 @@ test(': a stream_options rejection of an injected include_usage is retried once 
   }, { config: { stream: { injectIncludeUsage: true } } });
 });
 
-// ---------------------------------------------------------------- abort ()
+// ---------------------------------------------------------------- abort
 
 test('client disconnect aborts the upstream within 50 ms (mid-stream and before headers)', async () => {
   const up = await fakeUpstream(async (hit, res) => {
@@ -502,7 +502,7 @@ test('guard_reject and impossible return the engine error without an upstream ca
   });
 });
 
-test('engine exceptions: the original only when it fits (I7)', async () => {
+test('engine exceptions: the original only when it fits', async () => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, okCompletion()));
   await withProxy(up, new FakeEngine(() => { throw new Error('injected failure'); }), async (f) => {
     const small = JSON.stringify(chatBody('small'));
@@ -517,7 +517,7 @@ test('engine exceptions: the original only when it fits (I7)', async () => {
   }, { config: { budget: { window: 10_000, defaultMaxTokens: 1000 } } });
 });
 
-test('an unsafe-integer body is never rewritten ()', async () => {
+test('an unsafe-integer body is never rewritten', async () => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, okCompletion()));
   const engine = new FakeEngine((req) => result(req, { ...req, messages: req.messages.slice(-1) }, true));
   await withProxy(up, engine, async (f) => {
@@ -584,7 +584,7 @@ test('everything else is a streamed pass-through to the same upstream; /status n
     const s = await request(f.port, { method: 'GET', path: '/kitzur/status' });
     const j = s.json();
     for (const k of ['version', 'uptime_s', 'config', 'budget', 'counter', 'learned', 'counters', 'actions', 'error_kinds', 'guard', 'replan', 'upstream_rejected_rewrite', 'warnings', 'sessions', 'latency_ms', 'memory']) assert.ok(k in j, k);
-    assert.equal(j.budget.budget, 67_000, 'the §3 budget of the 100k preset');
+    assert.equal(j.budget.budget, 67_000, 'the budget of the 100k preset');
     assert.equal(up.hits.length, 2);
     assert.equal(j.counters.passthrough_requests, 2);
   });

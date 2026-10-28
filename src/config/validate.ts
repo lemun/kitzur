@@ -1,6 +1,6 @@
-// Config validation (DESIGN.md, §10): the type and range of every leaf (spec.ts), regex and glob
-// compilation, the  trigger/target rules, the  budget-mode conflict, an unusable budget, and the
-// startup warnings ( clamp unreachable,  one snapshot per epoch,  T_plan below the client's
+// Config validation: the type and range of every leaf (spec.ts), regex and glob
+// compilation, the trigger/target rules, the budget-mode conflict, an unusable budget, and the
+// startup warnings (clamp unreachable, one snapshot per epoch, T_plan below the client's
 // output, a window that does not match its preset). Pure; file checks are opt-in (`checkFiles`).
 import { existsSync, statSync } from 'node:fs';
 import { loadTokenizerCached } from '../tokenize/load.js';
@@ -246,7 +246,7 @@ export function validateConfig(cfg: Config, opts: ValidateOptions = {}): Validat
     }
   }
 
-  // ---- : trigger / target
+  // ---- trigger / target
   const c = cfg.compaction;
   if (c.triggerTokens !== null && c.targetTokens !== null && c.targetTokens >= c.triggerTokens) {
     errors.push(`compaction.targetTokens (${c.targetTokens}) must be below compaction.triggerTokens (${c.triggerTokens})${src(prov, 'compaction.targetTokens')}`);
@@ -255,7 +255,7 @@ export function validateConfig(cfg: Config, opts: ValidateOptions = {}): Validat
     warnings.push(`compaction.summaryMaxFraction (${c.summaryMaxFraction}) is below compaction.summaryFraction (${c.summaryFraction}): the cap wins`);
   }
 
-  // ---- : budget mode conflict
+  // ---- budget mode conflict
   const conflict = budgetModeConflict(cfg);
   if (conflict) errors.push(conflict);
 
@@ -282,19 +282,19 @@ export function validateConfig(cfg: Config, opts: ValidateOptions = {}): Validat
     );
   }
   if (c.triggerTokens !== null && b.hard > 0 && c.triggerTokens > b.hard) {
-    warnings.push(`compaction.triggerTokens ${c.triggerTokens} is above hard ${b.hard}; it is clamped to ${b.hard} ()`);
+    warnings.push(`compaction.triggerTokens ${c.triggerTokens} is above hard ${b.hard}; it is clamped to ${b.hard}`);
   }
   if (c.targetTokens !== null && b.trigger > 0 && c.targetTokens >= b.trigger) {
-    warnings.push(`compaction.targetTokens ${c.targetTokens} is not below trigger ${b.trigger}; it is clamped to ${b.trigger - 1} ()`);
+    warnings.push(`compaction.targetTokens ${c.targetTokens} is not below trigger ${b.trigger}; it is clamped to ${b.trigger - 1}`);
   }
 
-  // ---- startup warnings (DESIGN §10)
+  // ---- startup warnings
   if (cfg.budget.maxTokensClamp.enabled && b.budget > 0) {
     const r = clampRange(cfg, b);
-    if (!r.reachable) warnings.push(`clamp enabled but unreachable: ${r.reason} (; it needs a client point above budget + allowance, see CONFIG.md "Client setup")`);
+    if (!r.reachable) warnings.push(`clamp enabled but unreachable: ${r.reason}; it needs a client point above budget + allowance, see CONFIG.md "Client setup"`);
   }
   if (cfg.client.outputLimit !== null && tPlan < cfg.client.outputLimit) {
-    warnings.push(`T_plan ${tPlan} (budget.planMaxTokens ?? defaultMaxTokens) is below the client's output limit ${cfg.client.outputLimit}: long replies get max_tokens fitted down ()`);
+    warnings.push(`T_plan ${tPlan} (budget.planMaxTokens ?? defaultMaxTokens) is below the client's output limit ${cfg.client.outputLimit}: long replies get max_tokens fitted down`);
   }
   const head = cfg.budget.observedFixedPromptTokens;
   if (head !== null && b.budget > 0) {
@@ -303,7 +303,7 @@ export function validateConfig(cfg: Config, opts: ValidateOptions = {}): Validat
     if (r.warn) {
       warnings.push(
         `at most one snapshot fits per compaction epoch: trigger ${b.trigger} − (head ${head} + summary ${b.summaryBudget}) = ${r.room} < snapshot ${snap}` +
-          `${cfg.rules.snapshot.p90Tokens === null ? ' (estimated from client.toolOutputMaxBytes)' : ''} ()`,
+          `${cfg.rules.snapshot.p90Tokens === null ? ' (estimated from client.toolOutputMaxBytes)' : ''}`,
       );
     }
     if (head >= b.headRoom) {
@@ -340,7 +340,7 @@ export function validateConfig(cfg: Config, opts: ValidateOptions = {}): Validat
   if (opts.checkFiles) {
     const missing = (p: string | null): p is string => typeof p === 'string' && !(existsSync(p) && statSync(p).isFile());
     // a missing CA file would fail every TLS connection: fatal. A missing tokenizer falls back to the
-    // estimate (tokenizer.mode 'auto', §4), so it is a warning.
+    // estimate (tokenizer.mode 'auto'), so it is a warning.
     if (missing(cfg.upstream.caFile)) errors.push(`upstream.caFile: file not found: ${cfg.upstream.caFile}${src(prov, 'upstream.caFile')}`);
     if (cfg.tokenizer.mode === 'auto' && missing(cfg.tokenizer.path)) {
       warnings.push(`tokenizer.path: file not found: ${cfg.tokenizer.path}${src(prov, 'tokenizer.path')}; counting falls back to the estimate`);

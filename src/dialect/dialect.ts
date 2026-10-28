@@ -11,7 +11,7 @@ export interface ParsedRequest {
   /** the client's bytes, forwarded verbatim whenever the request is unchanged */
   raw: Buffer;
   /**
-   * an integer outside Number.isSafeInteger was seen (). Such a body is never rewritten: a
+   * an integer outside Number.isSafeInteger was seen. Such a body is never rewritten: a
    * re-serialization would change the number.
    */
   unsafeInteger: boolean;
@@ -21,7 +21,7 @@ export type ParseResult = { ok: true; value: ParsedRequest } | { ok: false; reas
 
 /** Usage and finish state tapped from a response (non-stream body or SSE events). */
 export interface ResponseTap {
-  /** the last non-null usage object seen (: "the last usage seen in any event") */
+  /** the last non-null usage object seen in any event */
   usage: Usage | null;
   /** the last non-null finish_reason seen */
   finishReason: string | null;

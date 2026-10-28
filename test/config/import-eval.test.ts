@@ -49,7 +49,7 @@ const KIND: Record<string, string[]> = {
   ambiguous_overflow: ['gateway_error'], output_overflow: ['max_tokens_too_large'], context_overflow: ['overflow_prompt', 'overflow_unknown'],
 };
 
-test('import-eval: every fixture set agrees with the reference prototype (adapted per //)', () => {
+test('import-eval: every fixture set agrees with the reference prototype', () => {
   const exits: Record<string, number> = {};
   for (const set of Object.keys(bundle.sets)) {
     const { res, inputs } = importSet(set);
@@ -79,12 +79,12 @@ test('import-eval: every fixture set agrees with the reference prototype (adapte
         assert.equal(getPath(res.config, `tokenizer.fallback.charsPerToken.${cls}`), v, `${set} cpt ${cls}`);
       }
     }
-    // informational now ()
+    // informational now
     assert.equal(res.info['tokenizer.calibration.tinyPromptTokens']?.value, getPath(pc, 'tokenizer.calibration.tinyPromptTokens'), set);
     if (getPath(pc, 'rules.snapshot.maxTokens') !== undefined) assert.equal(res.info['rules.snapshot.maxTokens']?.value, getPath(pc, 'rules.snapshot.maxTokens'));
     assert.equal(res.info['upstream.basePath']?.value, getPath(pc, 'upstream.basePath'));
     assert.equal(res.clientBaseUrl, `http://127.0.0.1:8270${getPath(pc, 'upstream.basePath')}`);
-    // /: never written
+    // never written
     for (const k of ['compaction.triggerTokens', 'compaction.targetTokens', 'budget.safetyMarginTokens', 'server.budgetMode', 'upstream.basePath',
       'errors.inStreamSeen', 'tokenizer.calibration', 'rules.toolNames.browserAction', 'rules.snapshot.maxTokens']) {
       assert.equal(getPath(res.config, k), undefined, `${set} must not write ${k}`);
@@ -134,7 +134,7 @@ function loadWritten(res: ImportResult) {
   });
 }
 
-test('import-eval: mock-vllm specifics ( allowance from the capture p99, derived budget, report)', () => {
+test('import-eval: mock-vllm specifics (allowance from the capture p99, derived budget, report)', () => {
   const { res, inputs } = importSet('mock-vllm');
   assert.equal(inputs.capture?.length, 57, 'one record per captured request (one had no usage)');
   assert.equal(bundle.captureN, 56);
@@ -154,14 +154,15 @@ test('import-eval: mock-vllm specifics ( allowance from the capture p99, derived
   assert.deepEqual(res.unsafe, []);
   const report = renderImportReport(res, { inputs: inputs.sources });
   assert.match(report, /client baseURL = http:\/\/127\.0\.0\.1:8270\/v1/);
-  assert.match(report, /derived \(DESIGN §3\): mode strict_total, W 100000, T_plan 32000, margin 1000, budget 67000, clientPoint 84000, allowance 2000, hard 67000/);
+  assert.doesNotMatch(report, /§| \(\)/, 'no section tags or empty parentheses in the report');
+  assert.match(report, /derived: mode strict_total, W 100000, T_plan 32000, margin 1000, budget 67000, clientPoint 84000, allowance 2000, hard 67000/);
   assert.match(report, /proposed: 46\/46 steps, 7 compactions, peak prompt 60984, sum 1734118/);
   assert.match(report, /exit code 0/);
   // deterministic: same input, same output
   assert.deepEqual(mapEvalResults(inputs.results, { capture: inputs.capture }), res);
 });
 
-// ---------------------------------------------------------------- hand-crafted variants (notes §7.7 "still to hand-craft")
+// ---------------------------------------------------------------- hand-crafted variants
 
 function mockResults(): Record<string, J> {
   return withTmp((dir) => structuredClone(readEvalInputs([extract('mock-vllm', dir)]).results));
@@ -247,7 +248,7 @@ test('variant: client compaction points (Kilo threshold_percent, limit.input + r
   assert.equal(computeBudget(loadWritten(res)).hard, 67_000 - 0, 'hard = budget when the client never compacts');
 });
 
-test('variant: prompt-only limit -> limitCountsMaxTokens false, planMaxTokens from the reserve ()', () => {
+test('variant: prompt-only limit -> limitCountsMaxTokens false, planMaxTokens from the reserve', () => {
   const R = mockResults();
   overflow(R)['prompt_plus_max_tokens_over_window'] = {
     accepted: true, finish_reason: 'stop', gob_estimate: 98332, max_tokens: 32000, secs: 4.2, stream: false, target_prompt_tokens: 72000,
@@ -257,10 +258,11 @@ test('variant: prompt-only limit -> limitCountsMaxTokens false, planMaxTokens fr
   assert.deepEqual([res.provenance['budget.limitCountsMaxTokens']?.value, res.provenance['budget.limitCountsMaxTokens']?.confidence], [false, 'measured']);
   // min(defaultMaxTokens 32000, max(8192, ceil(1.5 · 137)))
   assert.equal(getPath(res.config, 'budget.planMaxTokens'), 8192);
+  assert.equal(res.provenance['budget.planMaxTokens']?.rule, 'prompt-only limit: outputReserve = min(max_tokens, max(8192, 1.5 × max completion))');
   assert.equal(getPath(res.config, 'client.outputAllowanceTokens'), 2000);
   const eff = loadWritten(res);
   assert.equal(computeBudget(eff).mode, 'prompt_only', 'vllm type + limitCountsMaxTokens false');
-  assert.equal(getPath(res.config, 'server.budgetMode'), undefined, 'never server.budgetMode ()');
+  assert.equal(getPath(res.config, 'server.budgetMode'), undefined, 'never server.budgetMode');
   assert.deepEqual(validateConfig(eff).errors, []);
 });
 

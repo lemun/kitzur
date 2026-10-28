@@ -1,5 +1,5 @@
-// Proxy overhead on 300 KB bodies (DESIGN.md gate G7; bench/README.mdclass (a) shape). As in the
-// spec, the proxy runs as a child process, the upstream (another child) answers at once without
+// Proxy overhead on 300 KB bodies. The proxy runs as a child process,
+// the upstream (another child) answers at once without
 // tokenizing, and the load generator posts a pre-serialized body: the reference scenario's history
 // grown to ~300 KB. The engine is a pass-through fake, so this measures the proxy itself (parse, the
 // ladder's bookkeeping, relay). Two measurements over ≥ 500 requests:

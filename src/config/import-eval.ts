@@ -56,7 +56,7 @@ const RATIO_KIND: Readonly<Record<string, keyof Config['tokenizer']['fallback'][
   english_prose: 'prose', typescript_code: 'code', playwright_snapshot_en: 'snapshot',
   test_runner_output: 'testOutput', json_api: 'json', playwright_snapshot_he: 'snapshotNonLatin',
 };
-/** role -> patterns matched against observed tool names; browserAction merges into snapshot (). */
+/** role -> patterns matched against observed tool names; browserAction merges into snapshot. */
 const TOOL_ROLES: ReadonlyArray<readonly [keyof Config['rules']['toolNames'], RegExp[]]> = [
   ['snapshot', [/browser_snapshot$/, /browser_(click|type|fill_form|select_option|hover|press_key|drag|file_upload|handle_dialog|wait_for|evaluate|resize)$/]],
   ['browserNavigate', [/browser_navigate$/, /browser_navigate_back$/, /browser_tabs$/]],
@@ -99,9 +99,9 @@ export interface ImportResult {
   unsafe: string[];
   /** what the pack cannot provide: set by hand */
   todos: string[];
-  /** human questions from RESULTS_TEMPLATE.md §4 that affect config */
+  /** human questions from the results template that affect config */
   questions: string[];
-  /** the client's baseURL through kitzur (basePath is not a knob; ) */
+  /** the client's baseURL through kitzur (basePath is not a knob) */
   clientBaseUrl: string | null;
   /** replay_session_* summaries (report only) */
   replays: string[];
@@ -626,7 +626,7 @@ export function mapEvalResults(R: Record<string, J>, opts: MapOptions = {}): Imp
   const mb = num(toolOutput?.['max_bytes']);
   if (mb) put('client.toolOutputMaxBytes', mb, 'collect_config#tool_output.max_bytes', 'copy', 'client-config');
 
-  // ---- completion tokens: allowance () and the prompt-only reserve ()
+  // ---- completion tokens: allowance and the prompt-only reserve
   const rcDist = obj(cap?.['reported_completion_tokens']);
   let p99: number | null = null;
   let p99src = '';
@@ -644,7 +644,7 @@ export function mapEvalResults(R: Record<string, J>, opts: MapOptions = {}): Imp
   const lcFinal = prov['budget.limitCountsMaxTokens']!;
   if (lcFinal.value === false && num(rcDist['max']) !== null) {
     const reserve = Math.min(defaultMaxTokens, Math.max(8192, Math.ceil(1.5 * num(rcDist['max'])!)));
-    put('budget.planMaxTokens', reserve, 'summarize_capture#/reported_completion_tokens/max', 'prompt-only limit: outputReserve = min(max_tokens, max(8192, 1.5 × max completion)) ()', 'derived');
+    put('budget.planMaxTokens', reserve, 'summarize_capture#/reported_completion_tokens/max', 'prompt-only limit: outputReserve = min(max_tokens, max(8192, 1.5 × max completion))', 'derived');
   }
   const tPlan = (prov['budget.planMaxTokens']?.value as number | undefined) ?? defaultMaxTokens;
   if (p99 !== null) {
@@ -732,7 +732,7 @@ export function mapEvalResults(R: Record<string, J>, opts: MapOptions = {}): Imp
 
   // ---- not in the pack
   const basePath = str(pcfg['base_path']);
-  note('upstream.basePath', basePath, 'probe_gateway#/config/base_path', 'not a knob: the client path is appended unchanged ()', basePath ? 'measured' : 'default');
+  note('upstream.basePath', basePath, 'probe_gateway#/config/base_path', 'not a knob: the client path is appended unchanged', basePath ? 'measured' : 'default');
   const port = opts.port ?? DEFAULT_CONFIG.listen.port;
   const clientBaseUrl = basePath !== null ? `http://127.0.0.1:${port}${basePath}` : null;
   const todos = [
@@ -780,7 +780,7 @@ export function mapEvalResults(R: Record<string, J>, opts: MapOptions = {}): Imp
     );
   }
 
-  // ---- safety-critical knobs (§7.6)
+  // ---- safety-critical knobs
   const okConf = (c: Confidence | undefined): boolean => c === 'measured' || c === 'client-config';
   const unsafe: string[] = [];
   for (const k of ['budget.window', 'budget.limitCountsMaxTokens', 'budget.defaultMaxTokens']) {
@@ -810,7 +810,7 @@ function sortKeysDeep(v: unknown): unknown {
   return Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortKeysDeep(v[k])]));
 }
 
-// ---------------------------------------------------------------- merge (§7.4)
+// ---------------------------------------------------------------- merge
 
 /** The provenance sidecar written next to the config. */
 export interface ImportSidecar {
@@ -906,7 +906,7 @@ export function renderImportReport(res: ImportResult, extra: { inputs?: Record<s
   const b = computeBudget(ec, { counterFixedTokens: ec.budget.observedFixedPromptTokens });
   lines.push(
     '',
-    `derived (DESIGN §3): mode ${resolveBudgetMode(ec)}, W ${b.window}, T_plan ${planMaxTokens(ec)}, margin ${b.margin}, budget ${b.budget}, ` +
+    `derived: mode ${resolveBudgetMode(ec)}, W ${b.window}, T_plan ${planMaxTokens(ec)}, margin ${b.margin}, budget ${b.budget}, ` +
       `clientPoint ${b.clientPoint}, allowance ${b.allowance}, hard ${b.hard}, trigger ${b.trigger}, target ${b.target}`,
   );
   if (res.clientBaseUrl) lines.push(`client baseURL = ${res.clientBaseUrl}   (the proxy appends the client path unchanged)`);
@@ -916,7 +916,7 @@ export function renderImportReport(res: ImportResult, extra: { inputs?: Record<s
   if (res.conflicts.length) lines.push('', 'CONFLICTS (exit 11):', ...res.conflicts.map((x) => `  - ${x}`));
   if (res.unsafe.length) lines.push('', 'safety-critical knobs not measured (exit 10):', ...res.unsafe.map((x) => `  - ${x}`));
   lines.push('', 'set by hand (not in the pack):', ...res.todos.map((x) => `  - ${x}`));
-  lines.push('', 'human questions that affect config (RESULTS_TEMPLATE.md §4):', ...res.questions.map((x) => `  - ${x}`));
+  lines.push('', 'human questions that affect config:', ...res.questions.map((x) => `  - ${x}`));
   if (extra.merge) {
     lines.push('', `merge: wrote ${extra.merge.written.length} knob(s), kept ${extra.merge.kept.length} hand-set knob(s)`);
   }
