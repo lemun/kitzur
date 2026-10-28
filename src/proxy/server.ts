@@ -33,7 +33,7 @@ import { hostAllowed } from './hostcheck.js';
 import { ErrorClassifier } from './errors.js';
 import { runChat, attemptRecords, type AttemptOutcome, type ChatResult, type ErrorOutcome, type Final, type OutgoingAttempt } from './recovery.js';
 import { SseRelay, type RelayStep } from './sse.js';
-import { Upstream, forwardRequestHeaders, forwardResponseHeaders, readBody, type ProbeResult, type UpstreamResponse } from './upstream.js';
+import { Upstream, forwardRequestHeaders, forwardResponseHeaders, readErrorBody, type ProbeResult, type UpstreamResponse } from './upstream.js';
 import { learnedKey, type StateStore } from './state.js';
 import { buildStatsRecord, type StatsWriter } from './stats.js';
 import { StatusTracker, type RecentRequest, type StatusExtras } from './status.js';
@@ -99,6 +99,12 @@ export function declaredOutputCapWarning(model: string, maxOutput: number, planL
 
 const MAX_JSON_TAP = 4 * 1024 * 1024;
 const JSON_CT = 'application/json';
+// These are response-safety limits, not transport policy: a configurable read deadline would let
+// one upstream error hold a client request open for an arbitrary time, while the byte cap bounds
+// memory and response size. Keep the fixed 5 s / 64 KiB limits here.
+const UPSTREAM_ERROR_READ_TIMEOUT_MS = 5_000;
+const UPSTREAM_ERROR_BODY_MAX_BYTES = 64 * 1024;
+const UPSTREAM_ERROR_TRUNCATION_MARKER = Buffer.from('\n\n[kitzur: upstream error body truncated]\n');
 
 function sendJson(res: ServerResponse, status: number, body: Buffer | string, extra: Record<string, string> = {}): void {
   const b = typeof body === 'string' ? Buffer.from(body, 'utf8') : body;
@@ -336,6 +342,35 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     return { o, fields, inspect, end };
   }
 
+  const cutErrorBodies = new WeakMap<Buffer, { relay: Buffer; contentType: string }>();
+  async function readUpstreamError(up: UpstreamResponse): Promise<{ body: Buffer; relay: Buffer; contentType?: string }> {
+    const read = await readErrorBody(up.body, UPSTREAM_ERROR_READ_TIMEOUT_MS, UPSTREAM_ERROR_BODY_MAX_BYTES);
+    if (read.complete) return { body: read.body, relay: read.body };
+    log('warn', `upstream error body cut: ${read.reason} status=${up.status}`);
+    const marker = read.reason === 'size' ? UPSTREAM_ERROR_TRUNCATION_MARKER : Buffer.from(`\n\n[kitzur: upstream error body truncated (${read.reason})]\n`);
+    const prefix = read.body.subarray(0, UPSTREAM_ERROR_BODY_MAX_BYTES - marker.length);
+    const body = Buffer.concat([prefix, marker]);
+    // Keep a useful upstream prefix when size is the only limit hit. For timeout/close the prefix
+    // may be malformed or misleading, so return a valid generic error instead.
+    const relay = read.reason === 'size'
+      ? body
+      : errorBody(`kitzur: upstream error body truncated (${read.reason})`, 'upstream_error', 'upstream_error_body_truncated');
+    const contentType = read.reason === 'size' ? 'text/plain; charset=utf-8' : JSON_CT;
+    cutErrorBodies.set(body, { relay, contentType });
+    return { body, relay, contentType };
+  }
+
+  function errorHeaders(raw: string[], contentType?: string): string[] {
+    const headers = forwardResponseHeaders(raw, { dropContentLength: true });
+    if (!contentType) return headers;
+    const out: string[] = [];
+    for (let i = 0; i < headers.length; i += 2) {
+      if (!['content-type', 'content-encoding', 'content-md5', 'digest', 'etag'].includes(headers[i]!.toLowerCase())) out.push(headers[i]!, headers[i + 1]!);
+    }
+    out.push('content-type', contentType);
+    return out;
+  }
+
   async function passthrough(req: IncomingMessage, res: ServerResponse, body: Buffer, observation = observeResponse(res)): Promise<void> {
     status.passthroughRequests++;
     const ac = new AbortController();
@@ -354,6 +389,18 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         observation.o.outcome = 'upstream_error';
         sendJson(res, 502, upstreamUnavailableBody());
       }
+      return;
+    }
+    if (up.status < 200 || up.status >= 300) {
+      const { relay, contentType } = await readUpstreamError(up);
+      if (ac.signal.aborted) return;
+      observation.o.outcome = 'upstream_error';
+      observation.o.bytes += relay.length;
+      observation.end();
+      const headers = errorHeaders(up.rawHeaders, contentType);
+      headers.push('content-length', String(relay.length));
+      res.writeHead(up.status, up.statusMessage, headers);
+      res.end(relay);
       return;
     }
     if (String(up.headers['content-type'] ?? '').includes('text/event-stream')) observation.o.relay = new SseRelay({ hold: false, strip: false, committed: true, detectErrors: false });
@@ -540,7 +587,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         return { type: 'unavailable', committed, error: e instanceof Error ? e.message : String(e), upstreamMs: performance.now() - t0 };
       }
       if (up.status < 200 || up.status >= 300) {
-        const { body } = await readBody(up.body);
+        const { body } = await readUpstreamError(up);
         if (clientGone) return { type: 'aborted', upstreamMs: performance.now() - t0 };
         return {
           type: 'error', status: up.status, httpStatus: up.status, statusMessage: up.statusMessage, headers: up.rawHeaders, body,
@@ -866,10 +913,12 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
             res.writeHead(e.httpStatus, e.statusMessage, forwardResponseHeaders(e.headers, { dropContentLength: true }));
             endWith(res, e.streamBytes ?? e.body, cont, onBytes);
           } else {
-            const hdrs = forwardResponseHeaders(e.headers, { dropContentLength: true });
-            hdrs.push('content-length', String(e.body.length));
+            const cut = cutErrorBodies.get(e.body);
+            const body = cut?.relay ?? e.body;
+            const hdrs = errorHeaders(e.headers, cut?.contentType);
+            hdrs.push('content-length', String(body.length));
             res.writeHead(e.httpStatus, e.statusMessage, hdrs);
-            end(e.body);
+            end(body);
           }
           setCommitted(true);
         } else if (e.inStream) {

@@ -396,6 +396,7 @@ See [CONFIG.md](CONFIG.md) for all budget settings.
 
 See the [task-based documentation index](docs/README.md): connect OpenCode,
 choose a served window/tokenizer, deploy offline, diagnose, or understand retention.
+For multiple authorized gateway keys, see [upstream key rotation](docs/UPSTREAM-ROTATION.md).
 
 Kitzur grew from coding agents on short-context local and intranet models, and was
 inspired by [Gobstopper](https://github.com/hraness/gobstopper). See
