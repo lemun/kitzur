@@ -1,4 +1,4 @@
-// GET /status and /kitzur/status : version, uptime, config summary, the
+// GET /status and /kitzur/status: version, uptime, config summary, the
 // budget quantities, counter mode and correction, learned entries with their tightenLog, counters by
 // action, error kind, guard reason and replan, upstream_rejected_rewrite, usage_mismatch, active
 // warnings, sessions, latency p50/p99 and memory. Counters are in-process (they reset on restart);

@@ -147,7 +147,7 @@ export interface CounterSetup {
 }
 
 /**
- * The engine counter the config describes : exact when tokenizer.path
+ * The engine counter the config describes: exact when tokenizer.path
  * loads (through the compiled cache in the state dir), else the per-class estimate with the reason.
  */
 export function setupCounter(config: Config, opts: { stateDir?: string | null; log?: Logger; tokenizer?: LoadedTokenizer | null; sourceBytes?: number; estimateReason?: string | null } = {}): CounterSetup {

@@ -8,7 +8,7 @@
 // Chat requests: the body is parsed by the dialect (fail-open: an unparseable, compressed or
 // non-object body is forwarded unchanged); the ladder decides what each attempt sends; send()
 // streams one attempt: non-2xx bodies are read and handed back to the ladder, SSE goes through the
-// first-event hold (from the upstream headers, ) and the relay (sse.ts), JSON is relayed as it
+// first-event hold (from the upstream headers) and the relay (sse.ts), JSON is relayed as it
 // arrives with a bounded tap copy. After the response: calibration (usage, or the tokenize endpoint
 // when no usage came back), the stats record and the status counters.
 //

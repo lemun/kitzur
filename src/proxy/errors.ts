@@ -11,14 +11,14 @@
 //      message (`on: 'message'`: error.message ?? error-as-string ?? message).
 //   3. numbers from named groups (window, prompt, completion, total, maxInput, chars, atLeast) and from
 //      `json` paths; `lowerBound` / `lowerBoundIf` mark the prompt number as a lower bound.
-// Numbers count as "from the message" ( (i)) when the same regex also matches the extracted message
+// Numbers count as "from the message" when the same regex also matches the extracted message
 // (its groups are then used), or when they come from structured JSON fields: a number that appears
 // only elsewhere in the body (echoed input) never teaches a window.
 import type { Config } from '../config/schema.js';
 import type { ClassifiedError, ErrorExclusion, ErrorKind, ErrorRule } from '../types.js';
 import { extractErrorMessage } from '../dialect/openai-chat.js';
 
-/** The built-in error map (reference implementation, adapted to ). Order matters. */
+/** The built-in error map (reference implementation). Order matters. */
 export const BUILTIN_RULES: readonly ErrorRule[] = [
   { id: 'vllm.v018.total', server: 'vllm>=0.18', kind: 'overflow_total', lowerBoundIf: 'atLeast',
     match: "This model's maximum context length is (?<window>\\d+) tokens\\. However, you requested (?<completion>\\d+) output tokens and your prompt contains (?<atLeast>at least )?(?<prompt>\\d+) input tokens" },
@@ -105,7 +105,7 @@ export interface Classification extends ClassifiedError {
   maxInput?: number;
   total?: number;
   chars?: number;
-  /** the numbers come from the extracted message or from structured JSON fields ( (i)) */
+  /** the numbers come from the extracted message or from structured JSON fields */
   numbersInMessage: boolean;
 }
 

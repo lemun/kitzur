@@ -133,7 +133,7 @@ export function requestBytes(req: ChatRequest): number {
 
 // ---------------------------------------------------------------- responses: usage, finish, errors
 
-/** error.message ?? error-as-string ?? message ( `on: 'message'`,  (i)). */
+/** error.message ?? error-as-string ?? message (`on: 'message'`). */
 export function extractErrorMessage(json: unknown): string | undefined {
   if (!isObj(json)) return undefined;
   const e = json['error'];
