@@ -51,11 +51,11 @@ export interface Usage {
 
 // ---------------------------------------------------------------- counting
 
-/** 'remote' exists only as a calibration source used by the proxy (DESIGN §4, ); the engine refuses it. */
+/** 'remote' exists only as a calibration source used by the proxy; the engine refuses it. */
 export type CounterMode = 'exact' | 'remote' | 'estimate';
 
 /** Context a template profile needs to count one message exactly (neighbours change wrappers in some templates). */
-/** Render context of one message, computed on the counted candidate alone (DESIGN §4, ). */
+/** Render context of one message, computed on the counted candidate alone. */
 export interface MessageContext {
   /** index inside the candidate being counted */
   index: number;
@@ -106,17 +106,17 @@ export interface TokenCounter {
 
 // ---------------------------------------------------------------- engine
 
-/** Replacement for one original message (DESIGN.md step 1, §5.5a, §5.6). */
+/** Replacement for one original message (admission or compaction). */
 export interface Rewrite {
   /** stub (superseded snapshot), slim (snapshot slimming), truncate (head+tail cut), reasoning (dropped),
    *  image (image parts omitted), args (assistant content / tool-call argument strings cut, JSON kept valid) */
   kind: 'stub' | 'slim' | 'truncate' | 'reasoning' | 'image' | 'args';
-  /** 'admission' = applied to a message never forwarded before (§5.5a); otherwise made at a compaction */
+  /** 'admission' = applied to a message never forwarded before; otherwise made at a compaction */
   stage: 'admission' | 'compaction';
   message: ChatMessage;
 }
 
-/** Bumped on any change of engine behaviour; part of the planning inputs (§5.3). */
+/** Bumped on any change of engine behaviour; part of the planning inputs. */
 export const ENGINE_ALGO_VERSION = 'kitzur-engine/5';
 
 /** Final, content-free explanation; message outcomes and ledger-item outcomes are separate. */
@@ -134,7 +134,7 @@ export interface Plan {
   engine: string;
   /** number of original messages this plan was made for (a boundary) */
   n: number;
-  /** end of the head: first assistant index, extended over a client-written summary (§5.1) */
+  /** end of the head: first assistant index, extended over a client-written summary */
   hEnd: number;
   /** first original index kept after the summary; == hEnd when nothing is summarized */
   cut: number;
@@ -149,7 +149,7 @@ export interface Plan {
   /** original index -> replacement, only for indices in [cut, n) */
   rewrites: Record<number, Rewrite>;
   compactions: number;
-  /** result of the fit loop (§5.4 step 4) */
+  /** result of the fit loop */
   fit: 'ok' | 'over_hard' | 'over_budget';
   /** plan key (chain key of H[0..n) combined with the planning-inputs hash) */
   key: string;
@@ -161,14 +161,14 @@ export type EngineAction =
   | 'passthrough'     // forwarded unchanged (below trigger, never compacted)
   | 'reuse'           // existing plan applied, appended messages verbatim
   | 'compact'         // new plan made at this request
-  | 'admit'           // only admission rewrites of never-forwarded messages (§5.5a)
-  | 'truncate'        // final plan over budget but serverFits: forwarded with fitted max_tokens (§5.7a)
-  | 'clamp'           // plan reused, max_tokens lowered instead of compacting (§3)
-  | 'restore'         // max_tokens raised back (Kilo) (§3)
+  | 'admit'           // only admission rewrites of never-forwarded messages
+  | 'truncate'        // final plan over budget but serverFits: forwarded with fitted max_tokens
+  | 'clamp'           // plan reused, max_tokens lowered instead of compacting
+  | 'restore'         // max_tokens raised back (Kilo)
   | 'shadow'          // shadow mode: computed but forwarded unchanged
-  | 'impossible'      // documented 400 returned, no upstream call (§5.7)
-  | 'guard_fallback'  // guard failed or engine threw; original forwarded because it fits the server limit (§5.8)
-  | 'guard_reject';   // guard failed or engine threw; original does not fit; §5.7 400 returned
+  | 'impossible'      // documented 400 returned, no upstream call
+  | 'guard_fallback'  // guard failed or engine threw; original forwarded because it fits the server limit
+  | 'guard_reject';   // guard failed or engine threw; original does not fit; documented 400 returned
 
 export interface Budget {
   window: number;
@@ -216,7 +216,7 @@ export interface EngineResult {
   /** request to forward (the input object itself when unchanged); null for impossible / guard_reject */
   request: ChatRequest | null;
   changed: boolean;
-  /** forwarded max tokens value and which fields carry it; null = unchanged (§3 "Forwarded max_tokens") */
+  /** forwarded max tokens value and which fields carry it; null = unchanged */
   maxTokens: { value: number; fields: Array<'max_tokens' | 'max_completion_tokens'> } | null;
   plan: Plan | null;
   sessionKey: string;
@@ -233,7 +233,7 @@ export interface EngineResult {
 export interface ProcessOptions {
   /** learned entry to plan with (defaults to the engine's current one); recovery passes an updated copy */
   learned?: LearnedEntry;
-  /** request-local extra tighten (ambiguous-error retries, §8) — not persisted */
+  /** request-local extra tighten (ambiguous-error retries) — not persisted */
   extraTighten?: number;
   /** 1 = first attempt; >= 2 = retry (the original is never forwarded on a retry) */
   attempt: number;
@@ -301,6 +301,7 @@ export interface StatsRecord {
   carry_chars: number;
   threshold_tokens: number;
   ratio_permille: number;
+  profile?: string;
 }
 
 // ---------------------------------------------------------------- ledger
@@ -388,7 +389,7 @@ export interface ClassifiedError {
 
 // ---------------------------------------------------------------- learned state (persisted, part of planning inputs)
 
-/** Learned per (origin, model) (DESIGN.md, ). */
+/** Learned per (origin, model). */
 export interface LearnedEntry {
   /** budget.window when learned; a mismatch discards the entry */
   configuredWindow: number;
@@ -407,9 +408,9 @@ export interface LearnedEntry {
   correction: number;
   samples: number;
   meanRatio: number;
-  /** last accepted calibration ratios (<= 64), for the running p90 () */
+  /** last accepted calibration ratios (<= 64), for the running p90 */
   ratios: number[];
-  /** gateway_error/overflow_suspect tightens waiting for a second distinct chain key within 24 h () */
+  /** gateway_error/overflow_suspect tightens waiting for a second distinct chain key within 24 h */
   pendingTighten: Array<{ chainKey: string; at: string; rejectedRaw: number }>;
   includeUsageRejected: boolean;
   updatedAt: string | null;

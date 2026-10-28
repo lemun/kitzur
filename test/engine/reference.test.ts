@@ -1,5 +1,5 @@
 // The reference scenario through the engine, request by request (sim template, exact counts, the bench
-// mock's counter as the oracle): the §1 invariants on the 46-step session at every preset window, the
+// mock's counter as the oracle): the invariants on the 46-step session at every preset window, the
 // chatty 80-step variant and the huge-output variants (SIM_HUGE_AT=20, uncapped: 150k/180k/400k), plus
 // the headline numbers at 100k/32k against gobstopper tuned (7 compactions, 1,734,118, peak 60,984).
 // Uses benchmark component's real summarizer and rules when they are built, else the test stubs.
@@ -35,7 +35,7 @@ const variants: Array<[string, keyof typeof PRESETS, ScenarioOptions, number]> =
 ];
 
 for (const [name, w, sc, steps] of variants) {
-  test(`reference ${name} (${loaded.real ? 'real' : 'stub'} summarizer): I1–I6, fresh,  sample, restart`, { skip }, () => {
+  test(`reference ${name} (${loaded.real ? 'real' : 'stub'} summarizer): invariants, fresh, sample, restart`, { skip }, () => {
     const s = spec(w, sc, steps);
     const cov = newCoverage();
     const results = checkChain(s, cov, { parts, counter: exactCounter('sim')!, freshEvery: 15, boundaryReplay: 4, caps: false });

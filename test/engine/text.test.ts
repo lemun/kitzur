@@ -20,7 +20,7 @@ test('fmtInt groups thousands', () => {
   assert.equal(fmtInt(1_234_567), '1,234,567');
 });
 
-test('the §5.6 marker, with and without the OpenCode saved path', () => {
+test('the truncation marker, with and without the OpenCode saved path', () => {
   assert.equal(
     truncationMarker(9812, 2104, 180_000, null),
     "[kitzur: this output was truncated to fit the model's context window: kept the first 9,812 and the last 2,104 of 180,000 characters. The middle is not visible to you. To see it, re-run the tool with narrower arguments (for example Read with offset/limit, grep, or a scoped snapshot).]",
@@ -46,7 +46,7 @@ test('cuts never split a surrogate pair', () => {
   }
 });
 
-test('head+tail truncation: fits the room, head share, line boundaries, few counts ()', (t) => {
+test('head+tail truncation: fits the room, head share, line boundaries, few counts', (t) => {
   const tok = exactCounter('sim');
   if (!tok) return t.skip('Room utilization and line-boundary expectations require exact counts; the estimate room sweep checks fallback truncation.');
   const count = tok.countText.bind(tok);
@@ -168,7 +168,7 @@ const OVERFLOW = [
   /model_context_window_exceeded/i, /too many tokens/i, /token limit exceeded/i, /^4(00|13)\s*(status code)?\s*\(no body\)/i,
 ];
 
-test('§5.7 (b) fixed-prompt body: exact shape, no overflow pattern, no retry run', () => {
+test('fixed-prompt body: exact shape, no overflow pattern, no retry run', () => {
   const b = fixedPromptTooLarge(26_000, 24_256, 32_768, 8_000);
   assert.equal(
     JSON.stringify(b),

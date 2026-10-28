@@ -89,7 +89,7 @@ test('keepAliveIdleMs never cuts a request that is waiting for its response head
   }
 });
 
-// ---------------------------------------------------------------- generated numbers (§5.7)
+// ---------------------------------------------------------------- generated numbers
 
 test('formatK: every tenth up to 10M tokens avoids the retry runs, never rounds up past the value, is monotone', () => {
   let prev = -1;
@@ -125,7 +125,7 @@ test('generated overflow bodies never match the retry pattern, for any numbers',
 
 // ---------------------------------------------------------------- batch 2: framing and routing probes
 
-test('absolute-form request targets are refused: a client-chosen authority never reaches the upstream (§10)', async () => {
+test('absolute-form request targets are refused: a client-chosen authority never reaches the upstream', async () => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, { data: [] }));
   const engine = new FakeEngine((req) => result(req, req, false));
   await withProxy(up, engine, async (f) => {
@@ -193,7 +193,7 @@ test('the last attempt\'s rejection still teaches: with maxRetries 0 a validated
     const body = { model: 'm1', messages: [{ role: 'system', content: 's' }, { role: 'user', content: 'x'.repeat(1560) }], max_tokens: 100 };
     const r = await request(f.port, { body });
     assert.equal(r.status, 400);
-    assert.equal(r.json().error.code, 'context_length_exceeded', 'translated ()');
+    assert.equal(r.json().error.code, 'context_length_exceeded', 'translated');
     assert.equal(up.hits.length, 1, 'no retry with maxRetries 0');
     const { readLearnedState, learnedKey } = await import('../../src/proxy/state.js');
     await f.state.flush();
@@ -225,7 +225,7 @@ test(' at the ladder level: every error kind on an unsafe-integer body sends exa
   }
 });
 
-// ---------------------------------------------------------------- TLS against a real TLS server ()
+// ---------------------------------------------------------------- TLS against a real TLS server
 
 test('TLS: a self-signed upstream fails verification (probe reports tlsError); caFile and insecureTls connect', async (t) => {
   const { spawnSync } = await import('node:child_process');

@@ -1,4 +1,4 @@
-// Built-in stop words for the supersession rule (DESIGN.md, ), shipped as data.
+// Built-in stop words for the supersession rule (DESIGN.md), shipped as data.
 //
 // Content words are lower-cased runs of 3+ Unicode letters or digits (/[\p{L}\p{N}]{3,}/gu), so words of
 // one or two letters never need listing. `ledger.stopWords` extends these lists; nothing here is code.
@@ -56,7 +56,7 @@ export const HEBREW_STOP_WORDS: readonly string[] = [
 ];
 
 /**
- * Words of the default correction and additive cues (ledger.correctionCues / additiveCues). DESIGN §6.1
+ * Words of the default correction and additive cues (ledger.correctionCues / additiveCues). The rule
  * removes cue words from content words, so "actually use X" and "use X" compare on X alone.
  */
 export const CUE_WORDS: readonly string[] = [

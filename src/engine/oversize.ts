@@ -1,8 +1,8 @@
-// Message-level rewrites of DESIGN.md (R3–R5, R8), §5.5a and §5.6: slim a snapshot result
+// Message-level rewrites of DESIGN.md (R3–R5, R8, admission and snapshot slimming): slim a snapshot result
 // (through the injected ToolRules), truncate text head+tail (array content: text parts only, largest
 // first), omit images, drop reasoning, and cut an assistant's content and tool-call argument strings
 // (arguments stay valid JSON, key order kept). Every function returns a NEW message computed from the
-// message it is given; callers pass the original message () and keep a result only if it is
+// message it is given; callers pass the original message and keep a result only if it is
 // strictly smaller (messageSize).
 import type { ChatMessage, ContentPart, TextPart, ToolCall } from '../types.js';
 import type { ToolRules } from './contracts.js';
@@ -24,7 +24,7 @@ export interface OpsEnv {
 
 /**
  * Context-free size of a message in tokens: its content text, reasoning, tool-call names and argument
- * strings, plus imageTokens per image. Used for the "strictly smaller" rule (§5.6, ) and to order
+ * strings, plus imageTokens per image. Used for the "strictly smaller" rule and to order
  * candidates; the prompt count of a candidate is always measured by the counter.
  */
 export function messageSize(m: ChatMessage, env: OpsEnv): number {
@@ -102,7 +102,7 @@ export function truncateText(m: ChatMessage, over: number, env: OpsEnv): TextEdi
 }
 
 /**
- * Slims a snapshot result (§5.6 step 1, ) through ToolRules.slimSnapshot to at most `maxTokens`
+ * Slims a snapshot result through ToolRules.slimSnapshot to at most `maxTokens`
  * content tokens. Only string content (or the largest text part) is slimmed. Returns null when the
  * rules cannot get under maxTokens or the result would not be smaller.
  */
@@ -172,7 +172,7 @@ export function dropReasoning(m: ChatMessage): ChatMessage | null {
 /**
  * Arguments nested deeper than this are left unchanged, like unparsable ones. The walk below, the re-serialization
  * and the counter's renderers recurse once per level, and a stack overflow would depend on the Node version's frame
- * sizes; a fixed cap keeps the cut deterministic (I5) and the step total.
+ * sizes; a fixed cap keeps the cut deterministic and the step total.
  */
 export const MAX_ARGS_DEPTH = 256;
 
@@ -210,7 +210,7 @@ interface Slot {
 }
 
 /**
- * R5 (§5.4): cuts the assistant's visible content head+tail and the string values inside its
+ * R5: cuts the assistant's visible content head+tail and the string values inside its
  * tool-call arguments (parsed losslessly, cut, re-serialized compactly with key order kept) so that
  * its size drops by at least `over` tokens. Arguments that do not parse as JSON are left unchanged.
  * Reasoning is dropped too. Returns null when nothing changed.

@@ -1,15 +1,15 @@
 import { clientCompactionPoint } from '../config/client-point.js';
 // Budget quantities (DESIGN.md): T_req, T_plan, W, margin, budget, clientPoint, allowance, hard,
-// trigger, target, the byte limit, the server budget mode (with its precedence, ), serverFits (),
-// the step's fit predicate with the opt-in clamp clause (), and the forwarded max_tokens ().
+// trigger, target, the byte limit, the server budget mode (with its precedence), serverFits,
+// the step's fit predicate with the opt-in clamp clause, and the forwarded max_tokens.
 import type { Budget, ChatRequest, LearnedEntry } from '../types.js';
 import type { BudgetMode, Config } from '../config/schema.js';
 import { modelWindow } from '../config/window.js';
 
-/** floor(x · fraction) as DESIGN §3 defines it: Math.floor(x * f + 1e-9) (41,000 · 0.35 = 14,350). */
+/** floor(x · fraction), robust to floating-point drift: Math.floor(x * f + 1e-9) (41,000 · 0.35 = 14,350). */
 export const ffloor = (x: number, f: number): number => Math.floor(x * f + 1e-9);
 
-/** Server budget mode, by precedence: explicit mode, then limitCountsMaxTokens, then server.type (§3, ). */
+/** Server budget mode, by precedence: explicit mode, then limitCountsMaxTokens, then server.type. */
 export function budgetMode(cfg: Config): BudgetMode {
   if (cfg.server.budgetMode) return cfg.server.budgetMode;
   const t = cfg.server.type;
@@ -42,7 +42,7 @@ export function requestedMaxTokens(req: ChatRequest, cfg: Config): number {
   return Math.max(1, Math.floor(t));
 }
 
-/** Every §3 quantity for one request. `summaryBudget`, `admitTokens` start at their base values. */
+/** Every budget quantity for one request. `summaryBudget`, `admitTokens` start at their base values. */
 export function computeBudget(cfg: Config, E: LearnedEntry, extraTighten: number, tReq: number, model?: string): Budget {
   const b = cfg.budget;
   const tPlan = b.planMaxTokens ?? b.defaultMaxTokens;
@@ -86,13 +86,13 @@ export function baseSummaryBudget(cfg: Config, budget: number): number {
   return Math.max(0, Math.min(ffloor(budget, cfg.compaction.summaryFraction), ffloor(budget, cfg.compaction.summaryMaxFraction)));
 }
 
-/** summaryBudget = min(max(floorTokens, floor(budget·summaryFraction)), floor(budget·summaryMaxFraction)) (§6.4). */
+/** summaryBudget = min(max(floorTokens, floor(budget·summaryFraction)), floor(budget·summaryMaxFraction)). */
 export function summaryBudgetFor(cfg: Config, budget: number, floorTokens: number): number {
   const k = cfg.compaction;
   return Math.max(0, Math.min(Math.max(floorTokens, ffloor(budget, k.summaryFraction)), ffloor(budget, k.summaryMaxFraction)));
 }
 
-/** headRoom = budget − floor(budget·summaryFraction) − (minTailTokens ?? floor(0.25·budget)) (§5.7, ). */
+/** headRoom = budget − floor(budget·summaryFraction) − (minTailTokens ?? floor(0.25·budget)). */
 export function headRoom(cfg: Config, budget: number): number {
   return budget - ffloor(budget, cfg.compaction.summaryFraction) - (cfg.oversize.minTailTokens ?? ffloor(budget, 0.25));
 }
@@ -100,7 +100,7 @@ export function headRoom(cfg: Config, budget: number): number {
 /** W − margin − tighten: the server's real limit as far as we know it. */
 export const serverLimit = (b: Budget): number => b.window - b.margin - b.tighten;
 
-/** serverFits(x, M) with count(x) = c (§3, ). */
+/** serverFits(x, M) with count(x) = c. */
 export function serverFits(b: Budget, c: number, M: number): boolean {
   const lim = serverLimit(b);
   switch (b.mode) {
@@ -113,7 +113,7 @@ export function serverFits(b: Budget, c: number, M: number): boolean {
   }
 }
 
-/** The clamp clause of fits(c) (§3, ). */
+/** The clamp clause of fits(c). */
 export function clampClause(cfg: Config, b: Budget, c: number, noClamp: boolean): boolean {
   const cl = cfg.budget.maxTokensClamp;
   return (
@@ -128,7 +128,7 @@ export function fits(cfg: Config, b: Budget, c: number, noClamp: boolean): boole
 
 export type MaxTokensField = 'max_tokens' | 'max_completion_tokens';
 
-/** Fields the client sent with a numeric value; the rewrite sets all of them, or adds max_tokens (§3). */
+/** Fields the client sent with a numeric value; the rewrite sets all of them, or adds max_tokens. */
 export function maxTokensFields(req: ChatRequest): MaxTokensField[] {
   const out: MaxTokensField[] = [];
   if (typeof req.max_tokens === 'number') out.push('max_tokens');
@@ -144,7 +144,7 @@ export interface MaxTokensDecision {
 }
 
 /**
- * Forwarded max_tokens (§3): the always-on fit clamp (strict_total, tgi), the opt-in restore, or the
+ * Forwarded max_tokens: the always-on fit clamp (strict_total, tgi), the opt-in restore, or the
  * clamp value when the clamp clause decided (`clamped`).
  */
 export function decideMaxTokens(cfg: Config, b: Budget, c: number, clamped: boolean): MaxTokensDecision {

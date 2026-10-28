@@ -2,7 +2,6 @@ import test, { mock } from 'node:test';
 import http from 'node:http';
 import net from 'node:net';
 import { Readable } from 'node:stream';
-import { Upstream } from '../../src/proxy/upstream.js';
 import { EventEmitter } from 'node:events';
 import { syncBuiltinESMExports } from 'node:module';
 import assert from 'node:assert/strict';
@@ -12,6 +11,33 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defaultConfig } from '../../src/config/load.js';
 import { doctor, renderDoctor } from '../../src/diagnostics/doctor.js';
+import { Upstream } from '../../src/proxy/upstream.js';
+import { opensslAvailable, withLeafOnlyServer } from '../helpers/leaf-only.js';
+
+test('doctor diagnoses the missing TLS link while Upstream keeps rejecting the leaf-only server', { skip: !opensslAvailable }, async () => {
+  await withLeafOnlyServer(async (origin, caFile) => {
+    const cfg = defaultConfig();
+    cfg.upstream.origin = origin;
+    cfg.upstream.caFile = caFile;
+    cfg.listen.port = 0;
+    const upstream = new Upstream(cfg.upstream);
+    try {
+      const before = await upstream.probe();
+      assert.equal(before.ok, false);
+      assert.match(before.tlsError ?? '', /UNABLE_TO_VERIFY_LEAF_SIGNATURE/);
+      const result = await doctor(cfg, { upstreamCheck: true });
+      const check = result.checks.find((c) => c.code === 'upstream.tls');
+      assert.equal(result.exitCode, 1);
+      assert.equal(check?.status, 'error');
+      assert.match(check?.message ?? '', /UNABLE_TO_VERIFY_LEAF_SIGNATURE/);
+      assert.match(check?.message ?? '', /leaf_only_missing_intermediate/);
+      assert.match(check?.message ?? '', /FAILED: localhost <- Wiring Intermediate/);
+      assert.match(check?.message ?? '', /SHA256/);
+      assert.ok(!result.checks.some((c) => c.code === 'upstream.reachable'));
+      assert.equal((await upstream.probe()).ok, false, 'inspection must not weaken Upstream verification');
+    } finally { upstream.close(); }
+  });
+});
 
 test('doctor reports missing and invalid tokenizer with sanitized messages', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-doctor-'));
@@ -190,6 +216,12 @@ test('doctor still reports diagnostics when upstream.headers is not a record', a
   const result = await doctor(cfg);
   assert.equal(result.checks.find((c) => c.code === 'config.valid')?.status, 'error');
   assert.equal(result.checks.find((c) => c.code === 'listen.token'), undefined);
+});
+
+test('doctor reports resolved config, state and log paths', async () => {
+  const cfg = defaultConfig(); cfg.stateDir = '/tmp/kitzur-paths'; cfg.log.file = '/tmp/kitzur.log';
+  const result = await doctor(cfg, { configPath: '/tmp/kitzur.jsonc', timeoutMs: 1 });
+  assert.equal(result.checks.find((c) => c.code === 'paths')?.message, 'Paths: config=/tmp/kitzur.jsonc; state_dir=/tmp/kitzur-paths; log_file=/tmp/kitzur.log');
 });
 
 test('upstream authentication diagnostics distinguish client keys, stored keys and probe tokens', async () => {

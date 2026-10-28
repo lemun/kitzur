@@ -1,4 +1,4 @@
-// Tool-call pairing defects (DESIGN.md I1, §5.8). The walk follows gobstopper v0.7.2 (MIT)
+// Tool-call pairing defects (a rewrite never adds a pairing defect). The walk follows gobstopper v0.7.2 (MIT)
 // pairing_intact for Chat, crates/gobstopper-adapters/src/request/replay.rs:612-654: keep the pending
 // call ids of the latest assistant; a tool message must answer one of them; any other message while
 // calls are pending is a defect; calls still pending at the end are allowed (the live edge).

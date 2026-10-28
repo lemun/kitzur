@@ -16,6 +16,9 @@ import { DEFAULT_LEAVES } from '../../src/config/spec.js';
 import { defaultConfigPath, packageInfo } from '../../src/config/paths.js';
 import type { ChatRequest, Engine, EngineResult, LearnedEntry, PlanStore } from '../../src/types.js';
 import { ROOT, testTokenizerPath } from '../helpers.js';
+import { opensslAvailable, withLeafOnlyServer } from '../helpers/leaf-only.js';
+import { Upstream } from '../../src/proxy/upstream.js';
+import { defaultConfig } from '../../src/config/load.js';
 
 interface Run {
   code: number;
@@ -97,7 +100,7 @@ test('main: every command answers --help / -h with its usage on stdout, exit 0',
     }
   }
   const d = await run(['doctor', '--json', '--help']);
-  assert.match(d.out, /doctor \[--client-config PATH\].*\n[\s\S]*-c, --config FILE/);
+  assert.match(d.out, /doctor \[options\].*\n[\s\S]*doctor \[--model ID\] \[--client-config PATH\].*\n[\s\S]*-c, --config FILE/);
   // doctor reads the config, so the config-options header names it
   assert.match(d.out, /config options \([^)]*\bdoctor\b[^)]*\):/);
   const c = await run(['config', 'show', '--help']);
@@ -363,6 +366,7 @@ test('status: GET /status of a running instance', async () => {
     assert.equal(r.code, 0, r.err);
     assert.match(r.out, /kitzur.*uptime 3s/);
     assert.match(r.out, /Last compaction: none since startup/);
+    assert.match(r.out, /Paths: config=defaults only; state_dir=\?; log_file=\?/);
     const raw = await run(['status', '--port', String(port), '--json']);
     assert.equal(raw.code, 0, raw.err);
     assert.deepEqual(JSON.parse(raw.out), { name: 'kitzur', uptime_s: 3 });
@@ -500,6 +504,7 @@ test('serve logs the bound address to a file and drains on SIGTERM', () => withT
   assert.equal(closedWith, 1234);
   const logs = readFileSync(file, 'utf8');
   assert.match(logs, /listening on http:\/\/127.0.0.1:45678/);
+  assert.match(logs, /Paths: config=defaults only; state_dir=/);
   assert.match(logs, /SIGTERM: stopping; draining/);
   assert.deepEqual(x.errBuf, []);
   const r = await run(['serve', '--log-file', file], { modules: fakeModules() });
@@ -512,6 +517,31 @@ test('serve logs the bound address to a file and drains on SIGTERM', () => withT
   assert.equal(failed.code, 1);
   assert.match(failed.err, /listen EADDRINUSE/);
   assert.match(readFileSync(file, 'utf8'), /UNABLE_TO_VERIFY_LEAF_SIGNATURE/);
+}));
+
+test('serve prints and logs the leaf-only chain diagnosis before exiting 1', { skip: !opensslAvailable }, () => withTmp(async (dir) => {
+  await withLeafOnlyServer(async (origin, caFile) => {
+    const cfg = defaultConfig();
+    cfg.upstream.origin = origin;
+    cfg.upstream.caFile = caFile;
+    const upstream = new Upstream(cfg.upstream);
+    let closed = false;
+    const file = join(dir, 'tls.log');
+    try {
+      const result = await run(['serve', '--upstream', origin, '--set', `upstream.caFile=${caFile}`, '--port', '0', '--log-file', file], {
+        modules: fakeModules({ probe: () => upstream.probe(), onClose: () => { closed = true; } }),
+      });
+      assert.equal(result.code, 1);
+      assert.equal(closed, true);
+      for (const output of [result.err, readFileSync(file, 'utf8')]) {
+        assert.match(output, /UNABLE_TO_VERIFY_LEAF_SIGNATURE/);
+        assert.match(output, /leaf_only_missing_intermediate/);
+        assert.match(output, /FAILED: localhost <- Wiring Intermediate/);
+        assert.match(output, /SHA256/);
+      }
+      assert.equal((await upstream.probe()).ok, false);
+    } finally { upstream.close(); }
+  });
 }));
 
 test('collectRequests / asRequest: bodies, wrapped bodies, JSONL, arrays', () =>

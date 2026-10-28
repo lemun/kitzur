@@ -54,3 +54,29 @@ exposes the cap, and `sessionCoverage.missing` counts accepted records without a
 nonempty session ID. A zero count with missing IDs is not evidence of zero sessions.
 The byte-stream API `reportStream` and string convenience API `report` use the
 same limits; the CLI uses streaming and never loads the entire file.
+
+## Sharing a reproducible report
+
+`kitzur redact <request.json|dir>... [--out DIR|-]` copies captured chat-completions request bodies with every
+free-text string replaced by filler of the same length and UTF-8 size, with newlines in the same places (so the encoded
+body keeps its size in bytes): message content, system prompts, tool results, tool-call argument values and tool
+descriptions. Roles, message order, tool-call ids and their pairing, tool and function names (other `name` values,
+such as one on a user message, are redacted), object keys (including tool schemas and argument keys), `type` values, the model
+name, numbers and booleans are kept, so `kitzur replay` on the copy makes the same compact or pass-through decision
+at the same window. The filler depends only on each string's length, line breaks and character widths, never on its
+text; identical lengths give identical filler.
+
+By default each input `name.json` (or `.jsonl`) is written next to it as `name.redacted.json`; `--out DIR` writes
+files named like the inputs into DIR (two inputs with the same file name are rejected), and `--out -` prints one redacted body per line. A directory input skips files
+that are already redacted. A file that is not a request body is rejected before anything is written; captured headers
+(a file with `Authorization`, `Cookie` or an API-key header) are rejected with a message, because they can hold
+credentials. The command prints file names and counts only, never message content. Review the copy before sharing:
+values under kept keys (ids, `type` values, tool names) are not redacted.
+
+```sh
+kitzur redact capture/request.json
+kitzur redact capture/ --out shared/
+kitzur replay --preset 32k shared/
+```
+
+For optional external viewing of legacy stats, see [Gobstopper interop](https://github.com/lemun/kitzur/blob/main/docs/GOBSTOPPER-INTEROP.md), including estimate semantics and an isolated synthetic import example.

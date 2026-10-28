@@ -1,5 +1,5 @@
 // Tool rules (DESIGN.md): role lookup by tool-name glob, result classification (content detection of
-// snapshots first, ), snapshot info / stub / slimming (§5.6, ) and the condensed tool-log result (§6.3).
+// snapshots first), snapshot info / stub / slimming and the condensed tool-log result.
 import type { ToolCall } from '../../types.js';
 import type { Config } from '../../config/schema.js';
 import type { ResultKind, SnapshotInfo, ToolRules, ToolRulesFactory } from '../contracts.js';
@@ -95,7 +95,7 @@ export function createToolRulesExt(cfg: Config): ToolRulesExt {
   };
 
   const condense = (text: string, call: ToolCall | null): string => {
-    // the todo list lives only in "Open todos" (latest wins); its echo must not revive a dropped item (§6.3)
+    // the todo list lives only in "Open todos" (latest wins); its echo must not revive a dropped item
     if (call && role(callName(call)).includes('todo')) {
       const first = text.trim().split('\n', 1)[0] ?? '';
       return /\b(?:error|invalid|failed)\b/i.test(first) ? `error: ${capHead(collapseWs(first), 120)}` : 'ok';

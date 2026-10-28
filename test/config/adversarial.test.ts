@@ -137,7 +137,7 @@ test('derived: T_req equals the engine\'s for any max_tokens / max_completion_to
   }
 });
 
-test('derived: the  "clamp unreachable" check agrees with the engine\'s clamp clause on random configs', () => {
+test('derived: the "clamp unreachable" check agrees with the engine\'s clamp clause on random configs', () => {
   const rnd = mulberry32(0xc13);
   const pick = <T>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)]!;
   let reachable = 0;
@@ -266,7 +266,7 @@ test('import-eval: a JSON body the pack truncated still gives a rule that matche
 });
 
 test('import-eval: an unusable result is a conflict (32k server + max_tokens 32000; windows from echoed input)', () => {
-  // OpenCode without limit.output sends 32000 to a 32k model ( (b)): T_plan 32000 leaves a 256-token budget
+  // OpenCode without limit.output sends 32000 to a 32k model: T_plan 32000 leaves a 256-token budget
   const R = JSON.parse(JSON.stringify(results()).replace(/100000/g, '32768')) as Record<string, J>;
   const res = mapEvalResults(R, { capture: mock.capture });
   assert.equal(res.provenance['budget.window']?.value, 32768);

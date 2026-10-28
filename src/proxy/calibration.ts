@@ -1,4 +1,4 @@
-// Calibration (DESIGN.md "Calibration", , ADR-10, ADR-14): the ratio of the provider's
+// Calibration: the ratio of the provider's
 // prompt_tokens (or the gateway tokenize endpoint's count) to our raw count of the same forwarded
 // request, kept per (origin, model) in the learned entry.
 //
@@ -35,7 +35,7 @@ export type CounterKind = 'exact' | 'estimate';
 export interface SampleInput {
   cfg: Config;
   mode: CounterKind;
-  /** the §3 budget the request was planned with */
+  /** the budget the request was planned with */
   budget: number;
   /** our raw count of the forwarded request */
   counted: number;
@@ -95,7 +95,7 @@ export function correctionFor(ratios: readonly number[], cfg: Config, mode: Coun
   return Math.min(cap, Math.max(1, ceil1pct(p90(ratios))));
 }
 
-/** Adds one accepted ratio and recomputes the correction with the  rules. */
+/** Adds one accepted ratio and recomputes the correction. */
 export function applyAcceptedRatio(e: LearnedEntry, ratio: number, cfg: Config, mode: CounterKind, now: Date): Applied {
   const ratios = [...e.ratios, ratio].slice(-RATIO_WINDOW);
   const samples = e.samples + 1;
@@ -114,7 +114,7 @@ export function applyAcceptedRatio(e: LearnedEntry, ratio: number, cfg: Config, 
 }
 
 /**
- * Counts forwarded requests at the gateway tokenize endpoint (a calibration source, ADR-14). One
+ * Counts forwarded requests at the gateway tokenize endpoint (a calibration source only, never a planning count). One
  * count is in flight at a time; while one runs, or while the endpoint is in failure backoff, further
  * requests are skipped, so a slow gateway never queues work behind the proxy.
  */

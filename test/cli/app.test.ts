@@ -38,7 +38,7 @@ test('setupCounter: estimate without a tokenizer, exact with one, estimate with 
   }
 });
 
-test('buildApp: the engine gets a local counter; the tokenize endpoint only reaches the proxy ()', async () => {
+test('buildApp: the engine gets a local counter; the tokenize endpoint only reaches the proxy', async () => {
   const seen: Record<string, unknown> = {};
   const engine = { process: () => { throw new Error('unused'); }, learned: () => ({}) as LearnedEntry, setLearned: () => undefined } as Engine;
   const modules: AppModules = {
@@ -81,7 +81,7 @@ test('buildApp: the engine gets a local counter; the tokenize endpoint only reac
   assert.equal(pd.engine, engine);
   assert.equal(pd.counter, ed.counter);
   assert.equal(pd.remote?.style, 'vllm', 'the tokenize client is a calibration source for the proxy');
-  assert.deepEqual(seen['state'], ['/tmp/kitzur-app-state', (ed.counter as unknown as { id: string }).id], 'learned entries are keyed to the counter id ()');
+  assert.deepEqual(seen['state'], ['/tmp/kitzur-app-state', (ed.counter as unknown as { id: string }).id], 'learned entries are keyed to the counter id');
   assert.equal(seen['stats'], '/tmp/x.jsonl');
   assert.deepEqual(seen['storeCaps'], [4096, 64 * 1024 * 1024]);
   pd.log('warn', 'hello');

@@ -1,6 +1,6 @@
 // A scripted Engine (src/types.ts) for the proxy tests: the component never depends on the real
 // engine. Results are built with the helpers below; `shrinkingEngine` is a small budget-aware engine
-// (drops the oldest non-head messages until the request fits the §3 budget of the learned entry plus
+// (drops the oldest non-head messages until the request fits the budget of the learned entry plus
 // the request-local extra tighten), enough to exercise the recovery ladder end to end.
 import type { Config } from '../../src/config/schema.js';
 import type { Budget, ChatRequest, Engine, EngineAction, EngineResult, LearnedEntry, ProcessOptions, TokenCounter } from '../../src/types.js';
@@ -72,7 +72,7 @@ export const passthroughEngine = (): FakeEngine => new FakeEngine((req) => resul
 
 /**
  * Budget-aware test engine: keeps messages [0, keepHead) and drops the oldest of the rest until
- * ceil(raw · correction) ≤ budget (§3 with the learned entry and extraTighten). Unchanged when it
+ * ceil(raw · correction) ≤ budget (with the learned entry and extraTighten). Unchanged when it
  * already fits; `impossible` when even the head alone does not fit.
  */
 export function shrinkingEngine(cfg: Config, counter: TokenCounter, keepHead = 2): FakeEngine {

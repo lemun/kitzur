@@ -28,6 +28,7 @@ import http from 'node:http';
 import { join } from 'node:path';
 import { loadavg } from 'node:os';
 import { performance } from 'node:perf_hooks';
+import { p99InterChunkGap, pooledP99InterChunkGap } from './stream-gap.js';
 import type { ChatMessage, ChatRequest } from '../src/types.js';
 import { loadConfig } from '../src/config/load.js';
 import { createEngine } from '../src/engine/engine.js';
@@ -47,7 +48,7 @@ function arg(name: string, def: string): string {
 const N = Number(arg('n', '500'));
 const PRESET = arg('preset', '100k');
 const TEMPLATE = arg('template', 'qwen3');
-const CLASSES = new Set(arg('classes', 'a,b,c,d,r,e,f').split(','));
+const CLASSES = new Set(arg('classes', 'a,b,c,d,r,e,f,p').split(','));
 const SIZES = arg('sizes', '0.3,1,2,4').split(',').map(Number);
 const OUT = arg('out', join(RESULTS_DIR, 'latency.json'));
 const CAP = { capBytes: 51_200 };
@@ -88,6 +89,23 @@ s.listen(0, '127.0.0.1', () => console.log('listening on http://127.0.0.1:' + s.
 process.on('SIGTERM', () => process.exit(0));
 `;
 
+const STREAM_UPSTREAM_JS = `
+const http = require('node:http');
+const s = http.createServer((req, res) => {
+  req.on('data', () => {});
+  req.on('end', () => {
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    let i = 0;
+    const timer = setInterval(() => {
+      res.write('data: ' + JSON.stringify({ id: 'tick', choices: [{ index: 0, delta: { content: 'x' }, finish_reason: null }] }) + '\\n\\n');
+      if (++i === 20) { clearInterval(timer); res.end('data: [DONE]\\n\\n'); }
+    }, 10);
+  });
+});
+s.listen(0, '127.0.0.1', () => console.log('listening on http://127.0.0.1:' + s.address().port));
+process.on('SIGTERM', () => process.exit(0));
+`;
+
 function spawnUpstream(): Promise<{ child: ChildProcess; url: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['-e', UPSTREAM_JS], { stdio: ['ignore', 'pipe', 'inherit'] });
@@ -99,6 +117,53 @@ function spawnUpstream(): Promise<{ child: ChildProcess; url: string }> {
     });
     child.once('exit', (c) => reject(new Error(`upstream exited ${c}`)));
   });
+}
+
+function spawnStreamUpstream(): Promise<{ child: ChildProcess; url: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['-e', STREAM_UPSTREAM_JS], { stdio: ['ignore', 'pipe', 'inherit'] });
+    let out = '';
+    child.stdout!.on('data', (d: Buffer) => {
+      out += d.toString();
+      const m = /listening on (http:\/\/127\.0\.0\.1:\d+)/.exec(out);
+      if (m) resolve({ child, url: m[1]! });
+    });
+    child.once('exit', (c) => reject(new Error(`stream upstream exited ${c}`)));
+  });
+}
+
+function chunkGaps(base: string, body: Buffer, streams: number): Promise<number[][]> {
+  const u = new URL(base);
+  return Promise.all(Array.from({ length: streams }, (_, i) => new Promise<number[]>((resolve, reject) => {
+    const times: number[] = [];
+    const req = http.request({ host: u.hostname, port: Number(u.port), method: 'POST', path: '/v1/chat/completions', headers: { 'content-type': 'application/json', 'content-length': String(body.length), 'x-session-id': `parallel-${i}` } });
+    req.on('error', reject);
+    req.on('response', (res) => {
+      res.on('data', () => times.push(performance.now()));
+      res.on('end', () => resolve(times));
+    });
+    req.end(body);
+  })));
+}
+
+type GapP99 = { worstStream: number; pooled: number };
+
+async function streamGapClass(run: Run, streamCount: number, streamBody: Buffer, compactBody: Buffer): Promise<{ alone: GapP99; withCompaction: GapP99 }> {
+  const alone = await chunkGaps(run.base, streamBody, streamCount);
+  const compactor = (async () => {
+    for (let i = 0; i < 4; i++) {
+      const response = await post(run.base, compactBody, `parallel-compact-${i}`);
+      if (response.status !== 200) throw new Error(`parallel compaction status ${response.status}`);
+    }
+  })();
+  const loaded = chunkGaps(run.base, streamBody, streamCount);
+  const [gapSets] = await Promise.all([loaded, compactor]);
+  // worstStream: the highest per-stream p99; pooled: one p99 over the gaps of all streams together
+  const p99 = (sets: number[][]): GapP99 => ({
+    worstStream: r1(Math.max(...sets.map(p99InterChunkGap))),
+    pooled: r1(pooledP99InterChunkGap(sets)),
+  });
+  return { alone: p99(alone), withCompaction: p99(gapSets) };
 }
 
 // ---------------------------------------------------------------- client
@@ -368,6 +433,27 @@ async function main(): Promise<void> {
       classes['b_compaction'] = summarize(r.recs, r.sizes, undefined, undefined, r.load);
       sent += N;
       console.log(`  (b) compaction: engine p50 ${classes['b_compaction'].engine.p50} p99 ${classes['b_compaction'].engine.p99} max ${classes['b_compaction'].engine.max} ms ${JSON.stringify(classes['b_compaction'].actions)}`);
+    }
+    if (CLASSES.has('p')) {
+      const streamUp = await spawnStreamUpstream();
+      const parallel = await startProxy(streamUp.url, 'parallel-streams');
+      try {
+        for (const b of warm) await post(parallel.base, b, 'parallel-warm');
+        await post(parallel.base, bodyOf(bases.nearTrigger), 'parallel-warm');
+        await newStats(parallel, warm.length + 1);
+        const sample = await streamGapClass(parallel, 8,
+          bodyOf(bases.steady), bodyOf([...bases.nearTrigger, ...newUnit('parallel', 50_000, 91)]));
+        result['parallel_streams'] = {
+          n: 8, mockUpstreamIntervalMs: 10, chunksPerStream: 20,
+          worstStreamP99InterChunkGapMs: { withoutCompaction: sample.alone.worstStream, withCompaction: sample.withCompaction.worstStream },
+          pooledP99InterChunkGapMs: { withoutCompaction: sample.alone.pooled, withCompaction: sample.withCompaction.pooled },
+          finding: sample.withCompaction.worstStream > 50 ? 'worst-stream p99 exceeds ~50 ms: consider yielding in chunks with setImmediate or moving compaction to a worker thread' : 'worst-stream p99 is at or below ~50 ms at the default sizes',
+        };
+        console.log(`  (p) parallel streams: p99 gap worst stream ${sample.alone.worstStream} ms alone, ${sample.withCompaction.worstStream} ms with compaction; pooled ${sample.alone.pooled} ms alone, ${sample.withCompaction.pooled} ms with compaction`);
+      } finally {
+        await parallel.sys.stop();
+        streamUp.child.kill('SIGTERM');
+      }
     }
     if (sent >= 1000) await mem(run, `after${sent}Requests`);
     if (CLASSES.has('c')) {

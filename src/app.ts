@@ -4,7 +4,7 @@
 // Counting: the engine always gets a local counter, 'exact' (tokenizer.path loads) or 'estimate'
 // (tokenizer.mode 'estimate', no path, or a tokenizer that fails to load). The gateway tokenize client
 // (tokenizer.endpoint) is built separately and handed to the proxy as a calibration source only; it is
-// never given to the engine's counter (§4, , ADR-14).
+// never given to the engine's counter, which stays local and synchronous.
 //
 // The engine and proxy modules are imported dynamically (the imports below are type-only), so the
 // config/CLI surface works on a build without them and the error names the missing module:
@@ -17,6 +17,7 @@
 //   src/proxy/stats.js         StatsWriter(stats.path)
 //   src/proxy/server.js        createProxyServer(config, { engine, counter, remote, state, stats, log })
 import { RuntimeLog, LoopWatchdog } from './diagnostics/runtime.js';
+import { formatPaths } from './proxy/status.js';
 import { chmodSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -146,7 +147,7 @@ export interface CounterSetup {
 }
 
 /**
- * The engine counter the config describes (DESIGN §4 counter modes, ): exact when tokenizer.path
+ * The engine counter the config describes: exact when tokenizer.path
  * loads (through the compiled cache in the state dir), else the per-class estimate with the reason.
  */
 export function setupCounter(config: Config, opts: { stateDir?: string | null; log?: Logger; tokenizer?: LoadedTokenizer | null; sourceBytes?: number; estimateReason?: string | null } = {}): CounterSetup {
@@ -167,7 +168,7 @@ export function setupCounter(config: Config, opts: { stateDir?: string | null; l
   }
   if (estimateReason) opts.log?.warn(`counting with the per-class estimate: ${estimateReason}`);
   if (config.upstream.insecureTls) opts.log?.warn('upstream.insecureTls is ON: TLS certificates of the gateway are NOT verified');
-  // never pass the remote client here: the engine's counts are local and synchronous (§4)
+  // never pass the remote client here: the engine's counts are local and synchronous
   const counter = counterFromConfig(config, { tokenizer });
   return { counter, tokenizer, estimateReason, sourceBytes: tokenizer ? opts.sourceBytes ?? 0 : 0 };
 }
@@ -227,7 +228,7 @@ export async function buildEngine(
 export interface ProbeOutcome {
   ok: boolean;
   status?: number;
-  /** a TLS verification failure: serve exits non-zero (§9 TLS) */
+  /** a TLS verification failure: serve exits non-zero */
   tlsError?: string;
   error?: string;
   timedOut?: boolean;
@@ -243,7 +244,7 @@ export interface App extends EngineSetup {
   /** listen on config.listen; resolves with the bound address */
   listen(): Promise<{ host: string; port: number }>;
   /**
-   * Startup probe GET <origin>/v1/models (§9): a TLS verification failure is `tlsError`; a connection
+   * Startup probe GET <origin>/v1/models: a TLS verification failure is `tlsError`; a connection
    * failure is logged and shown in /status, and the proxy keeps running. Resolves by `timeoutMs`.
    */
   probe(timeoutMs?: number): Promise<ProbeOutcome>;
@@ -257,7 +258,7 @@ export interface App extends EngineSetup {
  */
 export async function buildApp(
   config: Config,
-  opts: { log?: Logger; modules?: AppModules; env?: Record<string, string | undefined>; models?: ModelProfiles } = {},
+  opts: { log?: Logger; modules?: AppModules; env?: Record<string, string | undefined>; models?: ModelProfiles; configPath?: string | null } = {},
 ): Promise<App> {
   const runtimeLog = opts.log instanceof RuntimeLog ? opts.log : opts.log ? undefined : new RuntimeLog({ dir: join(stateDirOf(config, opts.env), 'logs'), file: config.log.file, console: config.log.console, level: config.logLevel });
   const log = opts.log ?? runtimeLog!;
@@ -275,7 +276,7 @@ export async function buildApp(
       profileRuntimes.set(id, { cfg: profile, counter: profileSetup.counter, engine: profileSetup.engine, estimateReason: profileSetup.estimateReason, tokenizer: { sha256: profileSetup.tokenizer?.sha256 ?? null, sourceBytes: profileSetup.sourceBytes ?? 0, loadMs: profileSetup.tokenizer?.loadMs ?? 0 } });
     }
     const modelRuntimes = new ModelRuntimeMap({ cfg: config, counter: es.counter, engine: es.engine, estimateReason: es.estimateReason, tokenizer: { sha256: es.tokenizer?.sha256 ?? null, sourceBytes: es.sourceBytes ?? 0, loadMs: es.tokenizer?.loadMs ?? 0 } }, opts.models ?? {}, profileRuntimes);
-    const remote = remoteFromConfig(config); // calibration source only (§4)
+    const remote = remoteFromConfig(config); // calibration source only
     const state = modules.createState(config, es.stateDir, es.counter.id);
     const stats = modules.createStats(config);
     const server = modules.createProxyServer(config, {
@@ -288,6 +289,9 @@ export async function buildApp(
       watchdog,
       modelRuntimes,
     });
+    const logPath = opts.log instanceof RuntimeLog ? opts.log.path : runtimeLog?.path ?? config.log.file;
+    if (server.status) server.status.paths = () => ({ config: opts.configPath ?? null, state_dir: es.stateDir, log_file: logPath });
+    log.info(formatPaths({ config: opts.configPath ?? null, state_dir: es.stateDir, log_file: logPath }));
     return {
       ...es,
       config,
