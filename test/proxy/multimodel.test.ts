@@ -6,7 +6,7 @@ import type { Engine } from '../../src/types.js';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fakeUpstream, jsonRes, request, charCounter } from './harness.js';
+import { fakeUpstream, jsonRes, request, charCounter, bodyTokens } from './harness.js';
 import { passthroughEngine } from './fake-engine.js';
 import { createProxyServer } from '../../src/proxy/server.js';
 import { StateStore } from '../../src/proxy/state.js';
@@ -82,7 +82,9 @@ test('overlapping A/B/A requests keep model runtimes pinned through stream calib
         res.write('data: {"choices":[{"delta":{"content":"a"}}]}\n\n');
         sawA();
         await aGate;
-        res.end('data: {"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1}}\n\ndata: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
+        // An accepted exact-mode ratio (1.1), so A's afterChat learns a correction on the engine it selected.
+        const promptTokens = Math.round(bodyTokens(hit.json as { messages?: unknown[] }) * 1.1);
+        res.end(`data: {"choices":[],"usage":{"prompt_tokens":${promptTokens},"completion_tokens":1}}\n\ndata: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n`);
         return;
       }
       jsonRes(res, 200, { id: 'ok', choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1 } });
@@ -97,7 +99,7 @@ test('overlapping A/B/A requests keep model runtimes pinned through stream calib
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-multimodel-'));
   const statsPath = join(dir, 'stats.jsonl');
   // Only alpha resolves to silent_truncate (ollama + limitCountsMaxTokens false); root and beta stay strict_total.
-  const loaded = loadConfig({ env: {}, object: { server: { type: 'ollama' }, budget: { limitCountsMaxTokens: true }, models: {
+  const loaded = loadConfig({ env: {}, object: { server: { type: 'ollama' }, budget: { limitCountsMaxTokens: true }, calibration: { minSamples: 1, minCountedTokens: 0 }, models: {
     alpha: { budget: { window: 49152, limitCountsMaxTokens: false } }, beta: { budget: { window: 40960 } },
   } } });
   const rootCounter = charCounter();
@@ -124,22 +126,35 @@ test('overlapping A/B/A requests keep model runtimes pinned through stream calib
       }
       throw error;
     }
-    const a1 = request(port, { body: { model: 'alpha', stream: true, messages: [{ role: 'user', content: 'first alpha' }] } });
+    // Large enough to pass calibration's 0.1 · budget floor (the fake engine plans a 67000 budget).
+    const a1 = request(port, { body: { model: 'alpha', stream: true, messages: [{ role: 'user', content: `first alpha ${'x'.repeat(28_000)}` }] } });
     await aSeen;
     await request(port, { body: { model: 'beta', messages: [{ role: 'user', content: 'beta' }] } });
     await request(port, { body: { model: 'small_model', messages: [{ role: 'user', content: 'root runtime' }] } });
     await request(port, { body: { model: 'alpha', messages: [{ role: 'user', content: 'second alpha' }] } });
+    // B, small_model and the second A have run afterChat; A's stream is still open, so its afterChat has not.
+    const before = { alpha: alphaCounter.calls, beta: betaCounter.calls, root: rootCounter.calls };
+    assert.equal(alphaEngine.setCalls.length, 0);
     releaseA();
     await a1;
+    await new Promise((resolve) => setImmediate(resolve));
     assert.equal(alphaEngine.calls.length, 2);
     assert.equal(betaEngine.calls.length, 1);
     assert.equal(rootEngine.calls.length, 1);
     assert.ok(alphaCounter.calls > 0);
     assert.ok(betaCounter.calls > 0);
     assert.ok(rootCounter.calls > 0);
+    // A's afterChat counts with A's counter and learns on A's engine, never the root or B ones.
+    assert.ok(alphaCounter.calls > before.alpha, 'A afterChat must count with the alpha counter');
+    assert.equal(betaCounter.calls, before.beta);
+    assert.equal(rootCounter.calls, before.root);
+    assert.equal(alphaEngine.setCalls.length, 1, 'A afterChat must learn on the alpha engine');
+    assert.equal(alphaEngine.setCalls[0]!.entry.correction, 1.05);
+    assert.equal(betaEngine.setCalls.length, 0);
+    assert.equal(rootEngine.setCalls.length, 0);
     const status = (await request(port, { method: 'GET', path: '/status' })).json();
     const truncate = status.warnings.find((w: { key: string }) => w.key === 'silent_truncate');
-    assert.equal(truncate?.count, 2, 'only the two alpha requests judge samples under alpha silent_truncate config');
+    assert.equal(truncate?.count, 1, 'only the second alpha request (ratio < 0.9) warns under alpha silent_truncate config');
     const records = readFileSync(statsPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
     assert.deepEqual(records.map((r: { profile?: string }) => r.profile), ['beta', undefined, 'alpha', 'alpha']);
   } finally {
