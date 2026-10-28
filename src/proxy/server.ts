@@ -36,7 +36,7 @@ import { SseRelay, type RelayStep } from './sse.js';
 import { Upstream, forwardRequestHeaders, forwardResponseHeaders, readBody, type ProbeResult, type UpstreamResponse } from './upstream.js';
 import { learnedKey, type StateStore } from './state.js';
 import { buildStatsRecord, type StatsWriter } from './stats.js';
-import { StatusTracker, type RecentRequest } from './status.js';
+import { StatusTracker, type RecentRequest, type StatusExtras } from './status.js';
 import { applyAcceptedRatio, EndpointCalibrator, judgeSample, type CounterKind } from './calibration.js';
 import { budgetModeOf, serverLimits, budgetQuantities } from './budget.js';
 import { packageInfo } from '../config/paths.js';
@@ -176,13 +176,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       statsError: deps.stats.lastError,
       upstream: { origin, ...upstream.stats, endpoint: deps.remote ? deps.remote.stats() : null },
       modelTokenizers: deps.modelRuntimes?.tokenizerStatus(),
-      profiles: deps.modelRuntimes ? Object.fromEntries(Object.entries(deps.modelRuntimes.tokenizerStatus())
-        .filter(([id]) => id !== 'root')
-        .map(([id]) => {
-          const runtime = deps.modelRuntimes!.forModel(id);
-          const b = budgetQuantities(runtime.cfg, null);
-          return [id, { W: b.window, T_plan: b.planMaxTokens, hard: b.hard, trigger: b.trigger, counter_mode: runtime.counter.mode }];
-        })) : undefined,
+      profiles: profileStatus(deps.modelRuntimes),
     }),
     concurrency_rejected: concurrencyRejected,
     ...deps.watchdog?.snapshot(),
@@ -473,7 +467,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     const requestCfg = runtime?.cfg ?? cfg;
     const requestEngine = runtime?.engine ?? deps.engine;
     const requestCounter = runtime?.counter ?? deps.counter;
-    const requestProfile = creq.model && deps.modelRuntimes && Object.hasOwn(deps.modelRuntimes.tokenizerStatus(), creq.model)
+    const requestProfile = creq.model && deps.modelRuntimes && deps.modelRuntimes.forModel(creq.model) !== deps.modelRuntimes.forModel()
       ? creq.model : undefined;
     const requestCounterMode: CounterKind = requestCounter.mode === 'exact' ? 'exact' : 'estimate';
     if (deps.modelRuntimes?.shouldWarnUnknown(creq.model)) {
@@ -1080,6 +1074,18 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       deps.remote?.close();
     },
   };
+}
+
+function profileStatus(runtimes: ProxyDeps['modelRuntimes']): StatusExtras['profiles'] | undefined {
+  if (!runtimes) return undefined;
+  const root = runtimes.forModel();
+  return Object.fromEntries(Object.keys(runtimes.tokenizerStatus())
+    .filter((id) => runtimes.forModel(id) !== root)
+    .map((id) => {
+      const runtime = runtimes.forModel(id);
+      const b = budgetQuantities(runtime.cfg, null);
+      return [id, { W: b.window, T_plan: b.planMaxTokens, hard: b.hard, trigger: b.trigger, counter_mode: runtime.counter.mode }];
+    }));
 }
 
 /** The parked rest of an upstream stream (see relaySse park()). */
