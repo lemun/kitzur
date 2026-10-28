@@ -100,7 +100,7 @@ test('main: every command answers --help / -h with its usage on stdout, exit 0',
     }
   }
   const d = await run(['doctor', '--json', '--help']);
-  assert.match(d.out, /doctor \[--client-config PATH\].*\n[\s\S]*-c, --config FILE/);
+  assert.match(d.out, /doctor \[options\].*\n[\s\S]*doctor \[--model ID\] \[--client-config PATH\].*\n[\s\S]*-c, --config FILE/);
   // doctor reads the config, so the config-options header names it
   assert.match(d.out, /config options \([^)]*\bdoctor\b[^)]*\):/);
   const c = await run(['config', 'show', '--help']);
@@ -144,6 +144,19 @@ test('config show: every leaf with its source, derived budget, masked headers', 
   const bad = await run(['config', 'show', '--set', 'compaction.triggerFraction=2']);
   assert.equal(bad.code, 2);
   assert.match(bad.out, /# ERROR: compaction\.triggerFraction/);
+});
+
+test('config show and validate recognize the runtime probe token without exposing it', async () => {
+  for (const command of ['show', 'validate']) {
+    for (const format of [[], ['--json']]) {
+      const args = ['config', command, ...format];
+      const baseline = await run(args);
+      const result = await run(args, { env: { KITZUR_PROBE_TOKEN: 'secret-probe-token' } });
+      assert.equal(result.code, 0);
+      assert.deepEqual(result, baseline);
+      assert.doesNotMatch(result.out + result.err, /secret-probe-token|KITZUR_PROBE_TOKEN/);
+    }
+  }
 });
 
 test('config validate: exit codes, warnings, JSON', async () => {
@@ -353,6 +366,7 @@ test('status: GET /status of a running instance', async () => {
     assert.equal(r.code, 0, r.err);
     assert.match(r.out, /kitzur.*uptime 3s/);
     assert.match(r.out, /Last compaction: none since startup/);
+    assert.match(r.out, /Paths: config=defaults only; state_dir=\?; log_file=\?/);
     const raw = await run(['status', '--port', String(port), '--json']);
     assert.equal(raw.code, 0, raw.err);
     assert.deepEqual(JSON.parse(raw.out), { name: 'kitzur', uptime_s: 3 });
@@ -415,6 +429,7 @@ function fakeModules(opts: { flaky?: boolean; listenError?: Error; onClose?: (ms
               messagesIn: req.messages.length, messagesOut: out.messages.length, tokensIn: req.messages.length * 10, tokensOut: out.messages.length * 10,
               budget: { budget: 67_000, trigger: 61_000 } as EngineResult['stats']['budget'], compactions: 0, summaryTokens: 0, ledgerTokens: 0, rewrites: 0,
               boundariesReplayed: 0, cacheHits: 0, engineMs: 0.1,
+              retention: { verbatim: 1, excerpted: 0, summarized: 0, dropped: 0 },
             },
           };
         },
@@ -464,6 +479,9 @@ test('replay: sizes only, live vs fresh determinism, exit codes', () =>
     const j = JSON.parse(flaky.out) as { mismatches: number; requests: Array<{ deterministic: boolean; messagesIn: number }> };
     assert.equal(j.mismatches, 12);
     assert.equal(j.requests[3]!.messagesIn, 8);
+    const diagnosed = await run(['replay', join(reqs, '3_step2.json'), '--no-fresh', '--json'], { cwd: dir, modules: fakeModules() });
+    const diagnosticRow = (JSON.parse(diagnosed.out) as { requests: Array<{ retentionCounts?: Record<string, number> }> }).requests[0]!;
+    assert.deepEqual(diagnosticRow.retentionCounts, { verbatim: 1, excerpted: 0, summarized: 0, dropped: 0 });
     const skip = await run(['replay', join(reqs, '3_step2.json'), '--no-fresh'], { cwd: dir, modules: fakeModules() });
     assert.equal(skip.code, 0);
     assert.ok(!skip.out.includes('determinism'));
@@ -486,6 +504,7 @@ test('serve logs the bound address to a file and drains on SIGTERM', () => withT
   assert.equal(closedWith, 1234);
   const logs = readFileSync(file, 'utf8');
   assert.match(logs, /listening on http:\/\/127.0.0.1:45678/);
+  assert.match(logs, /Paths: config=defaults only; state_dir=/);
   assert.match(logs, /SIGTERM: stopping; draining/);
   assert.deepEqual(x.errBuf, []);
   const r = await run(['serve', '--log-file', file], { modules: fakeModules() });

@@ -1,10 +1,24 @@
 # Diagnostics and reports
 
+| Symptom | Check | Recovery |
+|---|---|---|
+| No compactions | Compare request size with the configured trigger | A short session may not reach it |
+| Overflow | Check served window, output reservation, tokenizer and template | Match configuration to the server's actual limits |
+| Warning missing in terminal | Inspect rotating logs or run `serve --foreground` | Logs do not include message content by default |
+| Missing usage in a report | Read field coverage and history completeness | Unknown coverage is not zero usage |
+
 `kitzur doctor` validates loaded settings, checks the prompt budget against the configured context and client limits, verifies tokenizer availability and local counting, and inspects state and stats paths. It does not create files or directories. The default state directory is resolved from `stateDir`, `XDG_STATE_HOME`, or the home directory; when a configured directory is absent, doctor checks the nearest existing parent. A configured tokenizer in automatic mode that is missing produces a warning because counts fall back to estimates. A present tokenizer must parse and count a short sample. Doctor also validates the configured template name, but does not render a chat request or contact a tokenize endpoint.
 
 Messages are fixed and safe for display: they include no raw paths, credentials, config values, network error text, or server response body. Doctor exits 0 when checks have no errors, 1 when a diagnostic finds an error, and the CLI uses 2 for configuration or command-line errors.
 
-The optional upstream check sends one bounded `GET /v1/models` request. It sends no prompt and does not generate a completion. A 2xx response is healthy; 401/403 and 404 indicate a reachable server with an auth or route issue; other responses or transport failures are errors. The timeout is capped at 10 seconds.
+The optional upstream check sends one bounded `GET /v1/models` request. It sends no prompt and does not generate a completion. A 2xx response is healthy; 401/403 are healthy when the client supplies the key, but warn when upstream.headers contains an authorization-like header; 404 warns about a missing route; other responses or transport failures are errors. The timeout is capped at 10 seconds. Set KITZUR_PROBE_TOKEN in the environment to send a Bearer key for this probe only: 2xx reports “key accepted”, and 401/403 warns “key rejected”. The token is never printed; there is no CLI token value.
+
+Client usable-context checks accept equality at the trigger plus output allowance boundary. When the client would compact first, the fix names the client.inputLimit, client.reservedTokens (for an explicit input reservation), and client.outputLimit values to mirror in kitzur.jsonc, where applicable.
+
+With model profiles configured, `doctor --client-config` checks each OpenCode model
+against its exact wire-ID profile and qualifies findings by model. An unknown model
+uses root defaults and is reported; `model` and `small_model` must resolve within an
+OpenCode provider for routing through Kitzur to be checked.
 
 ```sh
 kitzur doctor
@@ -12,7 +26,7 @@ kitzur doctor --json
 kitzur doctor --check-upstream --timeout-ms 1500
 ```
 
-`kitzur report <stats.jsonl>` aggregates the existing stats file. JSON output contains only aggregates; readable output prints the same core measures. A nonempty record must have an integer `seq`, known `action`, HTTP `client_status` (100–599), and at least one of token fields or an attempts array. Invalid JSON, primitives, and unrelated objects increment `coverage.malformed` and do not count as requests. Valid records with absent or invalid optional values remain counted; those values contribute zero and per-field coverage shows how many records supplied data. Empty files produce zero totals. A valid final line without a newline is included and `partialFinalLine` marks the missing newline. The report never emits record contents, paths, session IDs, or credentials; it reports only the number of distinct nonempty session IDs.
+`kitzur report <stats.jsonl>` aggregates the existing stats file. JSON output contains only aggregates; readable output prints the same core measures. A nonempty record must have an integer `seq`, known `action`, HTTP `client_status` (100–599), and at least one of token fields or an attempts array. Invalid JSON, primitives, and unrelated objects increment `coverage.malformed` and do not count as requests. Valid records with absent or invalid optional values remain counted; those values contribute zero and per-field coverage shows how many records supplied data. Empty files produce zero totals, while `coverage.historyComplete` is null and `coverage.droppedRecords` is null: a file alone cannot establish whether its history is complete or how many records the writer could not persist. Readable output labels completeness as unknown and the dropped-record total as unavailable. A valid final line without a newline is included and `partialFinalLine` marks the missing newline. The report never emits record contents, paths, session IDs, or credentials; it reports only an approximate count of distinct nonempty session IDs.
 
 Request token reduction uses records with at least one valid recorded attempt and valid `tokens_in`/`tokens_out`, excluding shadow requests and requests rejected locally (client errors with an explicit empty attempts array). It reports `(eligible input − eligible last-attempt forwarded) / eligible input`; a zero denominator is `null` in JSON and `n/a` in text. This is request size reduction, not a billing estimate. Shadow estimates are reported separately. `attemptedRaw` sums `attempts[].raw` for recorded attempts, including recorded recovery retries. Retry count is recorded attempts beyond the first. Missing attempts or an array containing non-object entries have unknown retry/local-reject classification and do not contribute to these measures; field coverage exposes that absence. The upstream transport's internal transparent socket retry is not persisted in each stats record and is not included here. Failures count client status 400 or above, incomplete upstream streams, or a final recorded attempt with a present non-`ok` kind. HTTP status counts include only numeric attempt statuses from 100 through 599.
 
@@ -22,3 +36,47 @@ Request token reduction uses records with at least one valid recorded attempt an
 kitzur report stats.jsonl
 kitzur report stats.jsonl --json
 ```
+
+Reports read bytes incrementally with a 1 MiB limit per JSONL record (excluding LF;
+CR in CRLF counts toward the limit). Larger records are discarded through the
+next LF, counted in both `coverage.oversized` and `coverage.malformed`, and cause
+exit 1. Parsing resumes with the next record, including after a huge unterminated
+record at EOF. `partialFinalLine` still describes the original final line.
+Totals cover accepted records only; discarded or absent data is unknown, not
+measured zero. Reports cannot infer records dropped by the stats writer or
+outside the supplied file.
+
+Session tracking retains at most 10,000 SHA-256 digests, never raw identifiers.
+`sessionCoverage.approximate` is true: `uniqueSessions` is approximate because hashes can collide. Once another unseen
+digest arrives at the cap, `sessionCoverage.lowerBound` becomes true and the text
+says “at least”; additional sessions are not tracked. `sessionCoverage.limit`
+exposes the cap, and `sessionCoverage.missing` counts accepted records without a
+nonempty session ID. A zero count with missing IDs is not evidence of zero sessions.
+The byte-stream API `reportStream` and string convenience API `report` use the
+same limits; the CLI uses streaming and never loads the entire file.
+
+## Sharing a reproducible report
+
+`kitzur redact <request.json|dir>... [--out DIR|-]` copies captured chat-completions request bodies with every
+free-text string replaced by filler of the same length and UTF-8 size, with newlines in the same places (so the encoded
+body keeps its size in bytes): message content, system prompts, tool results, tool-call argument values and tool
+descriptions. Roles, message order, tool-call ids and their pairing, tool and function names (other `name` values,
+such as one on a user message, are redacted), object keys (including tool schemas and argument keys), `type` values, the model
+name, numbers and booleans are kept, so `kitzur replay` on the copy makes the same compact or pass-through decision
+at the same window. The filler depends only on each string's length, line breaks and character widths, never on its
+text; identical lengths give identical filler.
+
+By default each input `name.json` (or `.jsonl`) is written next to it as `name.redacted.json`; `--out DIR` writes
+files named like the inputs into DIR (two inputs with the same file name are rejected), and `--out -` prints one redacted body per line. A directory input skips files
+that are already redacted. A file that is not a request body is rejected before anything is written; captured headers
+(a file with `Authorization`, `Cookie` or an API-key header) are rejected with a message, because they can hold
+credentials. The command prints file names and counts only, never message content. Review the copy before sharing:
+values under kept keys (ids, `type` values, tool names) are not redacted.
+
+```sh
+kitzur redact capture/request.json
+kitzur redact capture/ --out shared/
+kitzur replay --preset 32k shared/
+```
+
+For optional external viewing of legacy stats, see [Gobstopper interop](https://github.com/lemun/kitzur/blob/main/docs/GOBSTOPPER-INTEROP.md), including estimate semantics and an isolated synthetic import example.

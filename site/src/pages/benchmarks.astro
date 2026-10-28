@@ -1,0 +1,117 @@
+---
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro';
+
+// Figures and limits come from the repo README, bench/README.md and bench/coding/README.md; keep them in step.
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const blob = 'https://github.com/lemun/kitzur/blob/main/';
+---
+
+<StarlightPage
+	frontmatter={{
+		title: 'Benchmarks',
+		description:
+			'What Kitzur has been measured against so far: a scripted demo, simulated sessions, offline replay and a coding harness. Live-model validation is pending.',
+	}}
+>
+	<aside class="kz-status">
+		<p>
+			<strong>Status: pending live validation.</strong> Nothing on this page comes from a live model
+			solving a task. These checks show how Kitzur compacts. They do not show task success rates.
+		</p>
+	</aside>
+
+	<h2 id="kinds">Four kinds of evidence</h2>
+	<table>
+		<thead>
+			<tr><th>Evidence</th><th>Runs against</th><th>Checks</th><th>Does not show</th></tr>
+		</thead>
+		<tbody>
+			<tr>
+				<td>Demo recording</td>
+				<td>A scripted agent and a stub upstream, not a model</td>
+				<td>The passthrough, compact and reuse actions in response headers, and what <code>kitzur status</code> reports</td>
+				<td>Anything about model output</td>
+			</tr>
+			<tr>
+				<td>Simulated sessions</td>
+				<td>Scripted clients and a mock server that counts rendered prompts and returns scripted completions</td>
+				<td>Whether requests fit, prompt tokens processed, planted-fact markers, and tool call/result pairing</td>
+				<td>Comprehension, inference speed, billing savings or task quality</td>
+			</tr>
+			<tr>
+				<td>Replay (<code>kitzur replay</code>)</td>
+				<td>Your captured request bodies, run through the engine offline</td>
+				<td>Request sizes before and after, and whether a fresh engine produces the same result as a live one</td>
+				<td>Responses: no upstream call is made</td>
+			</tr>
+			<tr>
+				<td>Coding harness</td>
+				<td>One minimal tool agent, run directly and through Kitzur against the same endpoint</td>
+				<td>Hidden acceptance tests on the code it writes, with corrections and tool-output pressure</td>
+				<td>Real-model results yet: it has only run in mock mode, which tests the harness itself</td>
+			</tr>
+		</tbody>
+	</table>
+
+	<h2 id="simulated-session">A 46-step simulated session</h2>
+	<p>
+		The <code>qa46-ref</code> scenario is a synthetic browser-automation session with a 100,000-token
+		window and 32,000 tokens reserved for output, measured October 2, 2026 with the Qwen3.6-27B
+		tokenizer. The direct client has no compaction; the OpenCode arm is an offline simulation of its
+		compaction mechanics with placeholder summaries.
+	</p>
+	<table>
+		<thead>
+			<tr><th>System</th><th>Steps completed</th><th>Prompt tokens, all attempts</th><th>Planted facts retained</th></tr>
+		</thead>
+		<tbody>
+			<tr><td>Direct client, no compaction</td><td>10/46</td><td>429,881 (partial session)</td><td>Not comparable</td></tr>
+			<tr><td>OpenCode compaction mechanics, offline simulation</td><td>46/46</td><td>2,492,849</td><td>Not evaluated</td></tr>
+			<tr><td>Kitzur, default 100k preset</td><td>46/46</td><td>1,710,787</td><td>7/7</td></tr>
+		</tbody>
+	</table>
+	<p>
+		The direct request at step 11 needs 74,445 prompt tokens. With the output reservation the server
+		allows 68,000, so it is rejected. Through Kitzur that step is 28,251 tokens and accepted. Of the two
+		completed sessions, Kitzur processed 31.4% fewer prompt tokens. Totals include rejected attempts
+		and simulated summary requests. The direct total covers a partial session, so it is not a savings
+		baseline.
+	</p>
+	<p>
+		<a href={`${blob}bench/examples/readme-qa46.json`}>Recorded measurements</a> ·
+		<a href={`${base}/docs/benchmarks/#readme-demonstration`}>Reproduce this run</a>
+	</p>
+
+	<h2 id="limits">Limits</h2>
+	<ul>
+		<li>Every session here is synthetic and scripted. None is a recording of a real user.</li>
+		<li>Fact checks look for planted markers, current values and superseded values. A marker can be present without a model understanding it.</li>
+		<li>The OpenCode comparison simulates its mechanics. No LLM writes those summaries, so their quality is not measured.</li>
+		<li>Summaries are mechanical and limited by the budget. Under pressure, facts and user text can be shortened.</li>
+		<li>
+			Historical Gobstopper figures predate scenario sanitation. Do not mix them with the current
+			figures; see <a href={`${base}/compare/`}>compare</a>.
+		</li>
+		<li>A better prefix hit ratio alone does not mean less work. At 32k, an earlier Kitzur run had worse prefix reuse than the OpenCode comparator.</li>
+	</ul>
+
+	<h2 id="pending">Pending live validation</h2>
+	<p>
+		The coding harness is ready for live runs against a Chat Completions endpoint with a real context
+		limit, but none has run yet: they are waiting for model capacity. Those runs will compare paired
+		task outcomes, direct and through Kitzur. They will report usage the server returns and mark it
+		unknown when the server omits it. Until then, no claim on this site covers real-model task quality.
+	</p>
+	<p>
+		<a href={`${base}/docs/benchmarks/`}>Benchmark methodology</a> ·
+		<a href={`${blob}bench/coding/README.md`}>Coding task evaluation</a>
+	</p>
+</StarlightPage>
+
+<style>
+	.kz-status {
+		border: 1px solid var(--sl-color-accent);
+		border-radius: var(--kz-radius);
+		padding: 0.75rem 1.25rem;
+	}
+</style>

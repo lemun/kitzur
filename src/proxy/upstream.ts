@@ -129,6 +129,7 @@ export interface UpstreamStats {
 
 export interface ProbeResult {
   discovered_window?: Record<string, number>;
+  discovered_limits?: Record<string, ModelLimits>;
   ok: boolean;
   status?: number;
   /** a TLS verification failure: startup must exit non-zero */
@@ -142,8 +143,9 @@ const contextLength = (v: unknown): number | undefined =>
   typeof v === 'number' && Number.isSafeInteger(v) && v > 0 ? v : undefined;
 
 /** Only documented metadata fields are trusted; arbitrary nested numbers are ignored. */
-function modelWindows(value: unknown): { windows: Record<string, number>; ids: string[]; vllm: boolean } {
-  const windows: Record<string, number> = Object.create(null) as Record<string, number>;
+export interface ModelLimits { window?: number; maxPrompt?: number; maxOutput?: number }
+function modelLimits(value: unknown): { limits: Record<string, ModelLimits>; ids: string[]; vllm: boolean } {
+  const limits: Record<string, ModelLimits> = Object.create(null) as Record<string, ModelLimits>;
   const data = object(value)['data'];
   const ids: string[] = [];
   let vllm = false;
@@ -156,9 +158,14 @@ function modelWindows(value: unknown): { windows: Record<string, number>; ids: s
     const served = contextLength(row['max_model_len']);
     if (served !== undefined) vllm = true;
     const window = served ?? contextLength(row['n_ctx']) ?? contextLength(meta['n_ctx']) ?? contextLength(meta['n_ctx_train']);
-    if (window !== undefined) windows[id] = window;
+    const maxPrompt = contextLength(row['max_input_tokens']) ?? contextLength(row['max_prompt_tokens']);
+    const top = object(row['top_provider']);
+    const maxOutput = contextLength(row['max_output_tokens']) ?? contextLength(row['max_completion_tokens']) ?? contextLength(top['max_completion_tokens']);
+    if (window !== undefined || maxPrompt !== undefined || maxOutput !== undefined) limits[id] = {
+      ...(window === undefined ? {} : { window }), ...(maxPrompt === undefined ? {} : { maxPrompt }), ...(maxOutput === undefined ? {} : { maxOutput }),
+    };
   }
-  return { windows, ids, vllm };
+  return { limits, ids, vllm };
 }
 
 export class Upstream {
@@ -312,7 +319,7 @@ export class Upstream {
         if (!complete || body.length > 1024 * 1024 || response.status < 200 || response.status >= 300) return null;
         try { return JSON.parse(body.toString('utf8')) as unknown; } catch { return null; }
       };
-      const found = modelWindows(await readJson(res));
+      const found = modelLimits(await readJson(res));
       // llama.cpp's active context may be smaller than its training context. /props reports
       // the per-slot default; do not divide it by total_slots or apply it across several models.
       if (res.status >= 200 && res.status < 300 && !found.vllm) {
@@ -321,10 +328,12 @@ export class Upstream {
           const props = object(await readJson(propsRes));
           const window = contextLength(object(props['default_generation_settings'])['n_ctx']) ?? contextLength(props['n_ctx']);
           const id = found.ids.length === 1 ? found.ids[0] : found.ids.length === 0 && typeof props['model_path'] === 'string' ? props['model_path'] : undefined;
-          if (id && window !== undefined) found.windows[id] = window;
+          if (id && window !== undefined) found.limits[id] = { ...found.limits[id], window };
         } catch { /* Optional metadata is unavailable on many OpenAI-compatible servers. */ }
       }
-      if (Object.keys(found.windows).length) result.discovered_window = { ...found.windows };
+      if (Object.keys(found.limits).length) result.discovered_limits = found.limits;
+      const windows = Object.fromEntries(Object.entries(found.limits).flatMap(([id, l]) => l.window ? [[id, l.window]] : []));
+      if (Object.keys(windows).length) result.discovered_window = windows;
       return result;
     } catch (e) {
       const u = classifyNetError(e);
@@ -357,5 +366,48 @@ export function readBody(stream: NodeJS.ReadableStream, max = 16 * 1024 * 1024):
     stream.on('end', () => finish(true));
     stream.on('error', () => finish(false));
     stream.on('close', () => finish(false));
+  });
+}
+
+export interface ErrorBodyRead {
+  body: Buffer;
+  complete: boolean;
+  reason?: 'timeout' | 'size' | 'closed';
+}
+
+/** Absolute deadline from headers (the caller starts immediately); never refreshed by data. */
+export function readErrorBody(stream: IncomingMessage | import('node:stream').Readable, timeoutMs = 5000, max = 1024 * 1024): Promise<ErrorBodyRead> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let done = false;
+    const finish = (complete: boolean, reason?: ErrorBodyRead['reason']): void => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      stream.off('data', onData);
+      stream.off('end', onEnd);
+      stream.off('error', onError);
+      stream.off('close', onClose);
+      // destroy without an error: no deferred unhandled error after listener cleanup.
+      if (!complete) stream.destroy();
+      resolve({ body: Buffer.concat(chunks, size), complete, ...(reason ? { reason } : {}) });
+    };
+    const onData = (data: Buffer): void => {
+      const take = Math.min(data.length, max - size);
+      // Copy the prefix so a huge incoming chunk cannot remain retained by a small slice.
+      if (take) chunks.push(Buffer.from(data.subarray(0, take)));
+      size += take;
+      if (data.length > take) finish(false, 'size');
+    };
+    const onEnd = (): void => finish(true);
+    const onError = (): void => finish(false, 'closed');
+    const onClose = (): void => finish(false, 'closed');
+    const timer = setTimeout(() => finish(false, 'timeout'), timeoutMs);
+    stream.on('data', onData);
+    stream.once('end', onEnd);
+    stream.once('error', onError);
+    stream.once('close', onClose);
+    if (stream.destroyed) finish(false, 'closed');
   });
 }

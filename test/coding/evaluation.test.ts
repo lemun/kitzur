@@ -3,14 +3,17 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { evaluate, grade, type EvalOptions } from '../../bench/coding/runner.js';
+import { evaluate, grade, type EvalOptions, type Run } from '../../bench/coding/runner.js';
+import { summarize, summaryText, wilson } from '../../bench/coding/summary.js';
 import { TASKS } from '../../bench/coding/tasks.js';
 const options: EvalOptions = { mock: true, model: 'deterministic-mock', repeats: 2, maxTurns: 8, timeoutMs: 15000, outputTokens: 256, window: 16000, pressureChars: 4000 };
 test('mock matched runs edit real files and executable grading rejects wrong solutions', async () => {
     const result = await evaluate(options);
     assert.equal(result.liveValidation, 'pending');
     assert.equal(result.clientCompactionPolicy, 'none');
-    assert.equal(result.runs.length, 12);
+    assert.equal(TASKS.length, 7);
+    assert.equal(result.runs.length, 28);
+    assert.deepEqual(new Set(result.runs.map(r => r.task)), new Set(TASKS.map(t => t.id)));
     for (const run of result.runs) {
         assert.equal(run.outcome, 'pass');
         assert.equal(run.checksPassed, run.checksTotal);
@@ -21,6 +24,25 @@ test('mock matched runs edit real files and executable grading rejects wrong sol
     assert.equal(new Set(result.runs.filter(r => r.task === TASKS[0]!.id).map(r => r.workspaceHash)).size, 1);
     const wrong = await evaluate({ ...options, repeats: 1, mockWrong: true });
     assert.ok(wrong.runs.every(r => r.outcome === 'fail' && r.checksPassed < r.checksTotal));
+    const summary = summarize(result.runs);
+    assert.deepEqual(summary.overall.direct, { runs: 14, passes: 14, incompletes: 0, passRate: 1, ci95: wilson(14, 14) });
+    assert.equal(summary.tasks.length, 7);
+    assert.ok(summary.tasks.every(t => t.direct.runs === 2 && t.kitzur.passes === 2 && t.verdict === 'inconclusive'));
+    assert.match(summaryText(summary), /first-turn-rule verdict: inconclusive/);
+});
+test('Wilson 95% intervals match known values; verdict needs non-overlapping intervals', () => {
+    const close = (actual: [number, number], expected: [number, number]) => actual.forEach((x, i) => assert.ok(Math.abs(x - expected[i]!) < 1e-4, `${actual} vs ${expected}`));
+    close(wilson(0, 10), [0, 0.2775]);
+    close(wilson(10, 10), [0.7225, 1]);
+    close(wilson(5, 10), [0.2366, 0.7634]);
+    assert.deepEqual(wilson(0, 0), [0, 1]);
+    const run = (arm: 'direct' | 'kitzur', outcome: 'pass' | 'fail' | 'incomplete') => ({ task: 't', arm, outcome }) as Run;
+    const split = summarize([...Array(10)].flatMap(() => [run('direct', 'fail'), run('kitzur', 'pass')]));
+    assert.equal(split.overall.verdict, 'kitzur higher (intervals do not overlap)');
+    const mixed = summarize([run('direct', 'pass'), run('direct', 'incomplete'), run('kitzur', 'fail')]);
+    assert.equal(mixed.overall.direct.incompletes, 1);
+    assert.equal(mixed.overall.verdict, 'inconclusive');
+    assert.equal(summarize([]).overall.direct.passRate, null);
 });
 test('missing usage remains unknown; pressure overflow is distinct from completion', async () => {
     const unknown = await evaluate({ ...options, repeats: 1, mockMissingUsage: true }, [TASKS[0]!]);

@@ -17,8 +17,10 @@
 //   src/proxy/stats.js         StatsWriter(stats.path)
 //   src/proxy/server.js        createProxyServer(config, { engine, counter, remote, state, stats, log })
 import { RuntimeLog, LoopWatchdog } from './diagnostics/runtime.js';
-import { chmodSync, mkdirSync } from 'node:fs';
+import { formatPaths } from './proxy/status.js';
+import { chmodSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import type { Config } from './config/schema.js';
 import { stateDirOf, packageInfo } from './config/paths.js';
 import { counterFromConfig, type Counter } from './tokenize/counter.js';
@@ -28,8 +30,10 @@ import type { Engine, PlanStore } from './types.js';
 import type { Summarizer, ToolRules } from './engine/contracts.js';
 import type { EngineDeps } from './engine/engine.js';
 import type { ProxyDeps, ProxyServer } from './proxy/server.js';
-import type { StateStore } from './proxy/state.js';
+import type { StateStore, StateStoreOptions } from './proxy/state.js';
 import type { StatsWriter } from './proxy/stats.js';
+import { ModelRuntimeMap, type ModelRuntime } from './proxy/model-runtime.js';
+import type { ModelProfiles } from './config/schema.js';
 
 // ---------------------------------------------------------------- logging
 
@@ -122,7 +126,7 @@ export async function loadModules(need: { proxy: boolean }): Promise<AppModules>
   let createStats: AppModules['createStats'] = missing('src/proxy/stats.ts');
   let createProxyServer: AppModules['createProxyServer'] = missing('src/proxy/server.ts');
   if (need.proxy) {
-    const StateStoreCtor = await importExport<new (o: { dir: string | null; configuredWindow: number; counterId: string }) => StateStore>('./proxy/state.js', 'StateStore');
+    const StateStoreCtor = await importExport<new (o: StateStoreOptions) => StateStore>('./proxy/state.js', 'StateStore');
     const StatsWriterCtor = await importExport<new (path: string | null) => StatsWriter>('./proxy/stats.js', 'StatsWriter');
     createProxyServer = await importExport<AppModules['createProxyServer']>('./proxy/server.js', 'createProxyServer');
     createState = (config, stateDir, counterId) => new StateStoreCtor({ dir: stateDir, configuredWindow: config.budget.window, counterId });
@@ -139,18 +143,21 @@ export interface CounterSetup {
   tokenizer: LoadedTokenizer | null;
   /** why the counter is an estimate, when it is (null in exact mode) */
   estimateReason: string | null;
+  sourceBytes?: number;
 }
 
 /**
  * The engine counter the config describes (DESIGN §4 counter modes, ): exact when tokenizer.path
  * loads (through the compiled cache in the state dir), else the per-class estimate with the reason.
  */
-export function setupCounter(config: Config, opts: { stateDir?: string | null; log?: Logger } = {}): CounterSetup {
+export function setupCounter(config: Config, opts: { stateDir?: string | null; log?: Logger; tokenizer?: LoadedTokenizer | null; sourceBytes?: number; estimateReason?: string | null } = {}): CounterSetup {
   const t = config.tokenizer;
   let tokenizer: LoadedTokenizer | null = null;
   let estimateReason: string | null = null;
   if (t.mode === 'estimate') estimateReason = "tokenizer.mode is 'estimate'";
   else if (!t.path) estimateReason = 'tokenizer.path is not set';
+  else if (opts.estimateReason) estimateReason = opts.estimateReason;
+  else if (opts.tokenizer) { tokenizer = opts.tokenizer; }
   else {
     try {
       tokenizer = loadTokenizerCached(t.path, t.cachePath, { stateDir: opts.stateDir ?? null });
@@ -163,7 +170,33 @@ export function setupCounter(config: Config, opts: { stateDir?: string | null; l
   if (config.upstream.insecureTls) opts.log?.warn('upstream.insecureTls is ON: TLS certificates of the gateway are NOT verified');
   // never pass the remote client here: the engine's counts are local and synchronous (§4)
   const counter = counterFromConfig(config, { tokenizer });
-  return { counter, tokenizer, estimateReason };
+  return { counter, tokenizer, estimateReason, sourceBytes: tokenizer ? opts.sourceBytes ?? 0 : 0 };
+}
+
+const MAX_TOKENIZER_SOURCE_BYTES = 64 * 1024 * 1024;
+
+export function eagerTokenizer(config: Config, root: Config, shared: Map<string, { tokenizer: LoadedTokenizer; sourceBytes: number }>, stateDir?: string | null): { tokenizer: LoadedTokenizer | null; sourceBytes: number; reason: string | null } {
+  const path = config.tokenizer.path;
+  if (config.tokenizer.mode === 'estimate') return { tokenizer: null, sourceBytes: 0, reason: "tokenizer.mode is 'estimate'" };
+  if (!path) return { tokenizer: null, sourceBytes: 0, reason: 'tokenizer.path is not set' };
+  let sourceBytes = 0;
+  try {
+    sourceBytes = statSync(path).size;
+    if (sourceBytes > MAX_TOKENIZER_SOURCE_BYTES) return { tokenizer: null, sourceBytes, reason: `tokenizer source is ${sourceBytes} bytes; limit is ${MAX_TOKENIZER_SOURCE_BYTES} bytes` };
+    const source = readFileSync(path);
+    const sha = createHash('sha256').update(source).digest('hex');
+    const cached = shared.get(sha);
+    if (cached) return { ...cached, reason: null };
+    // A model-specific path must not reuse the root's explicit cache file.
+    const overriddenPath = config !== root && config.tokenizer.path !== root.tokenizer.path;
+    const cachePath = overriddenPath && config.tokenizer.cachePath === root.tokenizer.cachePath ? null : config.tokenizer.cachePath;
+    const tokenizer = loadTokenizerCached(path, cachePath, { stateDir: stateDir ?? null });
+    const loaded = { tokenizer, sourceBytes };
+    shared.set(sha, loaded);
+    return { ...loaded, reason: null };
+  } catch (error) {
+    return { tokenizer: null, sourceBytes, reason: `tokenizer ${path} failed to load: ${(error as Error).message}` };
+  }
 }
 
 // ---------------------------------------------------------------- engine
@@ -225,14 +258,24 @@ export interface App extends EngineSetup {
  */
 export async function buildApp(
   config: Config,
-  opts: { log?: Logger; modules?: AppModules; env?: Record<string, string | undefined> } = {},
+  opts: { log?: Logger; modules?: AppModules; env?: Record<string, string | undefined>; models?: ModelProfiles; configPath?: string | null } = {},
 ): Promise<App> {
   const runtimeLog = opts.log instanceof RuntimeLog ? opts.log : opts.log ? undefined : new RuntimeLog({ dir: join(stateDirOf(config, opts.env), 'logs'), file: config.log.file, console: config.log.console, level: config.logLevel });
   const log = opts.log ?? runtimeLog!;
   const watchdog = runtimeLog ? new LoopWatchdog(runtimeLog) : undefined;
   try {
     const modules = opts.modules ?? (await loadModules({ proxy: true }));
-    const es = await buildEngine(config, { log, modules, env: opts.env });
+    const tokenizerCache = new Map<string, { tokenizer: LoadedTokenizer; sourceBytes: number }>();
+    const rootTokenizer = eagerTokenizer(config, config, tokenizerCache, stateDirOf(config, opts.env));
+    const rootCounter = setupCounter(config, { stateDir: stateDirOf(config, opts.env), log, tokenizer: rootTokenizer.tokenizer, sourceBytes: rootTokenizer.sourceBytes, estimateReason: rootTokenizer.reason });
+    const es = await buildEngine(config, { log, modules, env: opts.env, counter: rootCounter });
+    const profileRuntimes = new Map<string, ModelRuntime>();
+    for (const [id, profile] of Object.entries(opts.models ?? {})) {
+      const loaded = eagerTokenizer(profile, config, tokenizerCache, es.stateDir);
+      const profileSetup = await buildEngine(profile, { log, modules, env: opts.env, counter: setupCounter(profile, { stateDir: es.stateDir, log, tokenizer: loaded.tokenizer, sourceBytes: loaded.sourceBytes, estimateReason: loaded.reason }) });
+      profileRuntimes.set(id, { cfg: profile, counter: profileSetup.counter, engine: profileSetup.engine, estimateReason: profileSetup.estimateReason, tokenizer: { sha256: profileSetup.tokenizer?.sha256 ?? null, sourceBytes: profileSetup.sourceBytes ?? 0, loadMs: profileSetup.tokenizer?.loadMs ?? 0 } });
+    }
+    const modelRuntimes = new ModelRuntimeMap({ cfg: config, counter: es.counter, engine: es.engine, estimateReason: es.estimateReason, tokenizer: { sha256: es.tokenizer?.sha256 ?? null, sourceBytes: es.sourceBytes ?? 0, loadMs: es.tokenizer?.loadMs ?? 0 } }, opts.models ?? {}, profileRuntimes);
     const remote = remoteFromConfig(config); // calibration source only (§4)
     const state = modules.createState(config, es.stateDir, es.counter.id);
     const stats = modules.createStats(config);
@@ -244,7 +287,11 @@ export async function buildApp(
       stats,
       log: (level, msg) => log[level](msg),
       watchdog,
+      modelRuntimes,
     });
+    const logPath = opts.log instanceof RuntimeLog ? opts.log.path : runtimeLog?.path ?? config.log.file;
+    if (server.status) server.status.paths = () => ({ config: opts.configPath ?? null, state_dir: es.stateDir, log_file: logPath });
+    log.info(formatPaths({ config: opts.configPath ?? null, state_dir: es.stateDir, log_file: logPath }));
     return {
       ...es,
       config,

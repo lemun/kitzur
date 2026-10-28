@@ -1,3 +1,5 @@
+import type { RetentionAttribution, RetentionSource } from './engine/contracts.js';
+
 /**
  * Shared contracts. Shared across the engine, proxy, configuration and benchmark modules.
  * See DESIGN.md for semantics.
@@ -117,6 +119,15 @@ export interface Rewrite {
 /** Bumped on any change of engine behaviour; part of the planning inputs (§5.3). */
 export const ENGINE_ALGO_VERSION = 'kitzur-engine/5';
 
+/** Final, content-free explanation; message outcomes and ledger-item outcomes are separate. */
+export type RetentionDecision = RetentionAttribution | {
+  category: 'message';
+  sources: RetentionSource[];
+  disposition: 'verbatim' | 'excerpted' | 'summarized' | 'dropped';
+  reason: 'head' | 'recent-tail' | 'summary-region' | 'no-retained-facts' | 'summary-unattributed' | Rewrite['kind'];
+};
+export type RetentionCounts = Record<RetentionDecision['disposition'], number>;
+
 export interface Plan {
   version: 2;
   /** ENGINE_ALGO_VERSION that produced it */
@@ -129,6 +140,10 @@ export interface Plan {
   cut: number;
   /** full text of the summary message; null iff cut == hEnd */
   summary: string | null;
+  /** Attribution of the final accepted summary, retained across memo reuse. */
+  summaryAttribution?: RetentionAttribution[];
+  /** Live original-message outcomes followed by individual ledger-item outcomes. */
+  retention?: RetentionDecision[];
   /** head replacements (indices < hEnd; only oversize.headPolicy 'truncate' of the first user message) */
   headRewrites: Record<number, Rewrite>;
   /** original index -> replacement, only for indices in [cut, n) */
@@ -191,6 +206,8 @@ export interface EngineStats {
   boundariesReplayed: number;
   cacheHits: number;
   engineMs: number;
+  /** Counts of message outcomes (ledger items are not double counted). */
+  retention?: RetentionCounts;
   guard?: string;
 }
 
@@ -267,6 +284,8 @@ export interface StatsRecord {
   usage?: { prompt_tokens?: number; completion_tokens?: number };
   usage_mismatch?: boolean;
   upstream_rejected_rewrite?: boolean;
+  /** Counts of message outcomes (ledger items are not double counted). */
+  retention?: RetentionCounts;
   guard?: string;
   engine_ms: number;
   total_ms: number;

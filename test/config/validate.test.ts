@@ -176,3 +176,10 @@ test('validate: upstream.headers without listen.token warns on loopback; a token
   assert.equal(tokenWarnings(exposed).length, 0);
   assert.ok(errorsOf(exposed).some((e) => /listen\.token is required/.test(e)));
 });
+
+test('model allowlist does not add models to the spec/default leaf parity contract', () => {
+  const l = loadConfig({ env: {}, object: { models: { a: { tokenizer: { mode: 'estimate' } } } } });
+  assert.deepEqual(leafPaths(l.config as unknown as Record<string, unknown>), [...DEFAULT_LEAVES]);
+  assert.equal(Object.hasOwn(LEAF_SPECS, 'models'), false);
+  assert.deepEqual(validateConfig(l.models['a']!).errors, []);
+});

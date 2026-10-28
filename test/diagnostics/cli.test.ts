@@ -18,6 +18,18 @@ test('doctor CLI reports missing and bad config as safe machine-readable errors'
   assert.equal(await main(['doctor','--timeout-ms','Infinity'],io),2);
   assert.equal(await main(['doctor','--upstream','http://127.0.0.1:1','--json'],io),0,'--upstream URL config option does not imply network probe');
 });
+test('doctor CLI forwards --model and limits profile checks to the exact model', async () => {
+  const dir=mkdtempSync(join(tmpdir(),'kitzur-doctor-model-cli-'));let output='';
+  const io:CliIO={stdout:s=>{output+=s;},stderr:()=>{},env:{},cwd:dir,onSignal:()=>{}};
+  writeFileSync(join(dir,'config.json'), JSON.stringify({ models: { alpha: { tokenizer: { mode: 'estimate' } }, beta: {} } }));
+  assert.equal(await main(['doctor','--config','config.json','--model','alpha','--json'],io),0);
+  const checks=JSON.parse(output).checks as Array<{code:string}>;
+  assert.ok(checks.some(c=>c.code==='model.alpha.budget'));
+  assert.ok(!checks.some(c=>c.code.startsWith('model.beta.')));
+  output='';
+  assert.equal(await main(['doctor','--config','config.json','--model','missing','--json'],io),0);
+  assert.ok((JSON.parse(output).checks as Array<{code:string}>).some(c=>c.code==='model.missing.profile'));
+});
 test('report CLI empty/malformed/unreadable exit codes and JSON shape',async()=>{
   const dir=mkdtempSync(join(tmpdir(),'kitzur-report-cli-'));let output='';
   const io:CliIO={stdout:s=>{output+=s;},stderr:()=>{},env:{},cwd:dir,onSignal:()=>{}};

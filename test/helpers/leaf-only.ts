@@ -5,7 +5,9 @@ import https from 'node:https';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-export const opensslAvailable = spawnSync('openssl', ['version']).status === 0;
+// spawnSync returns an error (and a null status) when OpenSSL is unavailable.
+const opensslVersion = spawnSync('openssl', ['version']);
+export const opensslAvailable = opensslVersion.error === undefined && opensslVersion.status === 0;
 
 /** A trusted root with an omitted intermediate: verification must still fail. */
 export async function withLeafOnlyServer(fn: (origin: string, caFile: string) => Promise<void>): Promise<void> {

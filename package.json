@@ -17,6 +17,7 @@
     "DESIGN.md",
     "SECURITY.md",
     "docs/DIAGNOSTICS.md",
+    "docs/TROUBLESHOOTING.md",
     "THIRD_PARTY_NOTICES.md",
     "LICENSE",
     "LICENSES",
@@ -36,7 +37,9 @@
     "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "test": "npm run build && node scripts/run-tests.mjs --test-reporter=dot",
     "bench": "npm run build && node dist/bench/run-all.js",
-    "crosscheck": "npm run build && node dist/bench/crosscheck.js"
+    "crosscheck": "npm run build && node dist/bench/crosscheck.js",
+    "check:pack": "npm run build && node scripts/check-pack.mjs",
+    "sbom": "npm run build && node scripts/sbom.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
