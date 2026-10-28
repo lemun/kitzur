@@ -1,4 +1,4 @@
-// The summary message (DESIGN.md): one `user` message right after the head, stable parts first ():
+// The summary message (DESIGN.md): one `user` message right after the head, stable parts first:
 //
 //   SUMMARY_HEADER
 //
@@ -8,7 +8,7 @@
 //
 //   [kitzur] Messages a–b were compacted (compaction k).
 //
-// Eviction (§6.4, ADR-9): every user fact is always rendered (at the current shortening step); then the longest
+// Eviction: every user fact is always rendered (at the current shortening step); then the longest
 // prefix of the one strict total order (ledger/index.ts compareItems) that fits `budgetTokens`, counted exactly as
 // the summary message inside the prompt. Without allowFloorEviction the floor (decision, todo, file, rest,
 // narrative tier 1) is always rendered in full. Items inside a section render in first-appearance order.

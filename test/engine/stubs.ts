@@ -38,7 +38,7 @@ export function testConfig(over?: DeepPartial<Config>): Config {
   return merge(structuredClone(DEFAULT_CONFIG), over);
 }
 
-/** The preset windows of DESIGN §3 (W, T_plan). */
+/** The preset windows (W, T_plan). */
 export const PRESETS: Record<string, { window: number; out: number }> = {
   '32k': { window: 32_000, out: 8_000 },
   '64k': { window: 64_000, out: 16_000 },

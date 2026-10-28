@@ -1,6 +1,6 @@
 // The engine with benchmark component's real summarizer (src/engine/summary.ts createSummarizer) and tool rules
 // (src/engine/rules/index.ts createToolRules), loaded dynamically: skipped while they are not built.
-// Random chains through every §1 check, and the summary shape and fact survival on the reference.
+// Random chains through every invariant check, and the summary shape and fact survival on the reference.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Config } from '../../src/config/schema.js';
@@ -25,7 +25,7 @@ const skip = parts ? false : 'real summarizer/rules not built yet';
 const N = Number(process.env['KITZUR_ENGINE_FUZZ_REAL'] ?? 15);
 
 const SEED = Number(process.env['KITZUR_ENGINE_SEED_REAL'] ?? 30_000);
-test(`real summarizer and rules: random chains through I1–I6, , caps, restart (${N} chains)`, { skip }, (t) => {
+test(`real summarizer and rules: random chains through the invariants, caps, restart (${N} chains)`, { skip }, (t) => {
   const cov = newCoverage();
   for (let i = 0; i < N; i++) checkChain(genChain(SEED + i, { exact: devTokenizer() !== null }), cov, { parts: parts! });
   t.diagnostic(`coverage ${JSON.stringify(cov)}`);

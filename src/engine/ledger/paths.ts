@@ -1,6 +1,6 @@
-// Paths referenced inside tool outputs (DESIGN.md, ).
+// Paths referenced inside tool outputs (DESIGN.md).
 //
-// The candidate is the §6.2 pattern `(?:[\w.@-]+/)+[\w.@-]+\.[A-Za-z0-9]{1,8}`, extended with an optional
+// The candidate is the pattern `(?:[\w.@-]+/)+[\w.@-]+\.[A-Za-z0-9]{1,8}`, extended with an optional
 // leading `/`, `./`, `../` or `~/` so absolute paths keep their root, and required to end at a token boundary.
 // A match that directly follows `:` or `/` is part of a URL (https://host/app.js) and is skipped.
 //
@@ -14,7 +14,7 @@ const RUN_RE = /[\w.@/~-]+/g;
 /** A run longer than this is not a path worth listing (and scanning it costs O(length²)). */
 export const MAX_RUN_CHARS = 512;
 /**
- * A line "starts with a path" (): optional list/tree glyphs, then a path with at least one `/`; the same lines as
+ * A line "starts with a path": optional list/tree glyphs, then a path with at least one `/`; the same lines as
  * `/^[\s│├└─┬┼|`*•+>-]*(?:~\/|\.{1,2}\/|\/)?(?:[\w.@-]+\/)+/`. That regex backtracks quadratically on a long
  * run of `-` (the glyph class and the path class share it): a 40,000-dash line in a tool output took 5 s. Here the
  * glyph run is skipped once; a `-` that ends it may also start the path's first segment.

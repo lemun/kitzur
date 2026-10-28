@@ -1,6 +1,6 @@
-// Property tests of DESIGN §1 over random chains (gen.ts), with the stub summarizer and rules:
-// I1–I6,  (fresh engine on H[0..b) at every boundary), store caps 1–4, restart equivalence with
-// and without the JSONL store (chain-check.ts), interleaved sessions, and I7 under fault injection.
+// Property tests of the engine invariants over random chains (gen.ts), with the stub summarizer and rules:
+// the invariant checks, a fresh engine on H[0..b) at every boundary, store caps 1–4, restart equivalence with
+// and without the JSONL store (chain-check.ts), interleaved sessions, and the fallback rule under fault injection.
 // KITZUR_ENGINE_FUZZ=<chains> scales the run (default 40); KITZUR_ENGINE_SEED moves the seed base.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,10 +13,10 @@ const N = Number(process.env['KITZUR_ENGINE_FUZZ'] ?? 40);
 const BASE_SEED = Number(process.env['KITZUR_ENGINE_SEED'] ?? 1000);
 const hasTok = devTokenizer() !== null;
 
-test(`random chains: I1–I6, , store caps, restart (${N} chains, seed ${BASE_SEED})`, (t) => {
+test(`random chains: invariants, store caps, restart (${N} chains, seed ${BASE_SEED})`, (t) => {
   const cov = newCoverage();
   for (let i = 0; i < N; i++) checkChain(genChain(BASE_SEED + i, { exact: hasTok }), cov);
-  // coverage minimums (), scaled to this suite
+  // coverage minimums, scaled to this suite
   const pct = (x: number): number => (100 * x) / cov.chains;
   const report = JSON.stringify(cov);
   t.diagnostic(`coverage ${report}`);
@@ -25,13 +25,13 @@ test(`random chains: I1–I6, , store caps, restart (${N} chains, seed ${BASE_SE
   assert.ok(pct(cov.oversize) >= 5, `oversize coverage ${report}`);
   assert.ok(pct(cov.slim) >= 2, `slim coverage ${report}`);
   if (N >= 40) {
-    assert.ok(cov.impossible + cov.truncate >= 1, `§5.7 coverage ${report}`);
+    assert.ok(cov.impossible + cov.truncate >= 1, `over-budget coverage ${report}`);
     // These seeds reach clamp only with exact counts. The deterministic clamp test
     // in engine.test.ts exercises that path with the estimator.
     if (hasTok) assert.ok(cov.clamp >= 1, `clamp coverage ${report}`);
     else t.diagnostic('Estimate mode: clamp coverage is checked by the deterministic engine test.');
   }
-  assert.ok(cov.i6pairs >= cov.requests / 10, `I6 pairs ${report}`);
+  assert.ok(cov.i6pairs >= cov.requests / 10, `prefix pairs ${report}`);
 });
 
 test('interleaved sessions on one engine == each session alone (determinism)', () => {
@@ -57,7 +57,7 @@ test('interleaved sessions on one engine == each session alone (determinism)', (
   }
 });
 
-test('I7 under fault injection: the original only on attempt 1 and only when it fits ()', () => {
+test('fallback under fault injection: the original only on attempt 1 and only when it fits', () => {
   let fallbacks = 0;
   let rejects = 0;
   for (let i = 0; i < 40; i++) {
@@ -79,8 +79,8 @@ test('I7 under fault injection: the original only on attempt 1 and only when it 
           assert.equal(r1.request, null);
         }
       }
-      // a retry never FALLS BACK to the original (); whether an unchanged plan may be resent is the
-      // recovery ladder's strictly-smaller rule (§8, ), not the engine's
+      // a retry never FALLS BACK to the original; whether an unchanged plan may be resent is the
+      // recovery ladder's strictly-smaller rule, not the engine's
       const r2 = e.process(req, { ...optsFor(c, k, counter), attempt: 2 });
       assert.notEqual(r2.action, 'guard_fallback', `attempt 2 fell back (seed ${c.seed} request ${k})`);
       if (r2.reason === 'engine:fault') assert.equal(r2.request, null);

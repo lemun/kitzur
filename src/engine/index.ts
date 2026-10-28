@@ -1,5 +1,5 @@
-// The engine's public surface (DESIGN.md, §5): LeanEngine/createEngine, the plan store and its JSONL
-// persistence, and the budget and error-body helpers the proxy shares with the engine (§3, §5.7, §8).
+// The engine's public surface (DESIGN.md): LeanEngine/createEngine, the plan store and its JSONL
+// persistence, and the budget and error-body helpers the proxy shares with the engine.
 export { LeanEngine, createEngine, type EngineDeps, type EngineOptions, type EngineTrace } from './engine.js';
 export { MemoryPlanStore, type PlanPersistence, type MemoryStoreOptions, type StoreStats } from './store.js';
 export { createFilePersistence, type FilePersistence, type FilePersistenceOptions } from './store-file.js';

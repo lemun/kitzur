@@ -1,6 +1,6 @@
 // The guard (DESIGN.md): the last check on a rewritten request before it is forwarded. It is
 // independent of how the plan was made; any failure makes the engine fall back (guard_fallback /
-// guard_reject, ).
+// guard_reject).
 import type { Budget, ChatMessage } from '../types.js';
 import { serverFits } from './budget.js';
 import { newDefect, pairingDefects } from './pairing.js';
@@ -21,7 +21,7 @@ export interface GuardInput {
   budget: Budget;
   /** forwarded max tokens */
   maxTokens: number;
-  /** the clamp or §5.7 (a) decided: count(out) may exceed the budget, serverFits still applies */
+  /** the clamp or the head-truncation fallback decided: count(out) may exceed the budget, serverFits still applies */
   overBudgetAllowed: boolean;
 }
 
