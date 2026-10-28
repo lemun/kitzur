@@ -644,7 +644,7 @@ export function mapEvalResults(R: Record<string, J>, opts: MapOptions = {}): Imp
   const lcFinal = prov['budget.limitCountsMaxTokens']!;
   if (lcFinal.value === false && num(rcDist['max']) !== null) {
     const reserve = Math.min(defaultMaxTokens, Math.max(8192, Math.ceil(1.5 * num(rcDist['max'])!)));
-    put('budget.planMaxTokens', reserve, 'summarize_capture#/reported_completion_tokens/max', 'prompt-only limit: outputReserve = min(max_tokens, max(8192, 1.5 × max completion)) ()', 'derived');
+    put('budget.planMaxTokens', reserve, 'summarize_capture#/reported_completion_tokens/max', 'prompt-only limit: outputReserve = min(max_tokens, max(8192, 1.5 × max completion))', 'derived');
   }
   const tPlan = (prov['budget.planMaxTokens']?.value as number | undefined) ?? defaultMaxTokens;
   if (p99 !== null) {
@@ -732,7 +732,7 @@ export function mapEvalResults(R: Record<string, J>, opts: MapOptions = {}): Imp
 
   // ---- not in the pack
   const basePath = str(pcfg['base_path']);
-  note('upstream.basePath', basePath, 'probe_gateway#/config/base_path', 'not a knob: the client path is appended unchanged ()', basePath ? 'measured' : 'default');
+  note('upstream.basePath', basePath, 'probe_gateway#/config/base_path', 'not a knob: the client path is appended unchanged', basePath ? 'measured' : 'default');
   const port = opts.port ?? DEFAULT_CONFIG.listen.port;
   const clientBaseUrl = basePath !== null ? `http://127.0.0.1:${port}${basePath}` : null;
   const todos = [

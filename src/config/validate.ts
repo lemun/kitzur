@@ -282,19 +282,19 @@ export function validateConfig(cfg: Config, opts: ValidateOptions = {}): Validat
     );
   }
   if (c.triggerTokens !== null && b.hard > 0 && c.triggerTokens > b.hard) {
-    warnings.push(`compaction.triggerTokens ${c.triggerTokens} is above hard ${b.hard}; it is clamped to ${b.hard} ()`);
+    warnings.push(`compaction.triggerTokens ${c.triggerTokens} is above hard ${b.hard}; it is clamped to ${b.hard}`);
   }
   if (c.targetTokens !== null && b.trigger > 0 && c.targetTokens >= b.trigger) {
-    warnings.push(`compaction.targetTokens ${c.targetTokens} is not below trigger ${b.trigger}; it is clamped to ${b.trigger - 1} ()`);
+    warnings.push(`compaction.targetTokens ${c.targetTokens} is not below trigger ${b.trigger}; it is clamped to ${b.trigger - 1}`);
   }
 
   // ---- startup warnings
   if (cfg.budget.maxTokensClamp.enabled && b.budget > 0) {
     const r = clampRange(cfg, b);
-    if (!r.reachable) warnings.push(`clamp enabled but unreachable: ${r.reason} (; it needs a client point above budget + allowance, see CONFIG.md "Client setup")`);
+    if (!r.reachable) warnings.push(`clamp enabled but unreachable: ${r.reason}; it needs a client point above budget + allowance (see CONFIG.md "Client setup")`);
   }
   if (cfg.client.outputLimit !== null && tPlan < cfg.client.outputLimit) {
-    warnings.push(`T_plan ${tPlan} (budget.planMaxTokens ?? defaultMaxTokens) is below the client's output limit ${cfg.client.outputLimit}: long replies get max_tokens fitted down ()`);
+    warnings.push(`T_plan ${tPlan} (budget.planMaxTokens ?? defaultMaxTokens) is below the client's output limit ${cfg.client.outputLimit}: long replies get max_tokens fitted down`);
   }
   const head = cfg.budget.observedFixedPromptTokens;
   if (head !== null && b.budget > 0) {
@@ -303,7 +303,7 @@ export function validateConfig(cfg: Config, opts: ValidateOptions = {}): Validat
     if (r.warn) {
       warnings.push(
         `at most one snapshot fits per compaction epoch: trigger ${b.trigger} − (head ${head} + summary ${b.summaryBudget}) = ${r.room} < snapshot ${snap}` +
-          `${cfg.rules.snapshot.p90Tokens === null ? ' (estimated from client.toolOutputMaxBytes)' : ''} ()`,
+          `${cfg.rules.snapshot.p90Tokens === null ? ' (estimated from client.toolOutputMaxBytes)' : ''}`,
       );
     }
     if (head >= b.headRoom) {

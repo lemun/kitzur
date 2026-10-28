@@ -36,6 +36,24 @@ function commentText(line: string): string {
   return c.replace(/`[^`]*`/g, '``');
 }
 
+/** Quoted and template string literals of a TypeScript line. */
+const STRING = /'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`/g;
+/** Leftovers of a removed reference in user-visible text: `()` after a space, or `(, x` / `(; x` / `(: x`. */
+const BROKEN_STRING = /(^|\s)\(\s*\)|\(\s*[,;:]/;
+/** Strings another test pins verbatim; drop an entry once that test is updated. */
+const PINNED_STRINGS = new Set(['min(T_plan, max(2000, p99 completion_tokens)) ()']);
+
+/** Whether a string literal in the code part of a TypeScript line holds broken parentheses. */
+function stringOffends(line: string): boolean {
+  const t = line.trim();
+  if (t.startsWith('//') || t.startsWith('*') || t.startsWith('/*')) return false;
+  const code = line.includes(' // ') ? line.slice(0, line.indexOf(' // ')) : line;
+  return [...code.matchAll(STRING)].some((m) => {
+    const s = m[0].slice(1, -1);
+    return !PINNED_STRINGS.has(s) && BROKEN_STRING.test(s);
+  });
+}
+
 const HEADINGS = new Set(
   readFileSync(join(ROOT, 'DESIGN.md'), 'utf8').split('\n').filter((l) => l.startsWith('#')).map((l) => l.replace(/^#+\s*/, '').trim()),
 );
@@ -55,7 +73,7 @@ function scan(files: string[]): string[] {
       if (!ts && /^\s*```/.test(line)) fence = !fence;
       if (fence) return;
       const prose = ts ? commentText(line) : line.replace(/`[^`]*`/g, '``');
-      if (offends(line, prose)) bad.push(`${relative(ROOT, f)}:${i + 1}: ${line.trim()}`);
+      if (offends(line, prose) || (ts && stringOffends(line))) bad.push(`${relative(ROOT, f)}:${i + 1}: ${line.trim()}`);
     });
   }
   return bad;
@@ -87,4 +105,16 @@ test('the scanner flags what it should and keeps code calls, regexes and real re
     ['// see DESIGN.md "Budgets and counting"', false],
   ];
   for (const [line, want] of cases) assert.equal(offends(line, commentText(line)), want, line);
+});
+
+test('the scanner flags empty or punctuation-led parentheses in string literals and keeps code', () => {
+  const cases: [string, boolean][] = [
+    ['  warnings.push(`it is clamped to ${n} ()`);', true],
+    ["  note('x', 'not a knob: appended unchanged ()');", true],
+    ['  warn(`unreachable: ${r} (; it needs a client point)`);', true],
+    ["  const f = () => g('a (b) c');", false],
+    ['  warn(`fitted down`);', false],
+    ['  log(`calls ${render()} once`);', false],
+  ];
+  for (const [line, want] of cases) assert.equal(stringOffends(line), want, line);
 });
