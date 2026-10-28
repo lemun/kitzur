@@ -1,0 +1,53 @@
+name: Site
+# Builds the Astro site in site/ and deploys it to GitHub Pages.
+# The repo owner enables Pages (Settings > Pages > Source: GitHub Actions); this workflow does not.
+on:
+  push:
+    branches: [main]
+    # site/ plus the repo markdown the site renders (site/src/content/repo-docs.ts) and docs/assets it imports
+    paths:
+      - 'site/**'
+      - 'docs/**'
+      - 'README.md'
+      - 'CONFIG.md'
+      - 'DESIGN.md'
+      - 'SECURITY.md'
+      - 'deploy/README.md'
+      - 'bench/README.md'
+      - '.github/workflows/site.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
