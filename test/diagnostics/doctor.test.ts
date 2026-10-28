@@ -109,7 +109,7 @@ test('probe classifies HTTP answers and transport failures without requiring a l
     [403, 'Host mismatch', null, 'other'],
     [503, '{}', null, 'other'],
     [200, 'not json', null, 'other'],
-    [200, '{"name":"other"}', null, 'other'],
+    [200, '{"name":"other","stats":{"dropped":4}}', null, 'other'],
     [200, 'null', null, 'other'],
     [200, '', 'ECONNRESET', 'hung'],
     [200, '', 'ETIMEDOUT', 'hung'],
