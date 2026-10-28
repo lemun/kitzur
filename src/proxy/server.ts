@@ -882,10 +882,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       const cur = deps.state.entry(c.key);
       const applied = applyAcceptedRatio(cur, v.ratio, afterCfg, afterMode, now());
       deps.state.set(c.key, applied.entry);
-      if (applied.correctionChanged) {
-        if (deps.modelRuntimes) deps.modelRuntimes.setLearned(c.creq.model, c.key, applied.entry);
-        else afterEngine.setLearned(c.key, applied.entry);
-      }
+      // the engine pinned at request start, never a fresh lookup
+      if (applied.correctionChanged) afterEngine.setLearned(c.key, applied.entry);
     };
     if (sent && r.final.type === 'relayed') {
       status.forwardedPrompt(c.creq.model, c.clientSession, usage?.prompt_tokens ?? null);
