@@ -1,8 +1,10 @@
+import { createHash } from 'node:crypto';
+
 type JsonRecord = Record<string, unknown>;
 
 export interface ReportResult {
-  coverage: { records: number; malformed: number; partialFinalLine: boolean; from: string | null; to: string | null };
-  requests: number; uniqueSessions: number; localRejects: number; shadowRequests: number; incompleteStreams: number;
+  coverage: { records: number; malformed: number; partialFinalLine: boolean; oversized: number; from: string | null; to: string | null; historyComplete: boolean | null; droppedRecords: number | null };
+  requests: number; uniqueSessions: number; sessionCoverage: { approximate: true; limit: number; lowerBound: boolean; missing: number }; localRejects: number; shadowRequests: number; incompleteStreams: number;
   compactions: number;
   retries: number;
   failures: number;
@@ -21,27 +23,33 @@ function validRecord(v: JsonRecord): boolean {
   return Number.isInteger(num(v.seq)) && typeof v.action === 'string' && ACTIONS.has(v.action) && status !== null && Number.isInteger(status) && status >= 100 && status <= 599 && hasTokenOrAttempts;
 }
 
-/** Aggregate stats JSONL. Values are whitelisted numeric/date fields; identifiers and content are discarded. */
-export function report(text: string): ReportResult {
-  const lines = text.split('\n');
-  const partialFinalLine = text.length > 0 && !text.endsWith('\n');
-  const coverage: ReportResult['coverage'] = { records: 0, malformed: 0, partialFinalLine, from: null, to: null };
+export const MAX_RECORD_BYTES = 1024 * 1024;
+export const MAX_TRACKED_SESSIONS = 10_000;
+
+function accumulator() {
+  const coverage: ReportResult['coverage'] = { records: 0, malformed: 0, oversized: 0, partialFinalLine: false, from: null, to: null, historyComplete: null, droppedRecords: null };
   const result: ReportResult = {
-    coverage, requests: 0, uniqueSessions: 0, localRejects: 0, shadowRequests: 0, incompleteStreams: 0, compactions: 0, retries: 0, failures: 0,
+    coverage, requests: 0, uniqueSessions: 0, sessionCoverage: { approximate: true, limit: MAX_TRACKED_SESSIONS, lowerBound: false, missing: 0 }, localRejects: 0, shadowRequests: 0, incompleteStreams: 0, compactions: 0, retries: 0, failures: 0,
     tokenTotals: { input: 0, forwarded: 0, shadowEstimatedForwarded: 0, reductionEligibleInput: 0, reductionEligibleForwarded: 0, reductionPercent: null, attemptedRaw: 0, actualUpstreamPrompt: 0, actualUpstreamCompletion: 0, actualUsageRecords: 0 },
     fieldCoverage: { tokensIn: 0, tokensOut: 0, attempts: 0, attemptedRaw: 0, shadowEstimatedForwarded: 0, actualPromptUsage: 0, actualCompletionUsage: 0, totalMs: 0, engineMs: 0, upstreamMs: 0, requestPathMs: 0, responsePathMs: 0 },
     timingMs: { total: 0, engine: 0, upstream: 0, requestPath: 0, responsePath: 0, recordsWithTotal: 0 },
     upstreamStatusCounts: {},
   };
   const sessions = new Set<string>();
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (!line.trim()) continue;
+  function record(line: string) {
+    if (!line.trim()) return;
     let r: unknown;
-    try { r = JSON.parse(line); } catch { coverage.malformed++; continue; }
-    if (!obj(r) || !validRecord(r)) { coverage.malformed++; continue; }
+    try { r = JSON.parse(line); } catch { coverage.malformed++; return; }
+    if (!obj(r) || !validRecord(r)) { coverage.malformed++; return; }
     coverage.records++; result.requests++;
-    if (typeof r.session === 'string' && r.session.length > 0) sessions.add(r.session);
+    if (typeof r.session === 'string' && r.session.length > 0) {
+      // Fixed-size digests bound retained bytes even for very long identifiers.
+      const digest = createHash('sha256').update(r.session).digest('hex');
+      if (!sessions.has(digest)) {
+        if (sessions.size < MAX_TRACKED_SESSIONS) sessions.add(digest);
+        else result.sessionCoverage.lowerBound = true;
+      }
+    } else result.sessionCoverage.missing++;
     const ts = typeof r.ts === 'string' && Number.isFinite(Date.parse(r.ts)) ? new Date(r.ts).toISOString() : null;
     if (ts && (!coverage.from || ts < coverage.from)) coverage.from = ts;
     if (ts && (!coverage.to || ts > coverage.to)) coverage.to = ts;
@@ -82,18 +90,74 @@ export function report(text: string): ReportResult {
     }
     if (num(r.total_ms) !== null) result.timingMs.recordsWithTotal++;
   }
-  result.uniqueSessions = sessions.size;
-  const denominator = result.tokenTotals.reductionEligibleInput;
-  if (denominator > 0) result.tokenTotals.reductionPercent = 100 * (denominator - result.tokenTotals.reductionEligibleForwarded) / denominator;
-  return result;
+  function finish(): ReportResult {
+    result.uniqueSessions = sessions.size;
+    const denominator = result.tokenTotals.reductionEligibleInput;
+    if (denominator > 0) result.tokenTotals.reductionPercent = 100 * (denominator - result.tokenTotals.reductionEligibleForwarded) / denominator;
+    return result;
+  }
+  return { record, finish, coverage };
+}
+
+function byteParser() {
+  const stats = accumulator();
+  const line = Buffer.allocUnsafe(MAX_RECORD_BYTES);
+  let size = 0; let oversized = false; let partial = false;
+  function endLine() {
+    if (oversized) { stats.coverage.oversized++; stats.coverage.malformed++; }
+    else stats.record(line.toString('utf8', 0, size));
+    size = 0; oversized = false;
+  }
+  return {
+    write(chunk: Uint8Array) {
+      let start = 0;
+      for (let i = 0; i <= chunk.length; i++) {
+        if (i < chunk.length && chunk[i] !== 10) continue;
+        const length = i - start;
+        if (!oversized) {
+          if (size + length > MAX_RECORD_BYTES) oversized = true;
+          else { line.set(chunk.subarray(start, i), size); size += length; }
+        }
+        if (i < chunk.length) { endLine(); partial = false; }
+        else if (length > 0) partial = true;
+        start = i + 1;
+      }
+    },
+    finish() {
+      stats.coverage.partialFinalLine = partial;
+      if (partial) endLine();
+      return stats.finish();
+    },
+  };
+}
+
+/** Aggregate byte chunks without retaining the file or unbounded records. */
+export async function reportStream(chunks: AsyncIterable<Uint8Array>): Promise<ReportResult> {
+  const parser = byteParser();
+  for await (const chunk of chunks) parser.write(chunk);
+  return parser.finish();
+}
+
+/** Convenience API for callers that already hold a string. Uses the same caps. */
+export function report(text: string): ReportResult {
+  const parser = byteParser();
+  // Keep conversion buffers bounded; avoid splitting a UTF-16 surrogate pair.
+  for (let start = 0; start < text.length;) {
+    let end = Math.min(start + 16384, text.length);
+    if (end < text.length && text.charCodeAt(end - 1) >= 0xd800 && text.charCodeAt(end - 1) <= 0xdbff) end--;
+    parser.write(Buffer.from(text.slice(start, end)));
+    start = end;
+  }
+  return parser.finish();
 }
 
 export function renderReport(r: ReportResult): string {
   const t = r.tokenTotals; const tm = r.timingMs;
   const reduction = t.reductionPercent === null ? 'n/a' : `${t.reductionPercent.toFixed(1)}%`;
   return [
-    `Coverage: ${r.coverage.records} records (${r.coverage.malformed} malformed${r.coverage.partialFinalLine ? ', final line has no newline' : ''})${r.coverage.from ? `, ${r.coverage.from} to ${r.coverage.to}` : ''}`,
-    `Requests: ${r.requests} across ${r.uniqueSessions} sessions; compactions: ${r.compactions}; retries: ${r.retries}; failures: ${r.failures}; local rejects: ${r.localRejects}; shadow requests: ${r.shadowRequests}; incomplete streams: ${r.incompleteStreams}`,
+    `Coverage: ${r.coverage.records} records (${r.coverage.malformed} malformed, ${r.coverage.oversized} oversized${r.coverage.partialFinalLine ? ', final line has no newline' : ''})${r.coverage.from ? `, ${r.coverage.from} to ${r.coverage.to}` : ''}`,
+    `History completeness ${r.coverage.historyComplete === null ? 'unknown' : r.coverage.historyComplete ? 'verified' : 'incomplete'}; dropped-record total ${r.coverage.droppedRecords === null ? 'unavailable' : r.coverage.droppedRecords}.`,
+    `Requests: ${r.requests} across ${r.sessionCoverage.lowerBound ? 'at least ' : ''}${r.uniqueSessions} sessions (approximate hashed count; ${r.sessionCoverage.missing} records without session IDs); compactions: ${r.compactions}; retries: ${r.retries}; failures: ${r.failures}; local rejects: ${r.localRejects}; shadow requests: ${r.shadowRequests}; incomplete streams: ${r.incompleteStreams}`,
     `Tokens: input ${t.input} (${r.fieldCoverage.tokensIn} records); last-attempt forwarded ${t.forwarded} (${r.fieldCoverage.tokensOut}); reduction ${reduction} across eligible non-shadow requests (${t.reductionEligibleInput} input tokens); attempted raw across recorded attempts ${t.attemptedRaw} (${r.fieldCoverage.attemptedRaw} attempts with raw counts).`,
     `Shadow estimated forwarded tokens: ${t.shadowEstimatedForwarded} (${r.fieldCoverage.shadowEstimatedForwarded} records). Upstream usage: prompt ${t.actualUpstreamPrompt} (${r.fieldCoverage.actualPromptUsage}), completion ${t.actualUpstreamCompletion} (${r.fieldCoverage.actualCompletionUsage}); usage fields cover the final response only and may be absent.`,
     `Upstream HTTP status counts: ${Object.entries(r.upstreamStatusCounts).map(([s, n]) => `${s}=${n}`).join(', ') || 'none'}.`,

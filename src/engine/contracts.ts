@@ -30,6 +30,21 @@ export interface SummaryOptions {
   userShortenStep: 0 | 1 | 2 | 3;
 }
 
+/** Content-free coordinates in the original SummaryInput.messages array. */
+export type RetentionSource =
+  | { kind: 'message'; messageIndex: number }
+  | { kind: 'tool-call'; messageIndex: number; callIndex: number }
+  | { kind: 'tool-result'; messageIndex: number; call?: { messageIndex: number; callIndex: number } };
+
+export interface RetentionAttribution {
+  category: 'user' | 'decision' | 'todo' | 'file' | 'rest' | 'narrative1' | 'narrative2' | 'toolLog';
+  sources: RetentionSource[];
+  disposition: 'summarized' | 'dropped';
+  reason: 'user-instruction' | 'protected-floor' | 'priority-prefix' | 'budget-eviction';
+  /** Corrections can supersede all or part of an instruction, including from the tail. */
+  supersededBy: number[];
+}
+
 export interface SummaryRender {
   /** full summary message text (starts with SUMMARY_HEADER); null iff cut == hEnd */
   text: string | null;
@@ -39,6 +54,8 @@ export interface SummaryRender {
   floorTokens: number;
   kept: number;
   dropped: number;
+  /** Optional for alternate summarizers; the ledger summarizer always supplies content-free attribution. */
+  attribution?: RetentionAttribution[];
   /** per category kept/dropped counts (diagnostics) */
   categories: Record<string, { kept: number; dropped: number }>;
 }

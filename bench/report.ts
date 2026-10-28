@@ -1173,3 +1173,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   console.log(`wrote ${mdPath}, ${gatesPath}, ${cellsPath}`);
   for (const [g, r] of Object.entries(rep.gates.gates)) console.log(`${g.padEnd(3)} ${r.status}${r.reason ? ` — ${r.reason}` : ''}${r.gap ? ` — ${r.gap}` : ''}`);
 }
+
+/** Separate scores: no combined quality/savings headline from stub runs. */
+export function retentionQualityReport(matrix: { caveat: string; reports: readonly { settings: { window: number }; fixtureHash: string; scores: readonly (ReturnType<typeof import('./coding/retention.js').retentionScores> & { task: string; arm: string })[] }[] }): string {
+  const lines = ['# Offline retention quality', '', matrix.caveat, '',
+    'Run: `node dist/bench/coding/run.js --mock --retention --markdown`.',
+    'Live runs require separate model authorization and an expendable environment; use the explicit endpoint/model procedure in bench/coding/README.md with `--evidence-reread --window 32000` and repeat with `--window 64000`. Match the real served limit; preserve the model, inputs and limits in each pair.', '',
+    '| window | fixture SHA256 | task | arm | acceptance | correction current/observed | obsolete | evicted rereads | overflow (attempts) | latency ms | usage covered/attempts | prompt / completion coverage | prompt tokens | completion tokens |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|'];
+  for (const report of matrix.reports) for (const s of report.scores) lines.push(
+    `| ${report.settings.window} | ${report.fixtureHash} | ${s.task} | ${s.arm} | ${s.exactTaskAcceptance} | ${s.correctionSurvival.current}/${s.correctionSurvival.observed} | ${s.correctionSurvival.obsolete} | ${s.repeatedReadsOfEvictedEvidence} | ${s.overflow} (${s.overflowAttempts}) | ${s.latencyMs.toFixed(1)} | ${s.usageCoverage.observed}/${s.usageCoverage.attempts} | ${s.usageCoverage.prompt} / ${s.usageCoverage.completion} | ${s.promptTokens ?? 'unknown'} | ${s.completionTokens ?? 'unknown'} |`);
+  return lines.join('\n') + '\n';
+}

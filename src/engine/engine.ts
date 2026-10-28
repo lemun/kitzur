@@ -7,7 +7,7 @@
 // failed or serverFits(original, T_req); otherwise (and on every retry) the §5.7 400 is returned.
 import type {
   Budget, ChatMessage, ChatRequest, Engine, EngineAction, EngineResult, EngineStats, LearnedEntry, Plan, PlanStore,
-  ProcessOptions, TokenCounter,
+  ProcessOptions, TokenCounter, RetentionDecision, RetentionCounts,
 } from '../types.js';
 import type { Config } from '../config/schema.js';
 import type { ResultKind, Summarizer, ToolRules } from './contracts.js';
@@ -82,6 +82,31 @@ function cachesFor(counter: TokenCounter, cap: number): MessageCaches {
 
 const planChangesSomething = (p: Plan): boolean =>
   p.summary !== null || Object.keys(p.rewrites).length > 0 || Object.keys(p.headRewrites).length > 0;
+
+/** Derive live coverage from original coordinates, including messages appended after a memo hit. */
+function retentionFor(plan: Plan, n: number, h: number): RetentionDecision[] {
+  const ledger = structuredClone(plan.summaryAttribution ?? []);
+  const covered = new Set(ledger.filter((a) => a.disposition === 'summarized')
+    .flatMap((a) => a.sources.map((s) => s.messageIndex)));
+  const out: RetentionDecision[] = [];
+  for (let i = 0; i < n; i++) {
+    const rewrite = i < h ? plan.headRewrites[i] : i >= plan.cut ? plan.rewrites[i] : undefined;
+    const inSummary = i >= h && i < plan.cut;
+    out.push({ category: 'message', sources: [{ kind: 'message', messageIndex: i }],
+      disposition: inSummary ? (covered.has(i) || !plan.summaryAttribution ? 'summarized' : 'dropped')
+        : rewrite ? 'excerpted' : 'verbatim',
+      reason: inSummary ? (!plan.summaryAttribution ? 'summary-unattributed'
+        : covered.has(i) ? 'summary-region' : 'no-retained-facts')
+        : rewrite?.kind ?? (i < h ? 'head' : 'recent-tail') });
+  }
+  return [...out, ...ledger];
+}
+
+function retentionCounts(decisions: RetentionDecision[]): RetentionCounts {
+  const counts: RetentionCounts = { verbatim: 0, excerpted: 0, summarized: 0, dropped: 0 };
+  for (const d of decisions) if (d.category === 'message') counts[d.disposition]++;
+  return counts;
+}
 
 /** The engine (types.ts Engine). One instance serves every session; plans are keyed by content. */
 export class LeanEngine implements Engine {
@@ -268,7 +293,11 @@ export class LeanEngine implements Engine {
       }
 
       // a final plan over budget (§5.7) is reported as such; the memo keeps the plan as the fold made it
-      const plan = cOut > bud.budget && action !== 'clamp' && fr.plan.fit !== 'over_budget' ? { ...fr.plan, fit: 'over_budget' as const } : fr.plan;
+      const fittedPlan = cOut > bud.budget && action !== 'clamp' && fr.plan.fit !== 'over_budget' ? { ...fr.plan, fit: 'over_budget' as const } : fr.plan;
+      // Return detached diagnostics: callers must not be able to mutate memoized attribution.
+      const plan = { ...fittedPlan, summaryAttribution: fittedPlan.summaryAttribution
+        ? structuredClone(fittedPlan.summaryAttribution) : undefined,
+        retention: retentionFor(fittedPlan, n, h) };
       const maxTokens = mt.kind === 'unchanged' ? null : { value: mt.value, fields: maxTokensFields(req) };
       const msgsChanged = out.length !== n || out.some((m, i) => m !== msgs[i]);
       const stats = this.stats(n, out.length, countIn, cOut, bud, plan, ev, h, fr.steps, fr.resumedAt >= 0 ? 1 : 0, t0);
@@ -346,6 +375,7 @@ export class LeanEngine implements Engine {
       messagesIn: nIn, messagesOut: nOut, tokensIn: tIn, tokensOut: tOut, budget: bud, compactions: plan.compactions,
       summaryTokens, ledgerTokens: typeof floor === 'number' ? floor : 0, rewrites, boundariesReplayed: steps,
       cacheHits: hits, engineMs: this.now() - t0,
+      retention: retentionCounts(plan.retention ?? []),
     };
   }
 

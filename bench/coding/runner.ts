@@ -9,7 +9,8 @@ import { ENGINE_ALGO_VERSION } from '../../src/types.js';
 import { buildApp } from '../../src/app.js';
 import { DEFAULT_CONFIG } from '../../src/config/schema.js';
 import type { ChatMessage, ChatRequest } from '../../src/types.js';
-import { TASKS, seededHistory, type CodingTask } from './tasks.js';
+import { TASKS, type CodingTask } from './tasks.js';
+import { retentionHistory, type EvidenceTask } from '../scenarios/evidence-reread.js';
 export interface EvalOptions {
     endpoint?: string;
     model: string;
@@ -44,6 +45,8 @@ export interface Attempt {
     compactedPrompt: boolean;
     currentRulePresent: boolean;
     obsoleteRulePresent: boolean;
+    evidencePresent?: boolean;
+    overflow?: boolean;
 }
 export interface Run {
     task: string;
@@ -63,6 +66,7 @@ export interface Run {
     compactions: number | null;
     postCorrectionCompactions: number | null;
     workspaceHash: string;
+    evidenceReads?: Array<{ sha256: string; evicted: boolean }>;
 }
 const tools = ['read_file', 'write_file', 'run_tests'].map(name => ({ type: 'function', function: { name, description: name === 'run_tests' ? 'Run public syntax/import check' : name, parameters: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: name === 'write_file' ? ['path', 'content'] : name === 'read_file' ? ['path'] : [] } } }));
 async function listen(server: http.Server): Promise<string> {
@@ -104,7 +108,7 @@ export function grade(root: string, task: CodingTask): {
         return { passed: 0, total: task.cases.length };
     }
 }
-async function one(task: CodingTask, repeat: number, arm: Run['arm'], opts: EvalOptions): Promise<Run> {
+async function one(task: EvidenceTask, repeat: number, arm: Run['arm'], opts: EvalOptions): Promise<Run> {
     const root = mkdtempSync(join(tmpdir(), 'kitzur-coding-'));
     writeFileSync(join(root, 'solution.mjs'), task.initial);
     const attempts: Attempt[] = [];
@@ -115,6 +119,8 @@ async function one(task: CodingTask, repeat: number, arm: Run['arm'], opts: Eval
     const settle = async () => { for (const c of controllers)
         c.abort(); await Promise.allSettled([...pending]); };
     let mockTurn = 0;
+    let evidenceVisible = false, wrote = false, tested = false;
+    const evidenceReads: Array<{ sha256: string; evicted: boolean }> = [];
     const handle = async (req: http.IncomingMessage, res: http.ServerResponse) => {
         const started = performance.now();
         const attempt: Attempt = { status: 0, latencyMs: 0, promptTokens: null, completionTokens: null, bodyBytes: 0, afterCorrection: correctionDelivered, compactedPrompt: false, currentRulePresent: false, obsoleteRulePresent: false };
@@ -124,14 +130,15 @@ async function one(task: CodingTask, repeat: number, arm: Run['arm'], opts: Eval
             const bytes = await body(req);
             attempt.bodyBytes = bytes.length;
             attempts.push(attempt);
+            const parsed = JSON.parse(bytes.toString()) as ChatRequest;
+            const text = parsed.messages.map(m => typeof m.content === 'string' ? m.content : '').join('\n');
+            attempt.compactedPrompt = text.includes('[kitzur]');
+            attempt.currentRulePresent = text.includes(task.currentRule);
+            attempt.obsoleteRulePresent = !!task.obsoleteRule && text.includes(task.obsoleteRule);
+            if (task.evidence) attempt.evidencePresent = evidenceVisible = text.includes(task.evidence.marker);
             let status: number;
             let response: Buffer;
             if (opts.mock) {
-                const parsed = JSON.parse(bytes.toString()) as ChatRequest;
-                const text = parsed.messages.map(m => typeof m.content === 'string' ? m.content : '').join('\n');
-                attempt.compactedPrompt = text.includes('[kitzur]');
-                attempt.currentRulePresent = text.includes(task.currentRule);
-                attempt.obsoleteRulePresent = !!task.obsoleteRule && text.includes(task.obsoleteRule);
                 const prompt = Math.ceil(bytes.length / 4);
                 if (opts.mockDelayMs && mockTurn >= (opts.mockDelayAfterTurn ?? 0))
                     await new Promise<void>((r, reject) => { const t = setTimeout(r, opts.mockDelayMs); controller.signal.addEventListener('abort', () => { clearTimeout(t); reject(Error('observer aborted')); }, { once: true }); });
@@ -146,7 +153,14 @@ async function one(task: CodingTask, repeat: number, arm: Run['arm'], opts: Eval
                 else {
                     status = 200;
                     mockTurn++;
-                    const calls = opts.mockEarlyFinal && mockTurn === 1 ? undefined : mockTurn === (opts.mockEarlyFinal ? 2 : 1) ? [{ id: 'read', type: 'function', function: { name: 'read_file', arguments: '{"path":"solution.mjs"}' } }] : mockTurn === (opts.mockEarlyFinal ? 3 : 2) ? [{ id: 'write', type: 'function', function: { name: 'write_file', arguments: JSON.stringify({ path: 'solution.mjs', content: opts.mockWrong ? task.initial : task.solution }) } }] : mockTurn === (opts.mockEarlyFinal ? 4 : 3) ? [{ id: 'test', type: 'function', function: { name: 'run_tests', arguments: '{}' } }] : opts.postPressureChars && mockTurn < 8 ? [{ id: 'pressure-' + mockTurn, type: 'function', function: { name: 'run_tests', arguments: '{}' } }] : undefined;
+                    let calls = opts.mockEarlyFinal && mockTurn === 1 ? undefined : mockTurn === (opts.mockEarlyFinal ? 2 : 1) ? [{ id: 'read', type: 'function', function: { name: 'read_file', arguments: '{"path":"solution.mjs"}' } }] : mockTurn === (opts.mockEarlyFinal ? 3 : 2) ? [{ id: 'write', type: 'function', function: { name: 'write_file', arguments: JSON.stringify({ path: 'solution.mjs', content: opts.mockWrong ? task.initial : task.solution }) } }] : mockTurn === (opts.mockEarlyFinal ? 4 : 3) ? [{ id: 'test', type: 'function', function: { name: 'run_tests', arguments: '{}' } }] : opts.postPressureChars && mockTurn < 8 ? [{ id: 'pressure-' + mockTurn, type: 'function', function: { name: 'run_tests', arguments: '{}' } }] : undefined;
+                    if (task.evidence) {
+                        const name = mockTurn === 1 ? 'read_file' : mockTurn < 7 ? 'run_tests' : !evidenceVisible ? 'read_file' : !wrote ? 'write_file' : !tested ? 'run_tests' : null;
+                        const args = name === 'read_file' ? { path: mockTurn === 1 ? 'solution.mjs' : task.evidence.path } : name === 'write_file' ? { path: 'solution.mjs', content: !opts.mockWrong && attempt.currentRulePresent ? task.solution : task.initial } : {};
+                        calls = name ? [{ id: `evidence-${mockTurn}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] : undefined;
+                        if (name === 'write_file') wrote = true;
+                        else if (name === 'run_tests' && wrote) tested = true;
+                    }
                     response = Buffer.from(JSON.stringify({ choices: [{ message: { role: 'assistant', content: calls ? null : 'Done.', ...(calls ? { tool_calls: calls } : {}) }, finish_reason: calls ? (opts.mockLengthWithTools ? 'length' : 'tool_calls') : opts.mockFinishReason ?? 'stop' }], ...(!opts.mockMissingUsage ? { usage: { prompt_tokens: opts.mockInvalidUsage ? -1 : prompt, ...(opts.mockPartialUsage ? {} : { completion_tokens: 20 }) } } : {}) }));
                 }
             }
@@ -155,6 +169,7 @@ async function one(task: CodingTask, repeat: number, arm: Run['arm'], opts: Eval
                 status = upstream.status;
                 response = Buffer.from(await upstream.arrayBuffer());
             }
+            attempt.overflow = status === 400 && /context_length_exceeded|maximum context length|context window/i.test(response.toString());
             let usage: {
                 prompt_tokens?: number;
                 completion_tokens?: number;
@@ -224,7 +239,7 @@ async function one(task: CodingTask, repeat: number, arm: Run['arm'], opts: Eval
             return {compactions:rows.filter(r=>r.compacted).length,postCorrectionCompactions:rows.filter(r=>r.compacted&&r.seq>correctionTurn).length};
         } catch {return {compactions:null,postCorrectionCompactions:null};}
     };
-    const messages = seededHistory(task, opts.pressureChars ?? 18000);
+    const messages = retentionHistory(task, opts.pressureChars ?? 18000);
     const start = performance.now();
     let turns = 0;
     let outcome: Run['outcome'] = 'incomplete';
@@ -275,6 +290,10 @@ async function one(task: CodingTask, repeat: number, arm: Run['arm'], opts: Eval
                         const checked = spawnSync(process.execPath, ['--check', checkFile(root)], { env: safeEnv, timeout: 2000, maxBuffer: 4096 });
                         result = checked.status === 0 ? 'Syntax check passed.' : 'Syntax check failed.';
                     }
+                    else if (call.function.name === 'read_file' && task.evidence && args.path === task.evidence.path) {
+                        result = task.evidence.content;
+                        evidenceReads.push({ sha256: createHash('sha256').update(result).digest('hex'), evicted: !evidenceVisible });
+                    }
                     else {
                         if (args.path !== 'solution.mjs')
                             throw Error('Only solution.mjs is accessible');
@@ -313,12 +332,12 @@ async function one(task: CodingTask, repeat: number, arm: Run['arm'], opts: Eval
         return { task: task.id, repeat, arm, outcome, checksPassed: checks.passed, checksTotal: checks.total, turns, latencyMs: performance.now() - start, attempts,
             promptTokens: completeUsage ? attempts.reduce((n, a) => n + a.promptTokens!, 0) : null, completionTokens: completeUsage ? attempts.reduce((n, a) => n + a.completionTokens!, 0) : null,
             usageCoverage: attempts.filter(a => a.promptTokens !== null && a.completionTokens !== null).length, promptUsageCoverage: attempts.filter(a => a.promptTokens !== null).length, completionUsageCoverage: attempts.filter(a => a.completionTokens !== null).length, ...compactionCounts,
-            workspaceHash: createHash('sha256').update(readFileSync(checkFile(root))).digest('hex') };
+            evidenceReads, workspaceHash: createHash('sha256').update(readFileSync(checkFile(root))).digest('hex') };
     }
     catch (e) {
         await settle();
         const compactionCounts=await finalizedStats();
-        return { task: task.id, repeat, arm, outcome: /Timeout|Abort/.test((e as Error).name) ? 'timeout' : 'harness-error', checksPassed: 0, checksTotal: task.cases.length, turns, latencyMs: performance.now() - start, attempts, promptTokens: null, completionTokens: null, usageCoverage: attempts.filter(a => a.promptTokens !== null && a.completionTokens !== null).length, promptUsageCoverage: attempts.filter(a => a.promptTokens !== null).length, completionUsageCoverage: attempts.filter(a => a.completionTokens !== null).length, ...compactionCounts, workspaceHash: '' };
+        return { task: task.id, repeat, arm, outcome: /Timeout|Abort/.test((e as Error).name) ? 'timeout' : 'harness-error', checksPassed: 0, checksTotal: task.cases.length, turns, latencyMs: performance.now() - start, attempts, promptTokens: null, completionTokens: null, usageCoverage: attempts.filter(a => a.promptTokens !== null && a.completionTokens !== null).length, promptUsageCoverage: attempts.filter(a => a.promptTokens !== null).length, completionUsageCoverage: attempts.filter(a => a.completionTokens !== null).length, ...compactionCounts, evidenceReads, workspaceHash: '' };
     }
     finally {
         await settle();
@@ -326,7 +345,7 @@ async function one(task: CodingTask, repeat: number, arm: Run['arm'], opts: Eval
         await close(observer);
     }
 }
-export async function evaluate(opts: EvalOptions, tasks = TASKS) {
+export async function evaluate(opts: EvalOptions, tasks: EvidenceTask[] = TASKS) {
     if (!opts.mock && (!opts.endpoint || !/^https?:\/\//.test(opts.endpoint)))
         throw Error('Live evaluation requires a Chat Completions endpoint');
     for (const key of ['repeats', 'maxTurns', 'timeoutMs', 'outputTokens', 'window'] as const)

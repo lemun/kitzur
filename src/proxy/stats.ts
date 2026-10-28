@@ -136,6 +136,7 @@ export function buildStatsRecord(s: StatsInput): ProxyStatsRecord {
     action: s.action,
     ...(s.first?.replan ? { replan: s.first.replan } : {}),
     ...(plan ? { fit: plan.fit } : {}),
+    ...(st?.retention ? { retention: st.retention } : {}),
     messages_in: s.first?.stats.messagesIn ?? 0,
     messages_out: s.forwarded === 'none' ? 0 : s.shadow || s.forwarded === 'original' ? (s.first?.stats.messagesIn ?? 0) : (st?.messagesOut ?? s.first?.stats.messagesIn ?? 0),
     tokens_in: tokensIn,

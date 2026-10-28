@@ -1,0 +1,5 @@
+[
+  { "path": "LICENSES/Oniguruma-BSD-2-Clause.txt", "pattern": "@gmail\\.com$", "reason": "upstream copyright notice, kept verbatim" },
+  { "path": "LICENSES/onig_sys-MIT.md", "pattern": "^(will@willspeak\\.me|defuz@me\\.com)$", "reason": "upstream copyright notice, kept verbatim" },
+  { "path": "test/cli/cli.test.ts", "pattern": "Users\\\\+u\\\\", "reason": "synthetic one-letter Windows user name in a path test" }
+]
