@@ -368,3 +368,46 @@ export function readBody(stream: NodeJS.ReadableStream, max = 16 * 1024 * 1024):
     stream.on('close', () => finish(false));
   });
 }
+
+export interface ErrorBodyRead {
+  body: Buffer;
+  complete: boolean;
+  reason?: 'timeout' | 'size' | 'closed';
+}
+
+/** Absolute deadline from headers (the caller starts immediately); never refreshed by data. */
+export function readErrorBody(stream: IncomingMessage | import('node:stream').Readable, timeoutMs = 5000, max = 1024 * 1024): Promise<ErrorBodyRead> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let done = false;
+    const finish = (complete: boolean, reason?: ErrorBodyRead['reason']): void => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      stream.off('data', onData);
+      stream.off('end', onEnd);
+      stream.off('error', onError);
+      stream.off('close', onClose);
+      // destroy without an error: no deferred unhandled error after listener cleanup.
+      if (!complete) stream.destroy();
+      resolve({ body: Buffer.concat(chunks, size), complete, ...(reason ? { reason } : {}) });
+    };
+    const onData = (data: Buffer): void => {
+      const take = Math.min(data.length, max - size);
+      // Copy the prefix so a huge incoming chunk cannot remain retained by a small slice.
+      if (take) chunks.push(Buffer.from(data.subarray(0, take)));
+      size += take;
+      if (data.length > take) finish(false, 'size');
+    };
+    const onEnd = (): void => finish(true);
+    const onError = (): void => finish(false, 'closed');
+    const onClose = (): void => finish(false, 'closed');
+    const timer = setTimeout(() => finish(false, 'timeout'), timeoutMs);
+    stream.on('data', onData);
+    stream.once('end', onEnd);
+    stream.once('error', onError);
+    stream.once('close', onClose);
+    if (stream.destroyed) finish(false, 'closed');
+  });
+}
