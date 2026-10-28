@@ -99,7 +99,9 @@ export function declaredOutputCapWarning(model: string, maxOutput: number, planL
 
 const MAX_JSON_TAP = 4 * 1024 * 1024;
 const JSON_CT = 'application/json';
-// Kept local to the proxy: the config schema is intentionally limited to upstream transport policy.
+// These are response-safety limits, not transport policy: a configurable read deadline would let
+// one upstream error hold a client request open for an arbitrary time, while the byte cap bounds
+// memory and response size. Keep the fixed 5 s / 64 KiB limits here.
 const UPSTREAM_ERROR_READ_TIMEOUT_MS = 5_000;
 const UPSTREAM_ERROR_BODY_MAX_BYTES = 64 * 1024;
 const UPSTREAM_ERROR_TRUNCATION_MARKER = Buffer.from('\n\n[kitzur: upstream error body truncated]\n');
@@ -347,7 +349,11 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     const marker = read.reason === 'size' ? UPSTREAM_ERROR_TRUNCATION_MARKER : Buffer.from(`\n\n[kitzur: upstream error body truncated (${read.reason})]\n`);
     const prefix = read.body.subarray(0, UPSTREAM_ERROR_BODY_MAX_BYTES - marker.length);
     const body = Buffer.concat([prefix, marker]);
-    const relay = errorBody(`kitzur: upstream error body truncated (${read.reason})`, 'upstream_error', 'upstream_error_body_truncated');
+    // Keep a useful upstream prefix when size is the only limit hit. For timeout/close the prefix
+    // may be malformed or misleading, so return a valid generic error instead.
+    const relay = read.reason === 'size'
+      ? body
+      : errorBody(`kitzur: upstream error body truncated (${read.reason})`, 'upstream_error', 'upstream_error_body_truncated');
     cutErrorBodies.set(body, relay);
     return { body, relay, cut: true };
   }
