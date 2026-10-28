@@ -6,6 +6,7 @@ import { stateDirOf } from '../../config/paths.js';
 import { UsageError, type CliIO } from '../io.js';
 import { CONFIG_OPTS, loadFromArgs, parseArgs } from '../args.js';
 import { fmtHost } from '../format.js';
+import { inspectTlsChain, renderTlsChain } from '../../diagnostics/tls-chain.js';
 
 export async function cmdServe(argv: string[], io: CliIO): Promise<number> {
   const p = parseArgs(argv, { ...CONFIG_OPTS, 'drain-ms': { type: 'string' } });
@@ -32,7 +33,10 @@ export async function cmdServe(argv: string[], io: CliIO): Promise<number> {
   // startup probe (§9 TLS): a certificate failure exits non-zero; an unreachable upstream only logs
   const probe = await app.probe(Math.min(10_000, cfg.upstream.timeoutMs));
   if (probe.tlsError) {
-    const message = `TLS verification of ${cfg.upstream.origin} failed: ${probe.tlsError} (set upstream.caFile or NODE_EXTRA_CA_CERTS; see deploy/README.md)`;
+    let diagnosis: string;
+    try { diagnosis = renderTlsChain(await inspectTlsChain({ origin: cfg.upstream.origin, caFile: cfg.upstream.caFile, timeoutMs: 5000 })); }
+    catch { diagnosis = 'TLS chain inspection could not be completed; check upstream.caFile and network availability.'; }
+    const message = `TLS verification of ${cfg.upstream.origin} failed: ${probe.tlsError}\n${diagnosis}`;
     log.error(message);
     io.stderr(`kitzur: error: ${message}\n`);
     await app.close(0);

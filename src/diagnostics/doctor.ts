@@ -14,6 +14,7 @@ import { parseJsonc } from '../config/jsonc.js';
 import { clientConfigChecks } from './client-config.js';
 import { Upstream } from '../proxy/upstream.js';
 import { formatPaths } from '../proxy/status.js';
+import { inspectTlsChain, renderTlsChain } from './tls-chain.js';
 
 export interface DoctorCheck { code: string; status: 'ok' | 'warn' | 'error'; message: string; fix?: string }
 export interface DoctorResult { checks: DoctorCheck[]; exitCode: number }
@@ -214,7 +215,12 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
       if (token) for (const key of Object.keys(cfg.headers)) if (key.toLowerCase() === 'authorization') delete cfg.headers[key];
       const result = await upstream.probe('/v1/models', token ? { authorization: 'Bearer ' + token } : {});
       const status = result.status ?? 0;
-      if (status >= 200 && status < 300) add('upstream.reachable', 'ok', `Upstream responded to the lightweight models probe (HTTP ${status}).${token ? ' Key accepted.' : ''}`);
+      if (result.tlsError) {
+        let diagnosis: string;
+        try { diagnosis = renderTlsChain(await inspectTlsChain({ origin: cfg.origin!, caFile: cfg.caFile, timeoutMs: Math.min(5000, cfg.timeoutMs) })); }
+        catch { diagnosis = 'TLS chain inspection could not be completed; check upstream.caFile and network availability.'; }
+        add('upstream.tls', 'error', `TLS verification failed: ${result.tlsError}\n${diagnosis}`, 'Check the chain diagnosis and upstream.caFile.');
+      } else if (status >= 200 && status < 300) add('upstream.reachable', 'ok', `Upstream responded to the lightweight models probe (HTTP ${status}).${token ? ' Key accepted.' : ''}`);
       else if (status === 401 || status === 403) add('upstream.reachable', 'warn',
         token ? 'Metadata needs a key; the probe key was rejected.' : hasAuth ? 'Metadata needs a key; the configured key was rejected.' : 'Metadata needs a key to read /v1/models.',
         token ? 'Check KITZUR_PROBE_TOKEN.' : hasAuth ? 'Check upstream.headers authorization configuration.' : undefined);
