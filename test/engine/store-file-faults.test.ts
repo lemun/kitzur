@@ -1,8 +1,8 @@
-// Damaged state files: the file persistence never throws out of load, starts empty, reports the damage through
-// corruptLines() and leaves the damaged file byte-for-byte in place for inspection.
+// Damaged state files: the file persistence never throws out of load, starts empty, counts the damage in
+// corruptLines(), warns through the log hook and leaves the damaged file byte-for-byte in place for inspection.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Plan } from '../../src/types.js';
@@ -25,10 +25,13 @@ async function damaged(content: Buffer | string, keys: string[], extra: Record<s
     writeFileSync(join(dir, NAME), content);
     for (const [name, body] of Object.entries(extra)) writeFileSync(join(dir, name), body);
     const before = readdirSync(dir).sort();
-    const p = createFilePersistence({ dir, now });
+    const warnings: string[] = [];
+    const p = createFilePersistence({ dir, now, warn: (m) => warnings.push(m) });
     const store = new MemoryPlanStore({ maxPlans: 10, maxBytes: 1e9, persistence: p });
     const got = keys.map((k) => store.get(k));
     await p.flush();
+    if (p.corruptLines() > 0) assert.deepEqual(warnings, [`plan store: skipped ${p.corruptLines()} damaged record(s) in ${NAME}; the file is left in place`]);
+    else assert.deepEqual(warnings, [], 'an intact file warns nothing');
     assert.deepEqual(readdirSync(dir).sort(), before, 'no file is renamed, created or removed');
     assert.deepEqual(readFileSync(join(dir, NAME)), Buffer.from(content), 'the damaged file is left as it was');
     return { got, corrupt: p.corruptLines(), stats: store.stats() };
@@ -88,21 +91,51 @@ test('a read-only state directory still loads, drops appends without throwing an
     writeFileSync(file, rec('a', plan(1)));
     chmodSync(file, 0o400);
     chmodSync(dir, 0o500);
-    const p = createFilePersistence({ dir, now });
+    const warnings: string[] = [];
+    const p = createFilePersistence({ dir, now, warn: (m) => warnings.push(m) });
     const store = new MemoryPlanStore({ maxPlans: 10, maxBytes: 1e9, persistence: p });
     assert.deepEqual(store.get('a'), plan(1));
     store.set('b', plan(2));
+    store.set('c', plan(3));
     await p.flush();
+    assert.deepEqual(warnings, [`plan store: cannot write ${NAME} (EACCES); plans stay in memory only`], 'a failed write warns once, not per plan');
     assert.deepEqual(readdirSync(dir), [NAME]);
     assert.equal(readFileSync(file, 'utf8'), rec('a', plan(1)), 'the failed append leaves the file unchanged');
     assert.deepEqual(store.get('b'), plan(2), 'the plan still lives in memory for this process');
     // an unreadable file is a miss, not an exception
     chmodSync(file, 0o000);
-    const q = createFilePersistence({ dir, now });
+    const seen: string[] = [];
+    const q = createFilePersistence({ dir, now, warn: (m) => seen.push(m) });
     assert.equal(q.load('a'), undefined);
     await q.flush();
+    assert.equal(q.corruptLines(), 1);
+    assert.deepEqual(seen, [`plan store: ${NAME} is unreadable (EACCES); left in place, starting without it`]);
   } finally {
     chmodSync(dir, 0o700);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Runs as root too (permissions do not stop root): a directory where today's file should be can be neither read nor appended to.
+test('an unreadable state file and failed appends start empty, warn and keep the plans in memory', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-faults-'));
+  try {
+    mkdirSync(join(dir, NAME));
+    const warnings: string[] = [];
+    const p = createFilePersistence({ dir, now, warn: (m) => warnings.push(m) });
+    const store = new MemoryPlanStore({ maxPlans: 10, maxBytes: 1e9, persistence: p });
+    assert.equal(store.get('a'), undefined);
+    store.set('b', plan(2));
+    await p.flush();
+    assert.equal(p.corruptLines(), 1, 'the unreadable file is counted');
+    assert.deepEqual(warnings, [
+      `plan store: ${NAME} is unreadable (EISDIR); left in place, starting without it`,
+      `plan store: cannot write ${NAME} (EISDIR); plans stay in memory only`,
+    ]);
+    assert.deepEqual(readdirSync(dir), [NAME]);
+    assert.deepEqual(readdirSync(join(dir, NAME)), [], 'the damaged entry is left as it was');
+    assert.deepEqual(store.get('b'), plan(2));
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });

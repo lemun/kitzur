@@ -12,6 +12,8 @@ export interface FilePersistenceOptions {
   /** Number of UTC calendar days to keep, including today. Default: 14. */
   retentionDays?: number;
   now?: () => Date;
+  /** Log hook for damaged or unreadable day files and failed writes (file names and counts only, never content). */
+  warn?: (msg: string) => void;
 }
 
 export interface FilePersistence extends PlanPersistence {
@@ -90,6 +92,7 @@ export function createFilePersistence(o: FilePersistenceOptions): FilePersistenc
   let corrupt = 0;
   let queue = Promise.resolve();
   let cleanupDay = '';
+  let writeWarned = false;
   const day = () => now().toISOString().slice(0, 10);
   const cutoff = () => {
     const d = new Date(`${day()}T00:00:00Z`);
@@ -147,6 +150,7 @@ export function createFilePersistence(o: FilePersistenceOptions): FilePersistenc
           // Preserve newer days and queued appends already in the LRU.
           const protectedKeys = new Set(index.keys());
           // Later records within a day win; older days never overwrite a hit.
+          const before = corrupt;
           try {
             scanLines(join(o.dir, name), maxRecordBytes, (line) => {
               try {
@@ -156,7 +160,12 @@ export function createFilePersistence(o: FilePersistenceOptions): FilePersistenc
                 if (!protectedKeys.has(rec.key)) remember(rec.key, rec.plan, sourceDay);
               } catch { corrupt++; }
             }, () => { corrupt++; });
-          } catch { continue; }
+          } catch (e) {
+            corrupt++;
+            o.warn?.(`plan store: ${name} is unreadable (${(e as NodeJS.ErrnoException).code ?? 'error'}); left in place, starting without it`);
+            continue;
+          }
+          if (corrupt > before) o.warn?.(`plan store: skipped ${corrupt - before} damaged record(s) in ${name}; the file is left in place`);
           if (found) { remember(key, found, sourceDay); return found; }
         }
       } catch { /* cache misses are safe on I/O errors */ }
@@ -173,7 +182,10 @@ export function createFilePersistence(o: FilePersistenceOptions): FilePersistenc
       queue = queue.then(async () => {
         await mkdir(o.dir, { recursive: true, mode: 0o700 });
         await appendFile(join(o.dir, name), line, { mode: 0o600 });
-      }).catch(() => undefined).finally(() => { pendingBytes -= size; });
+      }).catch((e: NodeJS.ErrnoException) => {
+        if (!writeWarned) o.warn?.(`plan store: cannot write ${name} (${e.code ?? 'error'}); plans stay in memory only`);
+        writeWarned = true;
+      }).finally(() => { pendingBytes -= size; });
     },
     entries: () => index.size,
     bytes: () => bytes,
