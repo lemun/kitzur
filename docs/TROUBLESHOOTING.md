@@ -26,6 +26,7 @@ Run `kitzur doctor` (add `--check-upstream`, `--client-config FILE` or `--json` 
 - Run `kitzur tls-probe https://gateway.example.com`. Diagnoses: `leaf_only_missing_intermediate`, `unknown_root`, `self_signed`, `expired`, `hostname_mismatch`.
 - Cause: the gateway sends only its leaf, or its CA is not in the local store; or the certificate is expired or names another host.
 - Fix: append the named CA (and its root) to `upstream.caFile`; have the gateway serve the full chain; renew the certificate or use the hostname it covers. An `upstream.reachable` error can have this cause.
+- `upstream.tls` (from `kitzur doctor --check-upstream` and at `serve` startup): the upstream certificate failed verification. The output names the verification code and the chain diagnosis above. Fix: have the gateway serve the intermediate certificate, or trust the CA via `upstream.caFile`, then rerun `kitzur tls-probe`.
 
 ## A stream ends early or with an error event
 - Codes: `upstream.reachable`.
