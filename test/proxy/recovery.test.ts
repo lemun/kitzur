@@ -82,7 +82,7 @@ test('413 learns a byte limit only; mandatory image bytes', () => {
   assert.equal(mandatoryImageBytes({ messages: [{ role: 'user', content: [img] }] }), 0, 'no assistant: head only');
 });
 
-test('pending tighten of ambiguous errors: persisted only after two distinct chains within 24 h ()', () => {
+test('pending tighten of ambiguous errors: persisted only after two distinct chains within 24 h', () => {
   const e0 = freshLearnedEntry(100_000, 'c');
   const a = notePendingSuccess(e0, 'chainA', 62_000, 'gateway.5xx', cfg100, NOW);
   assert.deepEqual([a.persisted, a.entry.tighten, a.entry.pendingTighten.length], [false, 0, 1]);
@@ -234,7 +234,7 @@ test('property: the ladder never grows, never resends the original on a retry, a
     assert.ok(sent.length <= cfg.errors.maxRetries + 2, `${tag}: at most one extra include_usage retry`);
     for (let i = 0; i < sent.length; i++) {
       const s = sent[i]!;
-      // never larger than the client's request (I7)
+      // never larger than the client's request
       assert.ok(s.size.raw <= original.raw && s.size.bytes <= original.bytes, `${tag}: attempt ${s.a.n} larger than the original`);
       if (s.a.n === 1 && s.a.original && !s.a.result) {
         // the original on attempt 1 without an engine result: the engine threw; only if it fits
@@ -268,7 +268,7 @@ test('property: the ladder never grows, never resends the original on a retry, a
   assert.ok(Object.keys(statsByStyle['413'] ?? {}).some((k) => /:[2-9]$/.test(k)), 'coverage: a 413 retry');
 });
 
-test('ladder: engine exception forwards the original only when it fits; otherwise the §5.7 400 without an upstream call', async () => {
+test('ladder: engine exception forwards the original only when it fits; otherwise the kitzur 400 without an upstream call', async () => {
   const cfg = testConfig({ budget: { window: 8000, defaultMaxTokens: 1000 } });
   const counter = charCounter();
   for (const [size, fits] of [[1000, true], [40_000, false]] as const) {
@@ -300,7 +300,7 @@ test('ladder: engine exception forwards the original only when it fits; otherwis
   }
 });
 
-test('ladder: counting failure on an engine exception forwards the original (I7 "counting itself failed")', async () => {
+test('ladder: counting failure on an engine exception forwards the original (counting itself failed)', async () => {
   const cfg = testConfig({ budget: { window: 8000, defaultMaxTokens: 1000 } });
   const counter = charCounter();
   const req: ChatRequest = { model: 'm', messages: [{ role: 'user', content: 'COUNT-FAIL' }, { role: 'user', content: 'x'.repeat(90_000) }] };
@@ -315,7 +315,7 @@ test('ladder: counting failure on an engine exception forwards the original (I7 
   assert.deepEqual([res.action, sends], ['guard_fallback', 1]);
 });
 
-test('ladder: an engine guard_fallback for an original that does not fit becomes guard_reject (I7)', async () => {
+test('ladder: an engine guard_fallback for an original that does not fit becomes guard_reject', async () => {
   const cfg = testConfig({ budget: { window: 8000, defaultMaxTokens: 1000 } });
   const counter = charCounter();
   const req: ChatRequest = { model: 'm', messages: [{ role: 'user', content: 'x'.repeat(40_000) }] };

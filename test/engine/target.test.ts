@@ -1,4 +1,4 @@
-// compaction.targetFraction is honored by the cut walk (DESIGN §5.4 step 2, ): the tail after a compaction is the
+// compaction.targetFraction is honored by the cut walk: the tail after a compaction is the
 // largest run of whole units with count(head) + summaryBudget + count(tail) ≤ target, never cut below the kept-always
 // units. Regression for the component B2 sweep observation (qa46 at 100k: targetFraction 0.30 and 0.35 gave
 // byte-identical runs). Measured cause: on qa46 the newest assistant unit alone is 14–18k tokens, so
@@ -53,7 +53,7 @@ test('targetFraction moves the cut when units are small: larger target keeps mor
     const cs = compactions(runChain(cfg, msgs, counter));
     assert.ok(cs.length >= 1, `g=${g}: no compaction`);
     for (const r of cs) {
-      // forwarded = head + summary (≤ summaryBudget) + tail ≤ target ()
+      // forwarded = head + summary (≤ summaryBudget) + tail ≤ target
       assert.ok(r.stats.tokensOut <= target, `g=${g}: forwarded ${r.stats.tokensOut} > target ${target}`);
       // maximal: one more unit (~1k tokens) would have fit if the forwarded prompt stopped this far below the target
       assert.ok(r.stats.tokensOut > target - 1_100 - 2_680, `g=${g}: forwarded ${r.stats.tokensOut} stops far below target ${target}`);

@@ -61,7 +61,7 @@ test('parse fails open on non-chat bodies', () => {
   assert.equal(serializeChatRequest(r.value.req).toString(), '{"messages":[{"role":"user","content":"\\ud800"}]}');
 });
 
-test('T_req and the max_tokens field rule (§3)', () => {
+test('T_req and the max_tokens field rule', () => {
   const base: ChatRequest = { model: 'm', messages: [] };
   assert.equal(requestMaxTokens(base, 32000), 32000);
   assert.equal(requestMaxTokens({ ...base, max_tokens: 1000 }, 32000), 1000);
@@ -115,7 +115,7 @@ test('usage/finish tap and chunk inspection', () => {
   assert.equal(extractErrorMessage({ foo: 1 }), undefined);
 });
 
-test('formatK: one-decimal thousands, never a client retry run (§5.7)', () => {
+test('formatK: one-decimal thousands, never a client retry run', () => {
   assert.equal(formatK(26_000), '26.0k');
   assert.equal(formatK(24_300), '24.3k');
   assert.equal(formatK(32_768), '32.8k');
@@ -138,7 +138,7 @@ test('formatK: one-decimal thousands, never a client retry run (§5.7)', () => {
 test('generated error bodies: exact shapes', () => {
   assert.equal(errorBody('m', 't', 'c').toString(), '{"error":{"message":"m","type":"t","param":null,"code":"c"}}');
   assert.equal(upstreamUnavailableBody().toString(), '{"error":{"message":"kitzur: upstream unavailable","type":"api_error","code":"upstream_unavailable"}}');
-  // the  in-stream shape, byte for byte as in DESIGN.md
+  // the in-stream overflow shape, byte for byte
   assert.equal(
     inStreamOverflowEvents('kitzur: …').toString(),
     'data: {"error":{"message":"{\\"type\\":\\"error\\",\\"error\\":{\\"type\\":\\"invalid_request_error\\",\\"code\\":\\"context_length_exceeded\\",\\"message\\":\\"kitzur: …\\"}}","type":"invalid_request_error","param":null,"code":"context_length_exceeded"}}\n\ndata: [DONE]\n\n',

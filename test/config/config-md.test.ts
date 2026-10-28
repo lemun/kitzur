@@ -65,3 +65,10 @@ test('CONFIG.md preset table equals computeBudget on the presets', () => {
     assert.deepEqual(cells.slice(2, 10), [fmt(b.window), fmt(b.planMaxTokens), fmt(b.margin), fmt(b.budget), fmt(b.clientPoint), fmt(b.allowance), fmt(b.trigger), fmt(b.target)], p);
   }
 });
+
+test('models metadata stays outside the default knob table and is documented separately', () => {
+  assert.equal(Object.hasOwn(DEFAULT_CONFIG, 'models'), false);
+  assert.equal(DEFAULT_LEAVES.some((p) => p === 'models' || p.startsWith('models.')), false);
+  assert.ok(md.includes('## Model profiles'));
+  assert.ok(md.includes('tokenizer.template.name'));
+});

@@ -6,6 +6,52 @@ All notable changes to Kitzur are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Model profiles: an optional `models` map in the config gives each wire model ID (matched exactly) its
+  own settings over the root defaults, such as its window, plan size, client limits and tokenizer. Unknown
+  IDs use the root defaults with a warning; configs without `models` behave as before. Learned windows
+  are kept per model and survive restarts independently.
+- Per-model tokenizers are loaded at startup, and `kitzur doctor [--model ID]` checks the tokenizer and
+  chat template of each profile (#57, #58).
+- `/status` reports per-model counters (`model_counters`: actions, errors and retries), bounded to 64
+  models plus an `other` bucket (#58).
+- `kitzur doctor --client-config` checks each OpenCode wire model against its own Kitzur profile.
+- `kitzur config export-opencode --model ID [--small-model ID]` prints a multi-model `opencode.jsonc`
+  generated from the profiles.
+- Limits declared by the upstream's `/v1/models` (`max_input_tokens`/`max_prompt_tokens`,
+  `max_output_tokens`/`max_completion_tokens`) are read per model: the prompt cap bounds the learned
+  maximum prompt, auto-window profiles use the declared window, and a startup warning names any configured
+  output limit above the declared output cap.
+- Each chat request's log line ends with an `outcome` (`ok`, `aborted`, `incomplete`, `upstream_error`
+  or `refused`). Mid-stream failures are detected: the client closing early, a stream that ends without
+  `[DONE]`, and an error event after the first chunk.
+- `doctor`, `/status` (JSON and `kitzur status`) and the `serve` file log show the resolved config file,
+  state directory and log file.
+- `kitzur tls-probe [origin] [--ca-file FILE]` inspects the upstream's TLS certificate chain and names the
+  failing link: missing intermediate (leaf only), unknown root, self-signed, expired or hostname mismatch,
+  with a repair hint.
+- `replay` JSON and the stats file record the final retention decisions of each compaction.
+- Retention-quality bench scenarios (correction survival, evidence re-read and task acceptance at served
+  32k and 64k windows), reported beside the compression ratio.
+- `docs/GOBSTOPPER-INTEROP.md` and a synthetic fixture describe importing Kitzur's stats into Gobstopper's
+  legacy importer.
+
+### Changed
+
+- `kitzur report` streams the stats file instead of loading it whole, so large logs stay within bounded
+  memory. Its coverage section states when history completeness and the dropped-record total are unknown
+  (`historyComplete` and `droppedRecords` are `null`).
+- README and docs restructured: a first-success 32k path up top, a task-routed docs index, and
+  compatibility, retention-limit and evidence tables.
+
+### Fixed
+
+- `kitzur doctor` no longer warns on the default setup: a Kitzur trigger that lands exactly on OpenCode's
+  compaction point is accepted, and a 401 or 403 from `/v1/models` counts as reachable. Set
+  `KITZUR_PROBE_TOKEN` to send a key with the upstream check only.
+- The README's Node.js badge said 20 or newer; it now matches the required Node.js 22.
+
 ## [0.2.1] — 2026-10-19
 
 Requires **Node.js 22 or newer**.

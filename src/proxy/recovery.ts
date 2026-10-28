@@ -1,9 +1,10 @@
-// The per-request attempt ladder (DESIGN.md, §8, §9; ).
+// The per-request attempt ladder (DESIGN.md).
 //
 // runChat() turns one client chat request into at most errors.maxRetries + 1 upstream attempts:
 //   attempt 1   the engine's output; on an engine exception or a failed guard the client's original
 //               bytes, but only if serverFits(original, T_req) (or counting itself failed), else the
-//               §5.7 400 without an upstream call (I7). An unsafe-integer body is never rewritten ().
+//               kitzur 400 without an upstream call (internal failures fail open). An unsafe-integer
+//               body is never rewritten.
 //   attempt k+1 after a classified upstream error, per kind:
 //     overflow_*            learn (validated window / prompt limit / correction, or the idempotent,
 //                           capped tighten), persist, re-plan; if not strictly smaller, re-plan once
@@ -14,14 +15,14 @@
 //                           unchanged when the mandatory units' images alone exceed it; else re-plan
 //     gateway_error / overflow_suspect   one request-local tightened retry, only near `hard`; the
 //                           tighten is persisted after two distinct chains within 24 h both succeeded
-//     unmatched 400/422/500 on a rewritten request ()   resend the original once if it fits, else
+//     unmatched 400/422/500 on a rewritten request     resend the original once if it fits, else
 //                           a translated 400 context_length_exceeded
 //     excluded              unchanged
 //   an injected include_usage rejected (the stream_options exclusion, or any 4xx other than 429 whose
-//   body names stream_options / include_usage) is retried once without the injection (not an attempt, )
-// Every attempt k+1 is strictly smaller than attempt k (: raw < raw_k, or = and M < M_k; bytes ≤
+//   body names stream_options / include_usage) is retried once without the injection (not an attempt)
+// Every attempt k+1 is strictly smaller than attempt k (raw < raw_k, or = and M < M_k; bytes ≤
 // bytes_k, < for a 413) and never larger than the client's request; no attempt ≥ 2 is the original,
-// except the  resend. When recovery ends, overflow kinds are translated for the client ().
+// except the rewrite-rejection resend. When recovery ends, overflow kinds are translated for the client.
 //
 // The I/O (engine, counter, upstream, state) is injected through LadderIO, so the ladder is tested
 // without HTTP; src/proxy/server.ts supplies the streaming implementation.
@@ -39,31 +40,31 @@ import {
   OVERFLOW_KINDS, STREAM_OPTIONS_EXCLUSION, TRANSLATED_KINDS, overshootOf, validateNumbers, type Classification, type ErrorClassifier,
 } from './errors.js';
 
-// ---------------------------------------------------------------- attempt sizes ()
+// ---------------------------------------------------------------- attempt sizes
 
-/** a = (raw(a), bytes(a), M(a)): uncorrected tokens, §3 bytes, forwarded max_tokens. */
+/** a = (raw(a), bytes(a), M(a)): uncorrected tokens, request bytes, forwarded max_tokens. */
 export interface AttemptSize {
   raw: number;
   bytes: number;
   maxTokens: number;
 }
 
-/** Attempt k+1 must be strictly smaller than attempt k (). */
+/** Attempt k+1 must be strictly smaller than attempt k. */
 export function strictlySmaller(next: AttemptSize, prev: AttemptSize, kind?: ErrorKind): boolean {
   const tokens = next.raw < prev.raw || (next.raw === prev.raw && next.maxTokens < prev.maxTokens);
   const bytes = kind === 'payload_too_large' ? next.bytes < prev.bytes : next.bytes <= prev.bytes;
   return tokens && bytes;
 }
 
-/** No attempt is larger than the client's request, in raw tokens or bytes (I7). */
+/** No attempt is larger than the client's request, in raw tokens or bytes. */
 export const withinOriginal = (a: AttemptSize, original: AttemptSize): boolean => a.raw <= original.raw && a.bytes <= original.bytes;
 
-// ---------------------------------------------------------------- learning (§8, )
+// ---------------------------------------------------------------- learning
 
 export interface LearnResult {
   entry: LearnedEntry;
   changed: boolean;
-  /** the kind after validation: a refused window turns an overflow into overflow_unknown () */
+  /** the kind after validation: a refused window turns an overflow into overflow_unknown */
   kind: ErrorKind;
   notes: string[];
 }
@@ -73,7 +74,7 @@ const ceil256 = (x: number): number => Math.ceil(x / 256) * 256;
 const cloneEntry = (e: LearnedEntry): LearnedEntry => ({ ...e, tightenLog: [...e.tightenLog], ratios: [...e.ratios], pendingTighten: [...e.pendingTighten] });
 
 /**
- * The overflow_unknown rule (§8), idempotent and capped:
+ * The overflow_unknown rule, idempotent and capped:
  *   budget₀ = W − T_plan − margin; maxTighten = floor(maxTightenFraction · budget₀)
  *   E.tighten := min(maxTighten, max(E.tighten, ceil256(budget₀ − floor(0.95 · raw(rejected)))))
  * Each change appends {rule, at, rejectedRaw} to E.tightenLog.
@@ -145,7 +146,7 @@ export function learnFromOverflow(e: LearnedEntry, c: Classification, rejectedRa
   return { entry: changed ? next : e, changed, kind, notes };
 }
 
-/** A 413 teaches a byte limit, never a token tighten (). */
+/** A 413 teaches a byte limit, never a token tighten. */
 export function learnFrom413(e: LearnedEntry, rejectedBytes: number, now: Date): { entry: LearnedEntry; changed: boolean } {
   const lim = Math.min(e.maxBodyBytes ?? Infinity, Math.floor(0.9 * rejectedBytes));
   if (lim === e.maxBodyBytes) return { entry: e, changed: false };
@@ -157,7 +158,7 @@ const DAY_MS = 24 * 3600 * 1000;
 /**
  * A request-local tightened retry of an ambiguous error (gateway_error, overflow_suspect) succeeded.
  * The tighten is persisted only once two distinct chains did so within 24 h, with the overflow_unknown
- * rule and the smaller rejected raw count (); until then the success waits in E.pendingTighten.
+ * rule and the smaller rejected raw count; until then the success waits in E.pendingTighten.
  */
 export function notePendingSuccess(e: LearnedEntry, chainKey: string, rejectedRaw: number, rule: string, cfg: Config, now: Date): { entry: LearnedEntry; changed: boolean; persisted: boolean } {
   const cutoff = now.getTime() - DAY_MS;
@@ -181,7 +182,7 @@ export function maxTokensRetryValue(cfg: Config, e: LearnedEntry, extraTighten: 
 
 /**
  * Bytes of the image parts of a request's mandatory units: the newest assistant message and every
- * message after it (§5.1). If they alone exceed the learned byte limit, no re-plan can fit ().
+ * message after it. If they alone exceed the learned byte limit, no re-plan can fit.
  */
 export function mandatoryImageBytes(req: ChatRequest): number {
   const msgs = req.messages;
@@ -208,7 +209,7 @@ export interface OutgoingAttempt {
   req: ChatRequest;
   /** its bytes (the client's own bytes when unchanged) */
   body: Buffer;
-  /** the request and bytes before any include_usage injection ( retries without it) */
+  /** the request and bytes before any include_usage injection (a retry without it starts from these) */
   baseReq: ChatRequest;
   baseBody: Buffer;
   /** the client's request (messages and max_tokens as sent; include_usage injection aside) */
@@ -281,7 +282,7 @@ export interface ChatResult {
   rewriteRejected?: { ruleId: string; status: number };
   /** any engine result of this request compacted */
   compacted: boolean;
-  /** the  resend of the original happened */
+  /** the resend of the original happened */
   originalResent: boolean;
   engineMs: number;
 }
@@ -311,19 +312,19 @@ export interface LadderInput {
   shadow: boolean;
 }
 
-/** The kitzur message of a translated overflow (numbers per §5.7; never a client retry run). */
+/** The kitzur message of a translated overflow (numbers via formatK, so never a client retry run). */
 export function overflowMessage(countTokens: number | null, window: number): string {
   const need = countTokens !== null && Number.isFinite(countTokens) ? `about ${formatK(countTokens)} prompt tokens` : 'a prompt';
   return `kitzur: the model server rejected ${need} as too long for its context window (about ${formatK(window)} tokens), even after compaction. Compact the conversation or start a new session.`;
 }
 
-/** The §5.7 (c) message for a request the proxy refuses itself. */
+/** The message for a request the proxy refuses itself. */
 export function refuseMessage(countTokens: number, fit: number, window: number, reply: number): string {
   const need = Number.isFinite(countTokens) ? `needs about ${formatK(countTokens)} tokens, but ` : 'does not fit: ';
   return `kitzur: this request ${need}at most ${formatK(Math.max(0, fit))} fit in this model's window (${formatK(window)}) after reserving ${formatK(reply)} for the reply. Compact the conversation or start a new session.`;
 }
 
-/** An error body that names the injected field (). */
+/** An error body that names the injected field. */
 const USAGE_FIELD = /stream_options|include_usage/;
 
 const NO_FORWARD: ReadonlySet<EngineAction> = new Set<EngineAction>(['impossible', 'guard_reject', 'guard_fallback', 'shadow']);
@@ -339,7 +340,7 @@ export async function runChat(inp: LadderInput, io: LadderIO): Promise<ChatResul
 
   // -------------------------------------------------------- sizes
   // bytes() walks tools recursively (canonicalJSON): a pathologically deep body overflows the stack.
-  // That is a counting failure (NaN blocks every size-based retry), never an internal error (I7).
+  // That is a counting failure (NaN blocks every size-based retry), never an internal error.
   const bytesOf = (r: ChatRequest): number => {
     try {
       return requestBytes(r);
@@ -388,7 +389,7 @@ export async function runChat(inp: LadderInput, io: LadderIO): Promise<ChatResul
 
   // -------------------------------------------------------- attempts
   const injectUsage = (a: OutgoingAttempt): OutgoingAttempt => {
-    // never into an unsafe-integer body: the injection re-serializes it and would change the number ()
+    // never into an unsafe-integer body: the injection re-serializes it and would change the number
     if (inp.shadow || parsed.unsafeInteger || !cfg.stream.injectIncludeUsage || !isStreaming(a.req) || clientWantsUsage(a.req) || io.learned().includeUsageRejected) return a;
     const req = withIncludeUsage(a.baseReq);
     return { ...a, req, body: serializeChatRequest(req), injectedUsage: true, size: undefined };
@@ -428,7 +429,7 @@ export async function runChat(inp: LadderInput, io: LadderIO): Promise<ChatResul
   let E = io.learned();
   let cur: OutgoingAttempt;
   if (inp.shadow) {
-    // shadow mode is transparent: the original bytes go out whatever the engine (or ) would do
+    // shadow mode is transparent: the original bytes go out whatever the engine would do
     if (parsed.unsafeInteger) out.reason = 'unsafe_integer';
     const t0 = performance.now();
     try {
@@ -462,7 +463,7 @@ export async function runChat(inp: LadderInput, io: LadderIO): Promise<ChatResul
     out.last = r;
     if (r?.action === 'compact') out.compacted = true;
     if (!r) {
-      // I7: the original only if it fits the server limit, or if counting itself failed
+      // fail open: the original only if it fits the server limit, or if counting itself failed
       if (originalFits(E) === false) {
         out.action = 'guard_reject';
         out.final = refuse(E);
@@ -485,7 +486,7 @@ export async function runChat(inp: LadderInput, io: LadderIO): Promise<ChatResul
     } else if (r.action === 'guard_fallback') {
       out.action = 'guard_fallback';
       out.guard = r.stats.guard ?? r.reason ?? 'guard';
-      // I7 belt and braces: the original goes out only if it fits the server limit (or counting failed)
+      // belt and braces: the original goes out only if it fits the server limit (or counting failed)
       if (originalFits(E) === false) {
         out.action = 'guard_reject';
         out.final = refuse(E);
@@ -518,7 +519,7 @@ export async function runChat(inp: LadderInput, io: LadderIO): Promise<ChatResul
   let pending: { chainKey: string; rejectedRaw: number; rule: string } | null = null;
 
   const candidateOK = (a: OutgoingAttempt | null, rejected: AttemptSize, kind: ErrorKind): a is OutgoingAttempt => {
-    if (!a || a.original) return false; // never the original on a retry ()
+    if (!a || a.original) return false; // never the original on a retry
     const s = sizeOf(a);
     return Number.isFinite(s.raw) && strictlySmaller(s, rejected, kind) && withinOriginal(s, originalSize());
   };
@@ -627,7 +628,7 @@ export async function runChat(inp: LadderInput, io: LadderIO): Promise<ChatResul
     let next: OutgoingAttempt | Final | null = null;
     const now = io.now();
 
-    // Every rejection teaches (§8), whether or not a retry follows: the last attempt's rejection
+    // Every rejection teaches, whether or not a retry follows: the last attempt's rejection
     // (and every one with maxRetries 0) still updates the learned entry for the next request.
     let learnedKind: ErrorKind = c.kind;
     const overflowish = c.kind === 'max_tokens_too_large' || OVERFLOW_KINDS.has(c.kind);
@@ -670,7 +671,7 @@ export async function runChat(inp: LadderInput, io: LadderIO): Promise<ChatResul
     } else if (c.kind === 'payload_too_large') {
       const limit = io.learned().maxBodyBytes ?? Infinity;
       if (mandatoryImageBytes(cur.req) > limit) {
-        out.final = { type: 'relay', error: res }; // OpenCode strips the media on a 413 ()
+        out.final = { type: 'relay', error: res }; // OpenCode strips the media on a 413
         return out;
       }
       const r = process({ attempt: k + 1, learned: io.learned() });
@@ -746,7 +747,7 @@ export function attemptRecords(r: ChatResult, count: (req: ChatRequest) => numbe
       }
       a.size = { raw, bytes: NaN, maxTokens: requestMaxTokens(a.req, cfg.budget.defaultMaxTokens) }; // bytes() not needed here
     }
-    // bytes: what was actually sent (the §3 bytes() of the size order is used only inside the ladder)
+    // bytes: what was actually sent (the bytes() of the size order is used only inside the ladder)
     const rec: { status: number | null; kind: ErrorKind | 'ok'; inStream: boolean; raw: number; bytes: number; maxTokens: number; overshoot?: number; upstreamMs: number } = {
       status: l.status, kind: l.kind, inStream: l.inStream, raw: Number.isFinite(a.size.raw) ? a.size.raw : -1, bytes: a.body.length,
       maxTokens: a.size.maxTokens, upstreamMs: Math.round(l.upstreamMs * 10) / 10,

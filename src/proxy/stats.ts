@@ -1,4 +1,4 @@
-// Stats JSONL (DESIGN.md "Stats JSONL"; reference implementation; bench/README.md§12).
+// Stats JSONL (reference implementation).
 // One record per client chat request, written after the request completed, in completion order.
 // Sizes and timings only: never message content, query strings or header values, with one exception:
 // client_session, the client's own session id header (x-session-id / x-sim-session, at most 128 chars).
@@ -29,9 +29,9 @@ export interface ProxyStatsRecord extends StatsRecord {
   reason?: string;
   /** forwarded max_tokens value (last attempt) */
   max_tokens?: number;
-  /** a stream ended with no [DONE] and no finish_reason () */
+  /** a stream ended with no [DONE] and no finish_reason */
   upstream_incomplete?: boolean;
-  /** the  resend of the original happened */
+  /** the resend of the original happened */
   original_resent?: boolean;
   /** kitzur injected include_usage and stripped the usage chunk */
   usage_injected?: boolean;
@@ -42,6 +42,8 @@ export interface ProxyStatsRecord extends StatsRecord {
   /** time spent in upstream attempts (all of them) */
   upstream_ms?: number;
   cpu_us?: number;
+  /** selected model profile, captured from the request-pinned runtime */
+  profile?: string;
 }
 
 export class StatsWriter {
@@ -117,6 +119,7 @@ export interface StatsInput {
   respPathMs?: number;
   cpuUs?: number;
   upstreamMs?: number;
+  profile?: string;
 }
 
 /** Builds the JSONL record (StatsRecord field order first, then kitzur extras). */
@@ -136,6 +139,7 @@ export function buildStatsRecord(s: StatsInput): ProxyStatsRecord {
     action: s.action,
     ...(s.first?.replan ? { replan: s.first.replan } : {}),
     ...(plan ? { fit: plan.fit } : {}),
+    ...(st?.retention ? { retention: st.retention } : {}),
     messages_in: s.first?.stats.messagesIn ?? 0,
     messages_out: s.forwarded === 'none' ? 0 : s.shadow || s.forwarded === 'original' ? (s.first?.stats.messagesIn ?? 0) : (st?.messagesOut ?? s.first?.stats.messagesIn ?? 0),
     tokens_in: tokensIn,
@@ -161,6 +165,7 @@ export function buildStatsRecord(s: StatsInput): ProxyStatsRecord {
     carry_chars: 0,
     threshold_tokens: st?.budget.trigger ?? 0,
     ratio_permille: Math.round(s.correction * 1000),
+    ...(s.profile ? { profile: s.profile } : {}),
   };
   if (s.clientSession) rec.client_session = s.clientSession;
   if (s.shadow) {

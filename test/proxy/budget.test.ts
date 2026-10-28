@@ -4,7 +4,7 @@ import { budgetModeOf, budgetQuantities, serverFits, serverLimits } from '../../
 import { freshLearnedEntry } from '../../src/proxy/state.js';
 import { testConfig } from './harness.js';
 
-test('§3 quantities reproduce the DESIGN preset table (32k/8k, 64k/16k, 100k/32k, 128k/32k)', () => {
+test('budget quantities reproduce the preset table (32k/8k, 64k/16k, 100k/32k, 128k/32k)', () => {
   const rows: Array<[number, number, number, number, number, number, number]> = [
     // window, T_plan, budget, clientPoint, allowance, hard=trigger, target
     [32_000, 8000, 23_488, 24_000, 4000, 20_000, 7000],
@@ -34,7 +34,7 @@ test('learned entry and tighten enter the budget; serverFits per mode', () => {
   assert.equal(serverFits(9501, 0, { ...lim, mode: 'silent_truncate' }), false);
 });
 
-test('budget mode precedence ()', () => {
+test('budget mode precedence', () => {
   assert.equal(budgetModeOf(testConfig({ server: { type: 'llamacpp', budgetMode: 'strict_total' } })), 'strict_total');
   assert.equal(budgetModeOf(testConfig({ server: { type: 'tgi' }, budget: { limitCountsMaxTokens: true } })), 'tgi');
   assert.equal(budgetModeOf(testConfig({ server: { type: 'vllm' }, budget: { limitCountsMaxTokens: false } })), 'prompt_only');

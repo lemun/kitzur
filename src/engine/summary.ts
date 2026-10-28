@@ -1,4 +1,4 @@
-// The summary message (DESIGN.md): one `user` message right after the head, stable parts first ():
+// The summary message (DESIGN.md): one `user` message right after the head, stable parts first:
 //
 //   SUMMARY_HEADER
 //
@@ -8,14 +8,14 @@
 //
 //   [kitzur] Messages a–b were compacted (compaction k).
 //
-// Eviction (§6.4, ADR-9): every user fact is always rendered (at the current shortening step); then the longest
+// Eviction: every user fact is always rendered (at the current shortening step); then the longest
 // prefix of the one strict total order (ledger/index.ts compareItems) that fits `budgetTokens`, counted exactly as
 // the summary message inside the prompt. Without allowFloorEviction the floor (decision, todo, file, rest,
 // narrative tier 1) is always rendered in full. Items inside a section render in first-appearance order.
 import { createHash } from 'node:crypto';
 import type { ChatMessage, TokenCounter, ToolCall } from '../types.js';
 import type { Config } from '../config/schema.js';
-import type { SummarizerFactory, Summarizer, SummaryInput, SummaryOptions, SummaryRender } from './contracts.js';
+import type { SummarizerFactory, Summarizer, SummaryInput, SummaryOptions, SummaryRender, RetentionAttribution } from './contracts.js';
 import { SUMMARY_HEADER } from './contracts.js';
 import { digestOf } from '../tokenize/canonical.js';
 import { createToolRulesExt } from './rules/index.js';
@@ -85,7 +85,7 @@ export interface SummarizerExt extends Summarizer {
   messageTokens(text: string): number;
 }
 
-const EMPTY: SummaryRender = { text: null, tokens: 0, floorTokens: 0, kept: 0, dropped: 0, categories: {} };
+const EMPTY: SummaryRender = { text: null, tokens: 0, floorTokens: 0, kept: 0, dropped: 0, categories: {}, attribution: [] };
 
 export function createSummarizerExt(cfg: Config, counter: TokenCounter): SummarizerExt {
   const rules = createToolRulesExt(cfg);
@@ -148,7 +148,7 @@ export function createSummarizerExt(cfg: Config, counter: TokenCounter): Summari
   const renderDetailed = (input: SummaryInput, opts: SummaryOptions): SummaryDetail => {
     const { hEnd, cut } = input;
     if (!(cut > hEnd) || cut > input.messages.length) {
-      return { render: { ...EMPTY, categories: {} }, items: [], prefixTokens: () => 0, orderLength: 0, floorCount: 0 };
+      return { render: { ...EMPTY, categories: {}, attribution: [] }, items: [], prefixTokens: () => 0, orderLength: 0, floorCount: 0 };
     }
     const ledger = ledgerFor(input);
     const users = ledger.items.filter((i) => i.category === 'user');
@@ -207,7 +207,19 @@ export function createSummarizerExt(cfg: Config, counter: TokenCounter): Summari
       if (j < k) c.kept++;
       else c.dropped++;
     });
-    const render: SummaryRender = { text, tokens, floorTokens, kept: users.length + k, dropped: others.length - k, categories };
+    const attribution: RetentionAttribution[] = [...users, ...others].map((it, j) => {
+      const kept = j < users.length + k;
+      return {
+        category: it.category,
+        sources: it.sources.map((source) => source.kind === 'tool-result'
+          ? { ...source, ...(source.call ? { call: { ...source.call } } : {}) } : { ...source }),
+        supersededBy: [...(it.supersededBy ?? [])],
+        disposition: kept ? 'summarized' : 'dropped',
+        reason: !kept ? 'budget-eviction' : it.category === 'user' ? 'user-instruction'
+          : !opts.allowFloorEviction && FLOOR_CATEGORIES.has(it.category) ? 'protected-floor' : 'priority-prefix',
+      };
+    });
+    const render: SummaryRender = { text, tokens, floorTokens, kept: users.length + k, dropped: others.length - k, categories, attribution };
     const items = [
       ...users.map((u) => ({ id: u.id, category: u.category, floor: true, kept: true })),
       ...others.map((it, j) => ({ id: it.id, category: it.category, floor: j < floorCount, kept: j < k })),

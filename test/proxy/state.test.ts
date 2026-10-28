@@ -84,7 +84,7 @@ test('async persistence failures stay visible and a later flush recovers', async
   assert.equal(readLearnedState(join(blocked, 'learned.json')).state.entries['k']?.window, 12_000);
 });
 
-test('entries learned under another window or counter are discarded at load ()', () => {
+test('entries learned under another window or counter are discarded at load', () => {
   const dir = tmp();
   const mk = (w: number, c: string): LearnedEntry => ({ ...freshLearnedEntry(w, c), window: 50_000, tighten: 512 });
   writeFileSync(join(dir, 'learned.json'), JSON.stringify({ version: 2, entries: { 'o|a': mk(100_000, 'c1'), 'o|b': mk(64_000, 'c1'), 'o|c': mk(100_000, 'c2') } }));
@@ -142,7 +142,7 @@ test('planningChanged covers the planning inputs and includeUsageRejected', () =
   assert.equal(planningChanged(undefined, e), false);
 });
 
-// ---------------------------------------------------------------- calibration ()
+// ---------------------------------------------------------------- calibration
 
 test('ceil_1% and p90', () => {
   assert.equal(ceil1pct(1.02), 1.02);

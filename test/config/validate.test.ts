@@ -70,7 +70,7 @@ test('validate: regexes (cues, label pattern, test commands, error rules, exclus
   assert.deepEqual(errorsOf(cfgWith((c) => (c.errors.exclusions = [{ id: 'rl', match: 'rate limit', flags: 'i' }]))), []);
 });
 
-test('validate:  fraction and trigger/target rules', () => {
+test('validate: fraction and trigger/target rules', () => {
   assert.match(errorsOf(cfgWith((c) => (c.compaction.triggerFraction = 1.01)))[0]!, /triggerFraction/);
   assert.match(errorsOf(cfgWith((c) => (c.compaction.targetFraction = 1)))[0]!, /targetFraction/);
   assert.match(errorsOf(cfgWith((c) => (c.compaction.targetFraction = 0)))[0]!, /targetFraction/);
@@ -83,7 +83,7 @@ test('validate:  fraction and trigger/target rules', () => {
   assert.ok(clampWarn.some((w) => /triggerTokens 66000 is above hard 61000; it is clamped/.test(w)));
 });
 
-test('validate:  budget-mode conflict is an error', () => {
+test('validate: budget-mode conflict is an error', () => {
   const c = cfgWith((x) => {
     x.server.budgetMode = 'strict_total';
     x.budget.limitCountsMaxTokens = false;
@@ -100,7 +100,7 @@ test('validate: an unusable budget is an error with a preset hint', () => {
   assert.match(hardErr[0]!, /no room below the client's compaction point/);
 });
 
-test('validate: startup warnings ( clamp,  T_plan,  snapshot, preset mismatch)', () => {
+test('validate: startup warnings (clamp, T_plan, snapshot, preset mismatch)', () => {
   const clamp = warningsOf(cfgWith((c) => (c.budget.maxTokensClamp.enabled = true)));
   assert.ok(clamp.some((w) => /^clamp enabled but unreachable: range \(61000, 61000\) is empty/.test(w)), clamp.join('\n'));
   const reachable = warningsOf(cfgWith((c) => {
@@ -126,6 +126,8 @@ test('validate: startup warnings ( clamp,  T_plan,  snapshot, preset mismatch)',
   const alone = loadConfig({ env: { KITZUR_WINDOW: '64000' } });
   const aw = validateConfig(alone.config, { provenance: alone.provenance }).warnings;
   assert.ok(aw.some((w) => /budget\.window=64000 \(env:KITZUR_WINDOW\) with the built-in budget\.defaultMaxTokens 32000; preset 64k uses 16000/.test(w)), aw.join('\n'));
+  // no empty or dangling parentheses in any of them
+  for (const w of [...clamp, ...tplan, ...snap]) assert.doesNotMatch(w, / \(\)|\(;/, w);
 });
 
 test('validate: messages carry the value source', () => {
@@ -175,4 +177,11 @@ test('validate: upstream.headers without listen.token warns on loopback; a token
   const exposed = cfgWith((c) => { c.upstream.headers = { authorization: 'x' }; c.listen.host = '0.0.0.0'; });
   assert.equal(tokenWarnings(exposed).length, 0);
   assert.ok(errorsOf(exposed).some((e) => /listen\.token is required/.test(e)));
+});
+
+test('model allowlist does not add models to the spec/default leaf parity contract', () => {
+  const l = loadConfig({ env: {}, object: { models: { a: { tokenizer: { mode: 'estimate' } } } } });
+  assert.deepEqual(leafPaths(l.config as unknown as Record<string, unknown>), [...DEFAULT_LEAVES]);
+  assert.equal(Object.hasOwn(LEAF_SPECS, 'models'), false);
+  assert.deepEqual(validateConfig(l.models['a']!).errors, []);
 });

@@ -2,16 +2,19 @@ import { fileURLToPath } from 'node:url';
 import { createConnection } from 'node:net';
 import { request } from 'node:http';
 import { existsSync, statSync, accessSync, constants, readFileSync } from 'node:fs';
-import { dirname, parse } from 'node:path';
+import { dirname, join, parse } from 'node:path';
 import { listenTokenWarning, validateConfig } from '../config/validate.js';
 import { computeBudget } from '../config/derived.js';
-import type { Config } from '../config/schema.js';
+import type { Config, ModelProfiles } from '../config/schema.js';
 import { stateDirOf } from '../config/paths.js';
+import { loadTokenizerCached } from '../tokenize/load.js';
 import { loadTokenizer } from '../tokenize/tokenizer.js';
 import { templateTokenizerWarning } from '../tokenize/template.js';
 import { parseJsonc } from '../config/jsonc.js';
 import { clientConfigChecks } from './client-config.js';
 import { Upstream } from '../proxy/upstream.js';
+import { formatPaths } from '../proxy/status.js';
+import { inspectTlsChain, renderTlsChain } from './tls-chain.js';
 
 export interface DoctorCheck { code: string; status: 'ok' | 'warn' | 'error'; message: string; fix?: string }
 export interface DoctorResult { checks: DoctorCheck[]; exitCode: number }
@@ -78,7 +81,7 @@ function nearestExistingDirectory(path: string): { path: string; blocked: boolea
 }
 
 /** Read-only local diagnostics. Network access is opt-in and uses the small models endpoint probe. */
-export async function doctor(config: Config, opts: { env?: Record<string, string | undefined>; upstreamCheck?: boolean; timeoutMs?: number; configPath?: string; clientConfigPath?: string } = {}): Promise<DoctorResult> {
+export async function doctor(config: Config, opts: { env?: Record<string, string | undefined>; upstreamCheck?: boolean; timeoutMs?: number; configPath?: string; clientConfigPath?: string; models?: ModelProfiles; model?: string } = {}): Promise<DoctorResult> {
   const checks: DoctorCheck[] = [];
   const add = (code: string, status: DoctorCheck['status'], message: string, fix?: string): void => { checks.push({ code, status, message, ...(fix ? { fix } : {}) }); };
 
@@ -103,8 +106,41 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
     else add('budget.client_limits', 'ok', 'Configured plan output and client limits are compatible.');
   }
 
+  const modelEntries = Object.entries(opts.models ?? {}).filter(([model]) => !opts.model || model === opts.model);
+  if (opts.model && !(opts.models && Object.hasOwn(opts.models, opts.model))) {
+    add(`model.${opts.model}.profile`, 'warn', 'No exact model profile is configured; root defaults apply.');
+  }
+  for (const [model, profile] of modelEntries) {
+    try {
+      const budget = computeBudget(profile);
+      add(`model.${model}.budget`, budget.budget > 0 && budget.hard > 1 ? 'ok' : 'error', `window=${budget.window}; prompt=${budget.budget}; hard=${budget.hard}`);
+    } catch {
+      add(`model.${model}.budget`, 'error', 'Profile budget could not be calculated.');
+    }
+    const code = `model.${model}.tokenizer`;
+    if (profile.tokenizer.mode === 'estimate' || !profile.tokenizer.path) {
+      add(code, 'warn', `counter=estimate; reason=${profile.tokenizer.mode === 'estimate' ? "tokenizer.mode is 'estimate'" : 'tokenizer.path is not set'}; sha256=null; sourceBytes=0; loadMs=0`);
+      continue;
+    }
+    try {
+      const sourceBytes = statSync(profile.tokenizer.path).size;
+      if (sourceBytes > 64 * 1024 * 1024) {
+        add(code, 'warn', `counter=estimate; reason=tokenizer source exceeds 64 MiB; sha256=null; sourceBytes=${sourceBytes}; loadMs=0`);
+        continue;
+      }
+      const started = performance.now();
+      const cachePath = profile.tokenizer.path !== config.tokenizer.path && profile.tokenizer.cachePath === config.tokenizer.cachePath ? null : profile.tokenizer.cachePath;
+      const tok = loadTokenizerCached(profile.tokenizer.path, cachePath);
+      add(code, 'ok', `counter=exact; sha256=${tok.sha256}; sourceBytes=${sourceBytes}; loadMs=${Math.round(performance.now() - started)}`);
+      const warning = templateTokenizerWarning(profile.tokenizer.template.name, tok);
+      if (warning) add(`model.${model}.template`, 'warn', warning);
+    } catch (error) {
+      add(code, 'warn', `counter=estimate; reason=${(error as Error).message}; sha256=null; sourceBytes=0; loadMs=0`);
+    }
+  }
+
   if (opts.clientConfigPath) {
-    try { checks.push(...clientConfigChecks(config, parseJsonc(readFileSync(opts.clientConfigPath, 'utf8')))); }
+    try { checks.push(...clientConfigChecks(config, parseJsonc(readFileSync(opts.clientConfigPath, 'utf8')), opts.models)); }
     catch { add('client.config', 'error', 'Client configuration could not be read as JSON/JSONC.'); }
   }
 
@@ -141,6 +177,7 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
     } catch { add(code, 'warn', `${label} directory is not accessible.`, 'Check directory permissions and configured path.'); }
   };
   const statePath = stateDirOf(config, opts.env);
+  add('paths', 'ok', formatPaths({ config: opts.configPath ?? null, state_dir: statePath, log_file: config.log.file ?? join(statePath, 'logs', `kitzur-${new Date().toISOString().slice(0, 10)}.log`) }));
   pathCheck('state.directory', statePath, 'State');
   if (config.stats.path) {
     try {
@@ -173,10 +210,20 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
       const requestedTimeout = opts.timeoutMs ?? config.upstream.timeoutMs;
       cfg.timeoutMs = Number.isFinite(requestedTimeout) ? Math.max(1, Math.min(10_000, Math.floor(requestedTimeout))) : 3000;
       upstream = new Upstream(cfg);
-      const result = await upstream.probe();
+      const token = (opts.env ?? process.env).KITZUR_PROBE_TOKEN;
+      const hasAuth = Object.keys(cfg.headers).some((key) => /authorization|api[-_]?key|token|cookie/i.test(key));
+      if (token) for (const key of Object.keys(cfg.headers)) if (key.toLowerCase() === 'authorization') delete cfg.headers[key];
+      const result = await upstream.probe('/v1/models', token ? { authorization: 'Bearer ' + token } : {});
       const status = result.status ?? 0;
-      if (status >= 200 && status < 300) add('upstream.reachable', 'ok', `Upstream responded to the lightweight models probe (HTTP ${status}).`);
-      else if (status === 401 || status === 403) add('upstream.reachable', 'warn', `Upstream is reachable but the models probe requires authorization (HTTP ${status}).`, 'Check upstream.headers authorization configuration.');
+      if (result.tlsError) {
+        let diagnosis: string;
+        try { diagnosis = renderTlsChain(await inspectTlsChain({ origin: cfg.origin!, caFile: cfg.caFile, timeoutMs: Math.min(5000, cfg.timeoutMs) })); }
+        catch { diagnosis = 'TLS chain inspection could not be completed; check upstream.caFile and network availability.'; }
+        add('upstream.tls', 'error', `TLS verification failed: ${result.tlsError}\n${diagnosis}`, 'Check the chain diagnosis and upstream.caFile.');
+      } else if (status >= 200 && status < 300) add('upstream.reachable', 'ok', `Upstream responded to the lightweight models probe (HTTP ${status}).${token ? ' Key accepted.' : ''}`);
+      else if (status === 401 || status === 403) add('upstream.reachable', 'warn',
+        token ? 'Metadata needs a key; the probe key was rejected.' : hasAuth ? 'Metadata needs a key; the configured key was rejected.' : 'Metadata needs a key to read /v1/models.',
+        token ? 'Check KITZUR_PROBE_TOKEN.' : hasAuth ? 'Check upstream.headers authorization configuration.' : undefined);
       else if (status === 404) add('upstream.reachable', 'warn', 'Upstream is reachable but /v1/models is unavailable (HTTP 404).', 'Check the upstream gateway route.');
       else add('upstream.reachable', 'error', 'Upstream probe failed.', 'Check upstream.origin, TLS settings, and network availability.');
     } catch { add('upstream.reachable', 'error', 'Upstream probe could not be completed.', 'Check upstream.origin and upstream configuration.'); }

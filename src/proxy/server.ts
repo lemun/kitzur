@@ -1,4 +1,4 @@
-// The HTTP proxy (DESIGN.md, §8-§10). Routes:
+// The HTTP proxy (DESIGN.md). Routes:
 //   POST …/chat/completions (any prefix)  engine + recovery ladder (recovery.ts), streamed relay
 //   GET /status, GET /kitzur/status      JSON status (status.ts)
 //   anything else                         streamed pass-through to the same upstream
@@ -8,7 +8,7 @@
 // Chat requests: the body is parsed by the dialect (fail-open: an unparseable, compressed or
 // non-object body is forwarded unchanged); the ladder decides what each attempt sends; send()
 // streams one attempt: non-2xx bodies are read and handed back to the ladder, SSE goes through the
-// first-event hold (from the upstream headers, ) and the relay (sse.ts), JSON is relayed as it
+// first-event hold (from the upstream headers) and the relay (sse.ts), JSON is relayed as it
 // arrives with a bounded tap copy. After the response: calibration (usage, or the tokenize endpoint
 // when no usage came back), the stats record and the status counters.
 //
@@ -32,14 +32,17 @@ import {
 import { hostAllowed } from './hostcheck.js';
 import { ErrorClassifier } from './errors.js';
 import { runChat, attemptRecords, type AttemptOutcome, type ChatResult, type ErrorOutcome, type Final, type OutgoingAttempt } from './recovery.js';
-import { SseRelay, type RelayStep } from './sse.js';
-import { Upstream, forwardRequestHeaders, forwardResponseHeaders, readBody, type ProbeResult, type UpstreamResponse } from './upstream.js';
+import { SseRelay } from './sse.js';
+import { relaySse } from './relay.js';
+import type { Rest } from './relay.js';
+import { Upstream, forwardRequestHeaders, forwardResponseHeaders, readErrorBody, type ProbeResult, type UpstreamResponse } from './upstream.js';
 import { learnedKey, type StateStore } from './state.js';
 import { buildStatsRecord, type StatsWriter } from './stats.js';
-import { StatusTracker, type RecentRequest } from './status.js';
+import { StatusTracker, type RecentRequest, type StatusExtras } from './status.js';
 import { applyAcceptedRatio, EndpointCalibrator, judgeSample, type CounterKind } from './calibration.js';
 import { budgetModeOf, serverLimits, budgetQuantities } from './budget.js';
 import { packageInfo } from '../config/paths.js';
+import type { ModelRuntimeMap } from './model-runtime.js';
 
 /**
  * true when a request may be served despite browser context: no Origin header and no cross-site or
@@ -59,10 +62,11 @@ export function isJsonContentType(ct: string | undefined): boolean {
 
 export interface ProxyDeps {
   watchdog?: LoopWatchdog;
+  modelRuntimes?: ModelRuntimeMap;
   engine: Engine;
   /** the local counter (exact or estimate); a 'remote' counter is refused */
   counter: TokenCounter & { profile?: TemplateProfile };
-  /** the gateway tokenize endpoint: a calibration source only () */
+  /** the gateway tokenize endpoint: a calibration source only */
   remote?: RemoteTokenizer | null;
   state: StateStore;
   stats: StatsWriter;
@@ -89,8 +93,20 @@ export interface ProxyServer {
   probe(): Promise<ProbeResult>;
 }
 
+export function declaredOutputCapWarning(model: string, maxOutput: number, planLimit: number, clientLimit: number | null): string | undefined {
+  const exceeded = [planLimit, clientLimit].filter((value): value is number => value !== null && maxOutput < value);
+  if (!exceeded.length) return undefined;
+  return `Model ${JSON.stringify(model)} upstream caps output at ${maxOutput}, you configured ${[...new Set(exceeded)].join(' and ')}: expect mid-answer truncation.`;
+}
+
 const MAX_JSON_TAP = 4 * 1024 * 1024;
 const JSON_CT = 'application/json';
+// These are response-safety limits, not transport policy: a configurable read deadline would let
+// one upstream error hold a client request open for an arbitrary time, while the byte cap bounds
+// memory and response size. Keep the fixed 5 s / 64 KiB limits here.
+const UPSTREAM_ERROR_READ_TIMEOUT_MS = 5_000;
+const UPSTREAM_ERROR_BODY_MAX_BYTES = 64 * 1024;
+const UPSTREAM_ERROR_TRUNCATION_MARKER = Buffer.from('\n\n[kitzur: upstream error body truncated]\n');
 
 function sendJson(res: ServerResponse, status: number, body: Buffer | string, extra: Record<string, string> = {}): void {
   const b = typeof body === 'string' ? Buffer.from(body, 'utf8') : body;
@@ -111,8 +127,11 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   const classifier = new ErrorClassifier(cfg.errors);
   const status = new StatusTracker(cfg, packageInfo().version,() => now().getTime());
   const endpoint = deps.remote && deps.counter.profile ? new EndpointCalibrator(deps.remote, deps.counter.profile) : null;
-  const mode = budgetModeOf(cfg);
-  for (const [k, e] of Object.entries(deps.state.entries())) deps.engine.setLearned(k, e);
+  for (const [k, e] of Object.entries(deps.state.entries())) {
+    const model = k.startsWith(`${origin}|`) ? k.slice(origin.length + 1) : undefined;
+    if (deps.modelRuntimes) deps.modelRuntimes.setLearned(model, k, e);
+    else deps.engine.setLearned(k, e);
+  }
   if (deps.state.discarded.length) status.warn('learned_discarded', `${deps.state.discarded.length} learned entries discarded (window or counter changed)`);
   if (deps.state.lastError) status.warn('state', deps.state.lastError);
 
@@ -164,6 +183,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       statsPath: deps.stats.path,
       statsError: deps.stats.lastError,
       upstream: { origin, ...upstream.stats, endpoint: deps.remote ? deps.remote.stats() : null },
+      modelTokenizers: deps.modelRuntimes?.tokenizerStatus(),
+      profiles: profileStatus(deps.modelRuntimes),
     }),
     concurrency_rejected: concurrencyRejected,
     ...deps.watchdog?.snapshot(),
@@ -208,7 +229,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     const url = req.url ?? '/';
     if (!url.startsWith('/')) {
       // absolute-form (`GET http://other.host/… HTTP/1.1`) would hand a client-chosen authority to the
-      // upstream: request paths never choose a host (§10), so only origin-form targets are served
+      // upstream: request paths never choose a host, so only origin-form targets are served
       sendJson(res, 400, errorBody('kitzur: only origin-form request targets are served', 'invalid_request_error', 'invalid_request_target'));
       return;
     }
@@ -323,6 +344,35 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     return { o, fields, inspect, end };
   }
 
+  const cutErrorBodies = new WeakMap<Buffer, { relay: Buffer; contentType: string }>();
+  async function readUpstreamError(up: UpstreamResponse): Promise<{ body: Buffer; relay: Buffer; contentType?: string }> {
+    const read = await readErrorBody(up.body, UPSTREAM_ERROR_READ_TIMEOUT_MS, UPSTREAM_ERROR_BODY_MAX_BYTES);
+    if (read.complete) return { body: read.body, relay: read.body };
+    log('warn', `upstream error body cut: ${read.reason} status=${up.status}`);
+    const marker = read.reason === 'size' ? UPSTREAM_ERROR_TRUNCATION_MARKER : Buffer.from(`\n\n[kitzur: upstream error body truncated (${read.reason})]\n`);
+    const prefix = read.body.subarray(0, UPSTREAM_ERROR_BODY_MAX_BYTES - marker.length);
+    const body = Buffer.concat([prefix, marker]);
+    // Keep a useful upstream prefix when size is the only limit hit. For timeout/close the prefix
+    // may be malformed or misleading, so return a valid generic error instead.
+    const relay = read.reason === 'size'
+      ? body
+      : errorBody(`kitzur: upstream error body truncated (${read.reason})`, 'upstream_error', 'upstream_error_body_truncated');
+    const contentType = read.reason === 'size' ? 'text/plain; charset=utf-8' : JSON_CT;
+    cutErrorBodies.set(body, { relay, contentType });
+    return { body, relay, contentType };
+  }
+
+  function errorHeaders(raw: string[], contentType?: string): string[] {
+    const headers = forwardResponseHeaders(raw, { dropContentLength: true });
+    if (!contentType) return headers;
+    const out: string[] = [];
+    for (let i = 0; i < headers.length; i += 2) {
+      if (!['content-type', 'content-encoding', 'content-md5', 'digest', 'etag'].includes(headers[i]!.toLowerCase())) out.push(headers[i]!, headers[i + 1]!);
+    }
+    out.push('content-type', contentType);
+    return out;
+  }
+
   async function passthrough(req: IncomingMessage, res: ServerResponse, body: Buffer, observation = observeResponse(res)): Promise<void> {
     status.passthroughRequests++;
     const ac = new AbortController();
@@ -341,6 +391,18 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         observation.o.outcome = 'upstream_error';
         sendJson(res, 502, upstreamUnavailableBody());
       }
+      return;
+    }
+    if (up.status < 200 || up.status >= 300) {
+      const { relay, contentType } = await readUpstreamError(up);
+      if (ac.signal.aborted) return;
+      observation.o.outcome = 'upstream_error';
+      observation.o.bytes += relay.length;
+      observation.end();
+      const headers = errorHeaders(up.rawHeaders, contentType);
+      headers.push('content-length', String(relay.length));
+      res.writeHead(up.status, up.statusMessage, headers);
+      res.end(relay);
       return;
     }
     if (String(up.headers['content-type'] ?? '').includes('text/event-stream')) observation.o.relay = new SseRelay({ hold: false, strip: false, committed: true, detectErrors: false });
@@ -450,22 +512,34 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       return;
     }
     const creq = parsed.value.req;
+    const runtime = deps.modelRuntimes?.forModel(creq.model);
+    const requestCfg = runtime?.cfg ?? cfg;
+    const requestEngine = runtime?.engine ?? deps.engine;
+    const requestCounter = runtime?.counter ?? deps.counter;
+    const requestProfile = creq.model && deps.modelRuntimes && deps.modelRuntimes.forModel(creq.model) !== deps.modelRuntimes.forModel()
+      ? creq.model : undefined;
+    const requestCounterMode: CounterKind = requestCounter.mode === 'exact' ? 'exact' : 'estimate';
+    if (deps.modelRuntimes?.shouldWarnUnknown(creq.model)) {
+      const message = `No model profile configured for ${JSON.stringify(creq.model)}; using the root runtime.`;
+      status.warn('model_runtime_fallback', message);
+      log('warn', message);
+    }
     const key = learnedKey(origin, creq.model);
     visible.model = creq.model ?? null;
     const learnedForModel = (): LearnedEntry => {
       const entry = deps.state.entry(key);
       const model = creq.model ?? '';
       const window = Object.hasOwn(discoveredWindows, model) ? discoveredWindows[model] : undefined;
-      if (isAutoWindow(cfg) && window !== undefined) entry.window = entry.window === null ? window : Math.min(entry.window, window);
-      return entry;
+      if (isAutoWindow(requestCfg) && window !== undefined) entry.window = entry.window === null ? window : Math.min(entry.window, window);
+      return deps.modelRuntimes?.learnedFor(creq.model, entry) ?? entry;
     };
-    if (isAutoWindow(cfg) && !Object.hasOwn(discoveredWindows, creq.model ?? '') && !fallbackWarned.has(creq.model ?? '')) {
+    if (isAutoWindow(requestCfg) && !Object.hasOwn(discoveredWindows, creq.model ?? '') && !fallbackWarned.has(creq.model ?? '')) {
       fallbackWarned.add(creq.model ?? '');
-      const message = `No context window discovered for model ${JSON.stringify(creq.model ?? '')}; using fallback ${cfg.budget.window}.`;
+      const message = `No context window discovered for model ${JSON.stringify(creq.model ?? '')}; using fallback ${requestCfg.budget.window}.`;
       status.warn('window_auto_fallback', message);
       log('warn', message);
     }
-    quantities = budgetQuantities(cfg, learnedForModel());
+    quantities = budgetQuantities(requestCfg, learnedForModel());
     visible.tokens.trigger = quantities.trigger;
     const clientWarning = status.clientRequest(creq, clientSession, quantities.trigger);
     if (clientWarning) log('warn', clientWarning);
@@ -486,7 +560,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       if (!committed) {
         const st = a.result?.stats;
         if (st) quantities = st.budget;
-        visible.action = cfg.shadow || !a.result ? 'passthrough' : actionOf(a.result.action);
+        visible.action = requestCfg.shadow || !a.result ? 'passthrough' : actionOf(a.result.action);
         visible.tokens.out = a.original ? visible.tokens.in : st?.tokensOut ?? visible.tokens.in;
         visible.tokens.trigger = quantities.trigger;
         setVisibleHeaders();
@@ -494,7 +568,10 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       status.forwardedPrompt(creq.model, clientSession, a.original ? visible.tokens.in : a.result?.stats.tokensOut ?? visible.tokens.in);
       upstreamCalls++;
       dropRest(); // a retry: the previous attempt's error is not relayed
-      if (a.n > 1) status.retries++;
+      if (a.n > 1) {
+        status.retries++;
+        status.modelRetry(creq.model ?? null);
+      }
       if (!firstClientByte) firstUpByte = 0; // respPath is measured on the attempt that reaches the client
       let up: UpstreamResponse;
       try {
@@ -512,7 +589,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         return { type: 'unavailable', committed, error: e instanceof Error ? e.message : String(e), upstreamMs: performance.now() - t0 };
       }
       if (up.status < 200 || up.status >= 300) {
-        const { body } = await readBody(up.body);
+        const { body } = await readUpstreamError(up);
         if (clientGone) return { type: 'aborted', upstreamMs: performance.now() - t0 };
         return {
           type: 'error', status: up.status, httpStatus: up.status, statusMessage: up.statusMessage, headers: up.rawHeaders, body,
@@ -521,7 +598,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       }
       const ctype = String(up.headers['content-type'] ?? '').toLowerCase();
       const sse = ctype.includes('text/event-stream') || (ctype === '' && isStreaming(a.req));
-      return sse ? relaySse(a, up, t0) : relayJson(up, t0);
+      return sse ? relaySse({ attempt: a, upstream: up, startedAt: t0, requestConfig: requestCfg, response: res, observation, isCommitted: () => committed, isClientGone: () => clientGone, setFirstUpByte: (time) => { if (!firstUpByte) firstUpByte = time; }, commit, write, log, setRest: (value) => { rest = value; } }) : relayJson(up, t0);
     };
 
     const write = (bufs: Buffer[], src: IncomingMessage): void => {
@@ -574,122 +651,6 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         up.body.on('error', () => undefined);
       });
 
-    const relaySse = (a: OutgoingAttempt, up: UpstreamResponse, t0: number): Promise<AttemptOutcome> =>
-      new Promise((resolve) => {
-        const hold = cfg.stream.holdFirstEvent && !committed;
-        const relay = new SseRelay({ hold, strip: a.injectedUsage, committed, detectErrors: cfg.errors.inStream });
-        observation.o.relay = relay;
-        const hdrs = forwardResponseHeaders(up.rawHeaders, { dropContentLength: true });
-        let finished = false;
-        let erroredAt: RelayStep['error'] | null = null;
-        let holdTimer: NodeJS.Timeout | null = null;
-        const apply = (step: RelayStep): void => {
-          if (step.commit) commit(up.status, up.statusMessage, hdrs);
-          write(step.writes, up.body);
-          observation.inspect();
-        };
-        const finish = (o: AttemptOutcome): void => {
-          if (finished) return;
-          finished = true;
-          if (holdTimer) clearTimeout(holdTimer);
-          resolve(o);
-        };
-        const errorOutcome = (): ErrorOutcome => {
-          const err = erroredAt!;
-          const held = relay.heldBytes(); // empty once flushed (commit or hold timeout)
-          return {
-            type: 'error', status: inStreamErrorStatus(err.json, up.status), httpStatus: up.status, statusMessage: up.statusMessage,
-            headers: up.rawHeaders, body: Buffer.from(err.payload, 'utf8'), inStream: true, committed,
-            streamBytes: Buffer.concat([held, err.event.raw, relay.tail()]), upstreamMs: performance.now() - t0,
-          };
-        };
-        if (hold) {
-          // : the hold starts at the upstream headers and ends at the first event, the end of body or the timer
-          holdTimer = setTimeout(() => {
-            holdTimer = null;
-            apply(relay.onHoldTimeout());
-          }, cfg.stream.firstEventTimeoutMs);
-          holdTimer.unref();
-        } else {
-          commit(up.status, up.statusMessage, hdrs); // no-op when a previous attempt committed
-        }
-        let cut: NodeJS.Timeout | null = null;
-        // the tail bound (2 s or TAIL_MAX bytes) was hit with the stream still open: stop reading and hand
-        // the rest to writeFinal, which relays it after the error if the error goes back unchanged, and
-        // destroys it otherwise (a retry). Cutting it here instead silently truncated an unchanged relay.
-        const park = (): void => {
-          if (cut) clearTimeout(cut);
-          cut = null;
-          up.body.off('data', onData);
-          const p: Rest = { body: up.body, parked: [], ended: false, closed: false, outcome: null };
-          up.body.on('data', (d: Buffer) => p.parked.push(d)); // a stray resume() never loses bytes
-          up.body.once('end', () => (p.ended = true));
-          up.body.once('close', () => (p.closed = true));
-          up.body.pause();
-          const o = errorOutcome();
-          p.outcome = o;
-          rest = p;
-          finish(o);
-        };
-        const onData = (d: Buffer): void => {
-          if (!firstUpByte) firstUpByte = performance.now();
-          const step = relay.onChunk(d);
-          if (erroredAt) {
-            if (relay.tailFull) park();
-            return;
-          }
-          if (step.error) {
-            erroredAt = step.error;
-            if (holdTimer) {
-              clearTimeout(holdTimer);
-              holdTimer = null;
-            }
-            apply({ ...step, error: undefined }); // held comments stay held; nothing of the error is written
-            // collect the stream's tail (e.g. `data: [DONE]`) briefly, to relay the error unchanged if needed
-            if (relay.tailFull) return park();
-            cut = setTimeout(park, Math.min(cfg.upstream.idleTimeoutMs, 2000));
-            cut.unref();
-            up.body.once('close', () => {
-              if (cut) clearTimeout(cut);
-            });
-            return;
-          }
-          apply(step);
-        };
-        up.body.on('data', onData);
-        up.body.on('end', () => {
-          if (erroredAt) {
-            finish(errorOutcome());
-            return;
-          }
-          const last = relay.onEnd();
-          if (last.error) {
-            // an unterminated error event at the end of the body is still a first-event error
-            erroredAt = last.error;
-            finish(errorOutcome());
-            return;
-          }
-          apply(last);
-          observation.end();
-          res.end();
-          finish({ type: 'ok', status: up.status, tap: { usage: relay.usage, finishReason: relay.finishReason }, complete: relay.complete, upstreamMs: performance.now() - t0 });
-        });
-        up.body.on('close', () => {
-          if (erroredAt) {
-            finish(errorOutcome());
-            return;
-          }
-          if (finished) return;
-          if (clientGone) finish({ type: 'aborted', upstreamMs: performance.now() - t0 });
-          else {
-            observation.o.ended = true;
-            observation.o.outcome = 'upstream_error';
-            if (!relay.complete) log('warn', `upstream stream closed without [DONE]/finish_reason ${observation.fields()}`);
-            finish({ type: 'unavailable', committed, error: 'upstream stream failed', upstreamMs: performance.now() - t0 });
-          }
-        });
-        up.body.on('error', () => undefined);
-      });
 
     // ---------------------------------------------------------------- the ladder
     let firstStats = true;
@@ -697,7 +658,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       send,
       aborted: () => clientGone,
       count: (r: ChatRequest) => {
-        const n = deps.counter.countRequest(r);
+        const n = requestCounter.countRequest(r);
         if (r === creq && firstStats) visible.tokens.in = n;
         return n;
       },
@@ -708,15 +669,21 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         // out of persisted entries so a restart can discover a larger active context.
         const model = creq.model ?? '';
         const served = Object.hasOwn(discoveredWindows, model) ? discoveredWindows[model] : undefined;
-        const stored = isAutoWindow(cfg) && e.window === served
-          ? { ...e, window: deps.state.entry(key).window }
+        const persisted = deps.state.entry(key);
+        const promptCap = deps.modelRuntimes?.limitsFor(creq.model).maxPrompt;
+        const withoutMetadataCap = promptCap !== undefined && e.maxPrompt === promptCap
+          ? { ...e, maxPrompt: persisted.maxPrompt }
           : e;
+        const stored = isAutoWindow(requestCfg) && e.window === served
+          ? { ...withoutMetadataCap, window: persisted.window }
+          : withoutMetadataCap;
         deps.state.set(key, stored); // immediate memory update; async coalesced checkpoint
-        deps.engine.setLearned(key, stored);
+        if (deps.modelRuntimes) deps.modelRuntimes.setLearned(creq.model, key, learnedForModel());
+        else requestEngine.setLearned(key, stored);
       },
       process: (r: ChatRequest, o: ProcessOptions): EngineResult => {
         deps.watchdog?.phase(requestId, 'planning');
-        const result = deps.engine.process(r, o);
+        const result = requestEngine.process(r, o);
         if (firstStats) {
           firstStats = false;
           visible.tokens.in = result.stats.tokensIn;
@@ -728,17 +695,18 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     };
     let result: ChatResult;
     try {
-      result = await runChat({ cfg, parsed: parsed.value, classifier, counterMode, shadow: cfg.shadow }, io);
+      result = await runChat({ cfg: requestCfg, parsed: parsed.value, classifier, counterMode: requestCounterMode, shadow: requestCfg.shadow }, io);
     } catch (e) {
       // an internal failure before any upstream call (e.g. a stack overflow on a pathologically deep
-      // body): never worse than no proxy, so the client's bytes go out unchanged (I7, as for a failed
-      // count). Once an attempt was sent, resending the original would break : a 500 instead.
+      // body): never worse than no proxy, so the client's bytes go out unchanged (as for a failed
+      // count). Once an attempt was sent, resending the original would break the rule that no retry is the
+      // original: a 500 instead.
       dropRest();
       if (upstreamCalls > 0 || committed || clientGone) throw e;
       log('error', `ladder failed before any upstream call, forwarding the original: ${e instanceof Error ? e.message : String(e)}`);
       visible.action = 'passthrough';
       if (visible.tokens.in === null) {
-        try { visible.tokens.in = deps.counter.countRequest(creq); } catch { /* count unavailable */ }
+        try { visible.tokens.in = requestCounter.countRequest(creq); } catch { /* count unavailable */ }
       }
       visible.tokens.out = visible.tokens.in;
       setVisibleHeaders();
@@ -747,14 +715,14 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       await passthrough(req, res, raw, observation);
       deps.stats.write(buildStatsRecord({
         seq, ts, path: pathname, first: null, last: null, action: 'passthrough', attempts: [], clientStatus: res.statusCode, tokensIn: null,
-        correction: 1, engineMs: 0, totalMs: performance.now() - tBody, compacted: false, shadow: cfg.shadow, usage: null, usageMismatch: false,
+        correction: 1, engineMs: 0, totalMs: performance.now() - tBody, compacted: false, shadow: requestCfg.shadow, usage: null, usageMismatch: false,
         rewriteRejected: false, reason: 'internal', forwarded: 'original', ...(clientSession ? { clientSession } : {}),
       }));
       return;
     }
     if (!committed) {
       visible.action = result.final.type === 'generated' ? 'refuse' : actionOf(result.action);
-      if (result.originalResent || cfg.shadow) visible.action = 'passthrough';
+      if (result.originalResent || requestCfg.shadow) visible.action = 'passthrough';
       const st = (result.last ?? result.first)?.stats;
       if (st) quantities = st.budget;
       visible.tokens.trigger = quantities.trigger;
@@ -780,6 +748,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       try {
         afterChat(result, {
           seq, ts, pathname, tBody, cpu0, key, creq, clientSession, reqPathMs, respPathMs, clientStatus: clientGone && !res.headersSent ? 499 : res.statusCode,
+          requestCfg, requestCounter, requestEngine, requestProfile,
         });
       } catch (e) {
         log('error', `post-processing failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -813,7 +782,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         res.destroy();
         return;
       case 'unavailable':
-        if (committed) res.destroy(); // §9: after headers, no terminating chunk
+        if (committed) res.destroy(); // after headers: no terminating chunk
         else { const bytes = upstreamUnavailableBody(); onBytes(bytes); sendJson(res, 502, bytes); }
         return;
       case 'generated':
@@ -831,10 +800,12 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
             res.writeHead(e.httpStatus, e.statusMessage, forwardResponseHeaders(e.headers, { dropContentLength: true }));
             endWith(res, e.streamBytes ?? e.body, cont, onBytes);
           } else {
-            const hdrs = forwardResponseHeaders(e.headers, { dropContentLength: true });
-            hdrs.push('content-length', String(e.body.length));
+            const cut = cutErrorBodies.get(e.body);
+            const body = cut?.relay ?? e.body;
+            const hdrs = errorHeaders(e.headers, cut?.contentType);
+            hdrs.push('content-length', String(body.length));
             res.writeHead(e.httpStatus, e.statusMessage, hdrs);
-            end(e.body);
+            end(body);
           }
           setCommitted(true);
         } else if (e.inStream) {
@@ -860,11 +831,19 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     reqPathMs: number | undefined;
     respPathMs: number | undefined;
     clientStatus: number;
+    requestCfg: Config;
+    requestCounter: TokenCounter & { profile?: TemplateProfile };
+    requestEngine: Engine;
+    requestProfile: string | undefined;
   }
 
   function afterChat(r: ChatResult, c: AfterCtx): void {
-    const count = (q: ChatRequest): number => deps.counter.countRequest(q);
-    const attempts = attemptRecords(r, count, cfg);
+    const afterCounter = c.requestCounter;
+    const afterEngine = c.requestEngine;
+    const afterCfg = c.requestCfg;
+    const afterMode: CounterKind = afterCounter.mode === 'exact' ? 'exact' : 'estimate';
+    const count = (q: ChatRequest): number => afterCounter.countRequest(q);
+    const attempts = attemptRecords(r, count, afterCfg);
     for (let i = 0; i < attempts.length; i++) {
       const a = attempts[i]!;
       if (a.kind === 'ok') continue;
@@ -881,17 +860,17 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     const incomplete = r.final.type === 'relayed' && r.sent !== null && isStreaming(r.sent.req) && !r.complete;
     if (incomplete) status.upstreamIncomplete++;
 
-    // calibration (): usage of the attempt that reached the client, else the tokenize endpoint
+    // calibration: usage of the attempt that reached the client, else the tokenize endpoint
     let usageMismatch = false;
     const e0 = deps.state.entry(c.key);
     const sent = r.sent;
     const usage = r.tap?.usage ?? null;
-    status.completionUsage(usage?.completion_tokens, budgetQuantities(cfg, e0).allowance);
-    const budgetOf = (a: OutgoingAttempt): number => a.result?.stats?.budget?.budget ?? serverLimits(cfg, e0, a.extraTighten).budget;
+    status.completionUsage(usage?.completion_tokens, budgetQuantities(afterCfg, e0).allowance);
+    const budgetOf = (a: OutgoingAttempt): number => a.result?.stats?.budget?.budget ?? serverLimits(afterCfg, e0, a.extraTighten).budget;
     const learnSample = (counted: number, reported: number, source: 'usage' | 'endpoint', a: OutgoingAttempt): void => {
       const v = judgeSample({
-        cfg, mode: counterMode, budget: budgetOf(a), counted, reported, source, complete: r.complete, finishReason: r.tap?.finishReason ?? null,
-        sameAttempt: true, silentTruncate: mode === 'silent_truncate',
+        cfg: afterCfg, mode: afterMode, budget: budgetOf(a), counted, reported, source, complete: r.complete, finishReason: r.tap?.finishReason ?? null,
+        sameAttempt: true, silentTruncate: budgetModeOf(afterCfg) === 'silent_truncate',
       });
       if (v.warning) status.warn('silent_truncate', v.warning);
       if (v.verdict === 'mismatch') {
@@ -901,9 +880,12 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       }
       if (v.verdict !== 'accepted') return;
       const cur = deps.state.entry(c.key);
-      const applied = applyAcceptedRatio(cur, v.ratio, cfg, counterMode, now());
+      const applied = applyAcceptedRatio(cur, v.ratio, afterCfg, afterMode, now());
       deps.state.set(c.key, applied.entry);
-      if (applied.correctionChanged) deps.engine.setLearned(c.key, applied.entry);
+      if (applied.correctionChanged) {
+        if (deps.modelRuntimes) deps.modelRuntimes.setLearned(c.creq.model, c.key, applied.entry);
+        else afterEngine.setLearned(c.key, applied.entry);
+      }
     };
     if (sent && r.final.type === 'relayed') {
       status.forwardedPrompt(c.creq.model, c.clientSession, usage?.prompt_tokens ?? null);
@@ -934,7 +916,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     status.latency(totalMs, (c.reqPathMs ?? 0) + (c.respPathMs ?? 0), r.engineMs);
     deps.stats.write(buildStatsRecord({
       seq: c.seq, ts: c.ts, path: c.pathname, first: r.first, last: r.last, action: r.action, attempts, clientStatus: c.clientStatus,
-      tokensIn, correction: e0.correction, engineMs: r.engineMs, totalMs, compacted: r.compacted, shadow: cfg.shadow,
+      tokensIn, correction: e0.correction, engineMs: r.engineMs, totalMs, compacted: r.compacted, shadow: afterCfg.shadow,
       forwarded: r.attempts.length === 0 ? 'none' : r.attempts[r.attempts.length - 1]!.attempt.original ? 'original' : 'engine',
       usage: usage ? { ...(typeof usage.prompt_tokens === 'number' ? { prompt_tokens: usage.prompt_tokens } : {}), ...(typeof usage.completion_tokens === 'number' ? { completion_tokens: usage.completion_tokens } : {}) } : null,
       usageMismatch, rewriteRejected: r.rewriteRejected !== undefined,
@@ -945,6 +927,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       ...(c.respPathMs !== undefined ? { respPathMs: c.respPathMs } : {}),
       cpuUs: cpu.user + cpu.system,
       upstreamMs,
+      ...(c.requestProfile ? { profile: c.requestProfile } : {}),
     }));
   }
 
@@ -958,13 +941,31 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     async probe() {
       const p = await upstream.probe();
       discoveredWindows = p.discovered_window ?? {};
-      setDiscoveredWindows(cfg, discoveredWindows);
+      deps.modelRuntimes?.setDiscoveredLimits(p.discovered_limits ?? {});
+      if (deps.modelRuntimes) deps.modelRuntimes.setDiscoveredWindows(discoveredWindows);
+      else setDiscoveredWindows(cfg, discoveredWindows);
       status.setDiscoveredWindows(discoveredWindows);
+      status.setDiscoveredLimits(p.discovered_limits ?? {});
       for (const [model, window] of Object.entries(discoveredWindows)) {
-        if (window !== cfg.budget.window) {
-          const message = `Model ${JSON.stringify(model)} reports context window ${window}; budget.window is ${cfg.budget.window}${isAutoWindow(cfg) ? ' (auto fallback); using the discovered window' : '; set budget.window=auto to use the discovered window'}.`;
+        const modelCfg = deps.modelRuntimes?.forModel(model).cfg ?? cfg;
+        if (window !== modelCfg.budget.window) {
+          const message = `Model ${JSON.stringify(model)} reports context window ${window}; budget.window is ${modelCfg.budget.window}${isAutoWindow(modelCfg) ? ' (auto fallback); using the discovered window' : '; set budget.window=auto to use the discovered window'}.`;
           status.warn(`window_mismatch:${model}`, message);
           log('warn', message);
+        }
+      }
+      for (const [model, limits] of Object.entries(p.discovered_limits ?? {})) {
+        const modelCfg = deps.modelRuntimes?.forModel(model).cfg ?? cfg;
+        if (limits.maxOutput !== undefined) {
+          const message = declaredOutputCapWarning(model, limits.maxOutput, modelCfg.budget.planMaxTokens ?? modelCfg.budget.defaultMaxTokens, modelCfg.client.outputLimit);
+          if (message) {
+            status.warn(`output_cap:${model}`, message);
+            log('warn', message);
+          }
+          if (limits.window !== undefined && limits.maxOutput >= limits.window) {
+            const message = `Model ${JSON.stringify(model)} max output ${limits.maxOutput} is at least its context window ${limits.window}.`;
+            log('info', message);
+          }
         }
       }
       if (isAutoWindow(cfg) && !Object.keys(discoveredWindows).length) {
@@ -973,7 +974,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         log('warn', message);
       }
       status.setProbe({ ...p, at: now().toISOString() });
-      if (!p.ok) status.warn('upstream_probe', p.tlsError ? `TLS verification failed: ${p.tlsError}` : `upstream probe failed: ${p.error ?? p.status}`);
+      if (p.status === 401 || p.status === 403) status.warn('upstream_probe', 'Metadata needs a key to read /v1/models.');
+      else if (!p.ok) status.warn('upstream_probe', p.tlsError ? `TLS verification failed: ${p.tlsError}` : `upstream probe failed: ${p.error ?? p.status}`);
       return p;
     },
     listen() {
@@ -1010,17 +1012,17 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   };
 }
 
-/** The parked rest of an upstream stream (see relaySse park()). */
-interface Rest {
-  body: IncomingMessage;
-  /** bytes that arrived after the park (a stray resume) */
-  parked: Buffer[];
-  ended: boolean;
-  closed: boolean;
-  /** the error outcome this rest belongs to */
-  outcome: ErrorOutcome | null;
+function profileStatus(runtimes: ProxyDeps['modelRuntimes']): StatusExtras['profiles'] | undefined {
+  if (!runtimes) return undefined;
+  const root = runtimes.forModel();
+  return Object.fromEntries(Object.keys(runtimes.tokenizerStatus())
+    .filter((id) => runtimes.forModel(id) !== root)
+    .map((id) => {
+      const runtime = runtimes.forModel(id);
+      const b = budgetQuantities(runtime.cfg, null);
+      return [id, { W: b.window, T_plan: b.planMaxTokens, hard: b.hard, trigger: b.trigger, counter_mode: runtime.counter.mode }];
+    }));
 }
-
 /** Writes `bytes`, then the parked rest of the stream as it arrives (or ends the response at once without one). */
 function endWith(res: ServerResponse, bytes: Buffer, rest: Rest | null, onBytes: (bytes: Buffer) => void = () => undefined): void {
   onBytes(bytes);
@@ -1036,7 +1038,7 @@ function endWith(res: ServerResponse, bytes: Buffer, rest: Rest | null, onBytes:
     return;
   }
   if (rest.closed) {
-    res.destroy(); // the upstream failed after the error: no terminating chunk (§9)
+    res.destroy(); // the upstream failed after the error: no terminating chunk
     return;
   }
   up.removeAllListeners('data');

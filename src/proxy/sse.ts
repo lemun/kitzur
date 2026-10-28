@@ -1,4 +1,4 @@
-// Server-sent events for the relay (DESIGN.md, ; reference implementation).
+// Server-sent events for the relay (DESIGN.md; reference implementation).
 //
 // SseParser splits a byte stream into events without decoding anything it does not need: each event
 // keeps its exact bytes (`raw`, terminating blank line included), so relaying the raw events of a
@@ -8,14 +8,14 @@
 // recognised and passed through untouched.
 //
 // SseRelay is the per-attempt state machine the server drives with upstream chunks:
-//   - first-event hold (): until the first `data:`/`error:` event, comments are held (not written)
+//   - first-event hold: until the first `data:`/`error:` event, comments are held (not written)
 //     while the hold is on; the caller commits the client's status line when the first event arrives,
 //     at the upstream end of body, when the hold timer fires, or once HOLD_MAX bytes of comments are
 //     held, and then flushes the held comments;
 //   - the first data event is checked for an in-stream error (a top-level `error` key, or an `error:`
-//     field); an error is never written, so the ladder can still recover (§9);
+//     field); an error is never written, so the ladder can still recover;
 //   - usage tap: the last non-null `usage` of any event, the last finish_reason, and `[DONE]`;
-//   - strip: when kitzur injected include_usage, the `choices: []` usage chunk is not relayed (§9).
+//   - strip: when kitzur injected include_usage, the `choices: []` usage chunk is not relayed.
 import { inspectChunk } from '../dialect/openai-chat.js';
 import type { Usage } from '../types.js';
 
@@ -238,7 +238,7 @@ export class SseRelay {
     this.committed = o.committed;
   }
 
-  /** The stream ended with [DONE] or a finish_reason (: otherwise upstream_incomplete). */
+  /** The stream ended with [DONE] or a finish_reason (otherwise upstream_incomplete). */
   get complete(): boolean {
     return this.done || this.finishReason !== null;
   }
