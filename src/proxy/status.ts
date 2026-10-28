@@ -48,6 +48,8 @@ export interface StatusExtras {
   stateError?: string | null;
   statsPath?: string | null;
   statsError?: string | null;
+  statsDropped?: number;
+  statsWriteFailures?: number;
   upstream?: Record<string, unknown>;
   modelTokenizers?: Record<string, unknown>;
   profiles?: Record<string, { W: number; T_plan: number; hard: number; trigger: number; counter_mode: string }>;
@@ -286,7 +288,7 @@ export class StatusTracker {
       memory: { rss: mem.rss, heapUsed: mem.heapUsed, external: mem.external },
       upstream: { ...(x.upstream ?? {}), probe: this.probe },
       state: { error: x.stateError ?? null },
-      stats: { path: x.statsPath ?? null, error: x.statsError ?? null },
+      stats: { path: x.statsPath ?? null, error: x.statsError ?? null, dropped: x.statsDropped ?? 0, write_failures: x.statsWriteFailures ?? 0 },
     };
   }
 }

@@ -111,7 +111,7 @@ test('doctor detects a regular file blocking a state directory without modifying
 });
 
 test('doctor treats refused probes and other HTTP services as warnings without restart advice', async () => {
-  for (const [status, body] of [[403, 'Host mismatch'], [503, '{}'], [200, 'not json'], [200, '{"name":"other"}'], [200, 'null']] as const) {
+  for (const [status, body] of [[403, 'Host mismatch'], [503, '{}'], [200, 'not json'], [200, '{"name":"other","stats":{"dropped":5,"write_failures":2}}'], [200, 'null']] as const) {
     const server = createServer((_req, res) => { res.writeHead(status); res.end(body); });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
     try {
@@ -122,6 +122,7 @@ test('doctor treats refused probes and other HTTP services as warnings without r
       assert.equal(check?.status, 'warn', String(status));
       assert.match(check?.message ?? '', /another service .*answers on/i);
       assert.doesNotMatch(check?.fix ?? '', /Restart|Start-Process/);
+      assert.equal(result.checks.some((c) => c.code === 'stats.writer'), false);
       assert.equal(result.exitCode, 0);
     } finally { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); }
   }
@@ -134,7 +135,7 @@ test('probe classifies HTTP answers and transport failures without requiring a l
     [403, 'Host mismatch', null, 'other'],
     [503, '{}', null, 'other'],
     [200, 'not json', null, 'other'],
-    [200, '{"name":"other"}', null, 'other'],
+    [200, '{"name":"other","stats":{"dropped":4}}', null, 'other'],
     [200, 'null', null, 'other'],
     [200, '', 'ECONNRESET', 'hung'],
     [200, '', 'ETIMEDOUT', 'hung'],
