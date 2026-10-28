@@ -184,7 +184,7 @@ test('validateNumbers: window range (ii), prompt band (iii), server prompt limit
   assert.equal(validateNumbers({ ...base, window: 89_000, maxInput: 57_000 }, { configuredWindow: W, rejectedRaw: 62_000 }).maxPrompt, null, "never vLLM's L - M");
 });
 
-test('overshoot per body type (§8)', () => {
+test('overshoot per body type', () => {
   const b: Classification = { kind: 'overflow_total', status: 400, inStream: false, numbersInMessage: true, window: 100, promptTokens: 90, completionTokens: 20 };
   assert.equal(overshootOf(b), 10);
   assert.equal(overshootOf({ ...b, kind: 'overflow_prompt' }), -10);

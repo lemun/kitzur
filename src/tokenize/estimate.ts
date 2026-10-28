@@ -1,4 +1,4 @@
-// Per-content-class token estimate (DESIGN.md fallback 2): chars / charsPerToken[class] x safetyFactor.
+// Per-content-class token estimate (the second counting fallback): chars / charsPerToken[class] x safetyFactor.
 // Used when no tokenizer is available ('estimate' mode) and for text the tokenize endpoint has not
 // counted yet ('remote' mode). Deterministic: the class is a pure function of the text.
 import type { Config } from '../config/schema.js';
@@ -26,7 +26,7 @@ export interface TextStats {
 
 // Letters and marks from the pinned Unicode tables the tokenizer uses (unicode-tables.ts), not the runtime's
 // /\p{L}/u: Node 20 and Node 26 ship different Unicode versions, and an estimate that changed with the Node binary
-// would make a restarted proxy plan differently from the live one (I5) for text in newly assigned scripts.
+// would make a restarted proxy plan differently from the live one for text in newly assigned scripts.
 const inRanges = (ranges: readonly number[], c: number): boolean => {
   let lo = 0;
   let hi = (ranges.length >> 1) - 1;

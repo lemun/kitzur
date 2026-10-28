@@ -18,7 +18,7 @@ test('globs: * is the only wildcard, anchored, case-insensitive', () => {
   assert.ok(!globToRegExp('a.b').test('axb'));
 });
 
-test('role(): OpenCode MCP prefix and bare names, per role (DESIGN §7 defaults)', () => {
+test('role(): OpenCode MCP prefix and bare names, per role (the default role table)', () => {
   assert.deepEqual(rules.role('playwright_browser_snapshot'), ['snapshot']);
   assert.deepEqual(rules.role('browser_snapshot'), ['snapshot']);
   assert.deepEqual(rules.role('playwright_browser_navigate'), ['snapshot', 'browserNavigate']);
@@ -43,7 +43,7 @@ test('role(): OpenCode MCP prefix and bare names, per role (DESIGN §7 defaults)
   assert.deepEqual(createToolRules(custom).role('todowrite'), []);
 });
 
-test('classify(): snapshot content beats names and the test rule ()', () => {
+test('classify(): snapshot content beats names and the test rule', () => {
   const snap = mcpSnapshot({ url: 'https://staging-3.shop.example/checkout/cart', title: 'Checkout - Shop' });
   assert.equal(rules.classify(snap, call('playwright_browser_snapshot', {})), 'snapshot');
   assert.equal(rules.classify(snap, call('bash', { command: 'npx playwright test tests/e2e/checkout/cart.spec.ts' })), 'snapshot');
@@ -93,7 +93,7 @@ test('snapshotInfo(): URL, title, refs and the saved-output path; open tabs', ()
   assert.equal(t.savedPath, null);
 });
 
-test('stubText(): the exact §7 stub', () => {
+test('stubText(): the exact stub', () => {
   assert.equal(
     rules.stubText({ url: 'https://staging-3.shop.example/checkout/cart', title: 'Checkout - Shop', refs: 412, savedPath: null }),
     '[superseded snapshot: https://staging-3.shop.example/checkout/cart — "Checkout - Shop", 412 refs; take a new browser_snapshot for current refs]',
@@ -120,7 +120,7 @@ test('slimSnapshot(): keeps header, saved-output line, interactive elements with
   const lines = full.split('\n');
   // header lines kept verbatim
   for (const h of ['### Page state', '- Page URL: https://shop/checkout/cart', '- Page Title: Cart', '- Page Snapshot:', '```yaml']) assert.ok(lines.includes(h), h);
-  // OpenCode's pointer survives slimming ()
+  // OpenCode's pointer survives slimming
   assert.ok(lines.some((l) => l.includes(`Full output saved to: ${saved}`)));
   // interactive elements and headings are kept with their indentation; others are dropped
   assert.ok(lines.includes('    - link "Shop home" [ref=e3] [cursor=pointer]:'));
@@ -231,7 +231,7 @@ test('condense(): snapshot, test failures + tally, short verbatim, long excerpt,
   noExcerpt.rules.excerpt = { headChars: 0, tailChars: 0, shortVerbatimChars: 300 };
   assert.equal(createToolRules(noExcerpt).condense(code, null), `${code.length.toLocaleString('en-US')} chars omitted`);
 
-  // the todo echo never revives item texts (§6.3)
+  // the todo echo never revives item texts
   const todos = JSON.stringify([{ content: 'TODO-DROP-Z1H5K: remove me', status: 'pending' }], null, 2);
   assert.equal(rules.condense(todos, call('todowrite', { todos: [] })), 'ok');
   assert.equal(rules.condense(todos, call('playwright_update_todo_list', { todos: '' })), 'ok');

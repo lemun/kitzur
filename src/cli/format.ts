@@ -36,7 +36,7 @@ export function derivedLines(cfg: Config): string[] {
   const b = computeBudget(cfg, { counterFixedTokens: head });
   const why = cfg.server.budgetMode ? 'server.budgetMode' : cfg.budget.limitCountsMaxTokens !== null ? 'budget.limitCountsMaxTokens' : `server.type ${cfg.server.type}`;
   return [
-    `# derived (DESIGN §3; T_req = budget.defaultMaxTokens, no learned entry)`,
+    `# derived (T_req = budget.defaultMaxTokens, no learned entry)`,
     `mode          ${b.mode}   (from ${why})`,
     `W             ${b.window}`,
     `T_plan        ${planMaxTokens(cfg)}`,

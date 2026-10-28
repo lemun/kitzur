@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The kitzur command line (DESIGN.md, §10):
+// The kitzur command line (DESIGN.md):
 //   kitzur serve | replay | redact | status | count | config {init,show,validate,import-eval} | state {show,reset} | bench | version
 // Arguments are parsed here without dependencies. Exit codes: 0 ok, 1 runtime failure, 2 usage or config
 // error; `config import-eval` also returns 10 (a safety-critical knob fell back to a default) and 11

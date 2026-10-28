@@ -1,4 +1,4 @@
-// Gateway tokenize endpoints (DESIGN.md fallback 1; reference implementation). Used per rendered
+// Gateway tokenize endpoints (the first counting fallback; reference implementation). Used per rendered
 // segment text, so the same segment cache applies as in exact mode:
 //   vllm      POST /tokenize     {model?, prompt, add_special_tokens:false}   -> {count}
 //   sglang    POST /v1/tokenize  {model?, prompt, add_special_tokens:false}   -> {count}

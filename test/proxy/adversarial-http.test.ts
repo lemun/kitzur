@@ -152,11 +152,11 @@ test('a recoverable first-event overflow on a stream that keeps going past the t
   });
 });
 
-// ---------------------------------------------------------------- I7: internal failures fail open
+// ---------------------------------------------------------------- internal failures fail open
 
 const deepObject = (n: number): string => '{"a":'.repeat(n) + '1' + '}'.repeat(n);
 
-test('I7: a pathologically deep tools schema (bytes() overflows the stack) forwards the original instead of a 500', async () => {
+test('fail open: a pathologically deep tools schema (bytes() overflows the stack) forwards the original instead of a 500', async () => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, { choices: [] }));
   const engine = new FakeEngine(() => {
     throw new RangeError('Maximum call stack size exceeded');
@@ -170,7 +170,7 @@ test('I7: a pathologically deep tools schema (bytes() overflows the stack) forwa
   });
 });
 
-test('I7: a ladder failure before any upstream call forwards the original bytes (fail open), recorded as reason internal', async () => {
+test('fail open: a ladder failure before any upstream call forwards the original bytes (fail open), recorded as reason internal', async () => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, { choices: [] }));
   const engine = new FakeEngine((req) => {
     const r = result(req, req, true);
@@ -317,7 +317,7 @@ test('a burst of small events larger than 64 KiB in one relay step never stalls 
   }, { config: { upstream: { idleTimeoutMs: 60_000 } } });
 });
 
-test('§9 keep-alive: a reused socket reset after the server already sent response bytes is not retried (it was processed)', async () => {
+test('keep-alive: a reused socket reset after the server already sent response bytes is not retried (it was processed)', async () => {
   let requests = 0;
   const srv = net.createServer((s) => {
     let buf = '';

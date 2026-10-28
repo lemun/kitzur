@@ -1,4 +1,4 @@
-// Stats JSONL (DESIGN.md "Stats JSONL"; reference implementation; bench/README.md§12).
+// Stats JSONL (reference implementation).
 // One record per client chat request, written after the request completed, in completion order.
 // Sizes and timings only: never message content, query strings or header values, with one exception:
 // client_session, the client's own session id header (x-session-id / x-sim-session, at most 128 chars).
@@ -29,7 +29,7 @@ export interface ProxyStatsRecord extends StatsRecord {
   reason?: string;
   /** forwarded max_tokens value (last attempt) */
   max_tokens?: number;
-  /** a stream ended with no [DONE] and no finish_reason () */
+  /** a stream ended with no [DONE] and no finish_reason */
   upstream_incomplete?: boolean;
   /** the  resend of the original happened */
   original_resent?: boolean;
