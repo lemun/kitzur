@@ -104,6 +104,8 @@ jobs:
           [IO.File]::WriteAllText($stats, '')
           node $cli report --json $stats
           if ($LASTEXITCODE -ne 0) { throw 'packaged empty report failed' }
+      - name: Per-user autostart shortcut and port guard
+        run: node --test dist/test/cli/autostart.test.js
       - name: Portable compaction, ledger, tokenizer and diagnostics suites
         run: node scripts/run-tests.mjs --test-concurrency=2 dist/test/engine dist/test/ledger dist/test/summary dist/test/rules dist/test/tokenize dist/test/diagnostics
       - name: Windows distribution, PowerShell installation and lifecycle
