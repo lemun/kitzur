@@ -533,7 +533,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       if (isAutoWindow(requestCfg) && window !== undefined) entry.window = entry.window === null ? window : Math.min(entry.window, window);
       return deps.modelRuntimes?.learnedFor(creq.model, entry) ?? entry;
     };
-    if (isAutoWindow(requestCfg) && !Object.hasOwn(discoveredWindows, creq.model ?? '') && !fallbackWarned.has(creq.model ?? '')) {
+    // Keep the set bounded (like shouldWarnUnknown) even if clients send arbitrary model IDs.
+    if (isAutoWindow(requestCfg) && !Object.hasOwn(discoveredWindows, creq.model ?? '') && !fallbackWarned.has(creq.model ?? '') && fallbackWarned.size < 100) {
       fallbackWarned.add(creq.model ?? '');
       const message = `No context window discovered for model ${JSON.stringify(creq.model ?? '')}; using fallback ${requestCfg.budget.window}.`;
       status.warn('window_auto_fallback', message);
