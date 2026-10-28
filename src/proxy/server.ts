@@ -99,6 +99,10 @@ export function declaredOutputCapWarning(model: string, maxOutput: number, planL
 
 const MAX_JSON_TAP = 4 * 1024 * 1024;
 const JSON_CT = 'application/json';
+// Kept local to the proxy: the config schema is intentionally limited to upstream transport policy.
+const UPSTREAM_ERROR_READ_TIMEOUT_MS = 5_000;
+const UPSTREAM_ERROR_BODY_MAX_BYTES = 64 * 1024;
+const UPSTREAM_ERROR_TRUNCATION_MARKER = Buffer.from('\n\n[kitzur: upstream error body truncated]\n');
 
 function sendJson(res: ServerResponse, status: number, body: Buffer | string, extra: Record<string, string> = {}): void {
   const b = typeof body === 'string' ? Buffer.from(body, 'utf8') : body;
@@ -337,11 +341,13 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
 
   const cutErrorBodies = new WeakMap<Buffer, Buffer>();
   async function readUpstreamError(up: UpstreamResponse): Promise<{ body: Buffer; relay: Buffer; cut: boolean }> {
-    const read = await readErrorBody(up.body, 5_000, 64 * 1024);
+    const read = await readErrorBody(up.body, UPSTREAM_ERROR_READ_TIMEOUT_MS, UPSTREAM_ERROR_BODY_MAX_BYTES);
     if (read.complete) return { body: read.body, relay: read.body, cut: false };
     log('warn', `upstream error body cut: ${read.reason} status=${up.status}`);
+    const marker = read.reason === 'size' ? UPSTREAM_ERROR_TRUNCATION_MARKER : Buffer.from(`\n\n[kitzur: upstream error body truncated (${read.reason})]\n`);
+    const prefix = read.body.subarray(0, UPSTREAM_ERROR_BODY_MAX_BYTES - marker.length);
+    const body = Buffer.concat([prefix, marker]);
     const relay = errorBody(`kitzur: upstream error body truncated (${read.reason})`, 'upstream_error', 'upstream_error_body_truncated');
-    const body = Buffer.from(read.body.subarray(0, 64 * 1024));
     cutErrorBodies.set(body, relay);
     return { body, relay, cut: true };
   }
@@ -353,7 +359,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     for (let i = 0; i < headers.length; i += 2) {
       if (!['content-type', 'content-encoding', 'content-md5', 'digest', 'etag'].includes(headers[i]!.toLowerCase())) out.push(headers[i]!, headers[i + 1]!);
     }
-    out.push('content-type', 'application/json');
+    out.push('content-type', 'text/plain; charset=utf-8');
     return out;
   }
 
