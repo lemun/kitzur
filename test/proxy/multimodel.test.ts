@@ -155,6 +155,8 @@ test('overlapping A/B/A requests keep model runtimes pinned through stream calib
     const status = (await request(port, { method: 'GET', path: '/status' })).json();
     const truncate = status.warnings.find((w: { key: string }) => w.key === 'silent_truncate');
     assert.equal(truncate?.count, 1, 'only the second alpha request (ratio < 0.9) warns under alpha silent_truncate config');
+    // The stats file is an async write stream: flush it before reading.
+    await stats.close();
     const records = readFileSync(statsPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
     assert.deepEqual(records.map((r: { profile?: string }) => r.profile), ['beta', undefined, 'alpha', 'alpha']);
   } finally {
