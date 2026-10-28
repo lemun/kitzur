@@ -117,8 +117,8 @@ const PROSE_RESIDUE: [string, RegExp][] = [
   ['doubled comma', /,\s*,/],
   ['space after an opening parenthesis', /\( +\S/],
   ['dangling word before a closing parenthesis', /\b(to|of|or|and|the|per|see|in|by|with|from|as) +\)/],
-  // a ternary `a ? b : c` quoted in prose is code, not residue
-  ['space before a colon', /(?<!\s\?\s[^:?]*)\w :(\s|$)/],
+  // a complete ternary `a ? b : c` quoted in prose is code, not residue
+  ['space before a colon', /(?<!\s\?\s\w*)\w :(\s|$)|\s\?\s\w+ :\s*$/],
   ['doubled space after "the" or "per"', /\b(the|per)  +\S/i],
 ];
 
@@ -186,7 +186,8 @@ export function scanMd(src: string): Finding[] {
   src.split('\n').forEach((l, k) => {
     const run = /^\s*(`{3,}|~{3,})/.exec(l)?.[1];
     if (fence) {
-      if (run && run[0] === fence[0] && run.length >= fence.length && /^\s*[`~]+\s*$/.test(l)) fence = '';
+      const close = /^\s*(`{3,}|~{3,})\s*$/.exec(l)?.[1];
+      if (close && close[0] === fence[0] && close.length >= fence.length) fence = '';
       return;
     }
     if (run) { fence = run; return; }
@@ -221,6 +222,8 @@ test('scanner flags dangling citations and their residue', () => {
     ['ts', '// the rule holds :'],
     ['ts', '// per  the design'],
     ['ts', '// Why? value : detail'],
+    ['ts', '// a ? b, residue :'],
+    ['ts', '// a ? b :'],
     ['ts', '/**\n * as in the  plan\n */'],
     ['ts', "const m = 'budget exceeded ()';"],
     ['ts', 'const m = "cap (; see notes)";'],
@@ -257,6 +260,7 @@ test('scanner keeps ordinary code and real references', () => {
     ['md', '```\nconst x = f( , );\n§1\n```'],
     ['md', '````\n```\n§1\n```\n````'],
     ['md', '~~~\n```\n§1\n~~~'],
+    ['md', '````\n````~~~\n§1\n````'],
   ];
   for (const [kind, src] of good) {
     const found = kind === 'ts' ? scanTs(src) : scanMd(src);
