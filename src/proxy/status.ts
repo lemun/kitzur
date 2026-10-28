@@ -1,4 +1,4 @@
-// GET /status and /kitzur/status (DESIGN.md "Routes"): version, uptime, config summary, the §3
+// GET /status and /kitzur/status : version, uptime, config summary, the
 // budget quantities, counter mode and correction, learned entries with their tightenLog, counters by
 // action, error kind, guard reason and replan, upstream_rejected_rewrite, usage_mismatch, active
 // warnings, sessions, latency p50/p99 and memory. Counters are in-process (they reset on restart);
@@ -150,7 +150,7 @@ export class StatusTracker {
   private readonly overhead = new Ring(2048);
   private readonly engine = new Ring(2048);
   private probe: Record<string, unknown> | null = null;
-  /** the last upstream rejections (sizes only), with their overshoot (§8) */
+  /** the last upstream rejections (sizes only), with their overshoot */
   private readonly rejections: Array<Record<string, unknown>> = [];
 
   constructor(private readonly cfg: Config, private readonly version: string, private readonly now: () => number = Date.now) {

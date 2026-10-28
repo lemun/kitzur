@@ -1,6 +1,6 @@
 // End to end against the byte-exact port of the Python mock (bench/mock/server.ts) with the real Qwen
-// tokenizer and the `sim` template (): the mock's real limit sits below the configured window, so
-// every Python error style (vllm, llamacpp, tgi422, gateway502) actually overflows (). Skipped when
+// tokenizer and the `sim` template: the mock's real limit sits below the configured window, so
+// every Python error style (vllm, llamacpp, tgi422, gateway502) actually overflows. Skipped when
 // the dev tokenizer is absent.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -46,7 +46,7 @@ test('Python mock styles through the proxy: vllm / llamacpp / tgi422 recover by 
     for (const c of a.tool_calls) msgs.push({ role: 'tool', tool_call_id: c.id, content: toolOutput(step, { capBytes: 51200 }) });
   }
   const own = counter.countRequest(body() as never);
-  assert.equal(own, prompt.countBody(body() as never), 'our exact sim count equals the mock count ()');
+  assert.equal(own, prompt.countBody(body() as never), 'our exact sim count equals the mock count');
 
   for (const style of ['vllm', 'llamacpp', 'tgi422', 'gateway502']) {
     const mock = new MockServer({ counter: prompt, limit: LIMIT, errorStyle: style, outDir: null });

@@ -30,7 +30,7 @@ export async function cmdServe(argv: string[], io: CliIO): Promise<number> {
   let addr: { host: string; port: number };
   try { addr = await app.listen(); }
   catch (e) { await app.close(0); throw e; }
-  // startup probe (§9 TLS): a certificate failure exits non-zero; an unreachable upstream only logs
+  // startup probe: a certificate failure exits non-zero; an unreachable upstream only logs
   const probe = await app.probe(Math.min(10_000, cfg.upstream.timeoutMs));
   if (probe.tlsError) {
     let diagnosis: string;

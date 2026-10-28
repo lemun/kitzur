@@ -1,4 +1,4 @@
-// The HTTP proxy (DESIGN.md, §8-§10). Routes:
+// The HTTP proxy (DESIGN.md). Routes:
 //   POST …/chat/completions (any prefix)  engine + recovery ladder (recovery.ts), streamed relay
 //   GET /status, GET /kitzur/status      JSON status (status.ts)
 //   anything else                         streamed pass-through to the same upstream
@@ -66,7 +66,7 @@ export interface ProxyDeps {
   engine: Engine;
   /** the local counter (exact or estimate); a 'remote' counter is refused */
   counter: TokenCounter & { profile?: TemplateProfile };
-  /** the gateway tokenize endpoint: a calibration source only () */
+  /** the gateway tokenize endpoint: a calibration source only */
   remote?: RemoteTokenizer | null;
   state: StateStore;
   stats: StatsWriter;
@@ -229,7 +229,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     const url = req.url ?? '/';
     if (!url.startsWith('/')) {
       // absolute-form (`GET http://other.host/… HTTP/1.1`) would hand a client-chosen authority to the
-      // upstream: request paths never choose a host (§10), so only origin-form targets are served
+      // upstream: request paths never choose a host, so only origin-form targets are served
       sendJson(res, 400, errorBody('kitzur: only origin-form request targets are served', 'invalid_request_error', 'invalid_request_target'));
       return;
     }
@@ -698,8 +698,9 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       result = await runChat({ cfg: requestCfg, parsed: parsed.value, classifier, counterMode: requestCounterMode, shadow: requestCfg.shadow }, io);
     } catch (e) {
       // an internal failure before any upstream call (e.g. a stack overflow on a pathologically deep
-      // body): never worse than no proxy, so the client's bytes go out unchanged (I7, as for a failed
-      // count). Once an attempt was sent, resending the original would break : a 500 instead.
+      // body): never worse than no proxy, so the client's bytes go out unchanged (as for a failed
+      // count). Once an attempt was sent, resending the original would break the rule that no retry is the
+      // original: a 500 instead.
       dropRest();
       if (upstreamCalls > 0 || committed || clientGone) throw e;
       log('error', `ladder failed before any upstream call, forwarding the original: ${e instanceof Error ? e.message : String(e)}`);
@@ -781,7 +782,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         res.destroy();
         return;
       case 'unavailable':
-        if (committed) res.destroy(); // §9: after headers, no terminating chunk
+        if (committed) res.destroy(); // after headers: no terminating chunk
         else { const bytes = upstreamUnavailableBody(); onBytes(bytes); sendJson(res, 502, bytes); }
         return;
       case 'generated':
@@ -859,7 +860,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     const incomplete = r.final.type === 'relayed' && r.sent !== null && isStreaming(r.sent.req) && !r.complete;
     if (incomplete) status.upstreamIncomplete++;
 
-    // calibration (): usage of the attempt that reached the client, else the tokenize endpoint
+    // calibration: usage of the attempt that reached the client, else the tokenize endpoint
     let usageMismatch = false;
     const e0 = deps.state.entry(c.key);
     const sent = r.sent;
@@ -1037,7 +1038,7 @@ function endWith(res: ServerResponse, bytes: Buffer, rest: Rest | null, onBytes:
     return;
   }
   if (rest.closed) {
-    res.destroy(); // the upstream failed after the error: no terminating chunk (§9)
+    res.destroy(); // the upstream failed after the error: no terminating chunk
     return;
   }
   up.removeAllListeners('data');

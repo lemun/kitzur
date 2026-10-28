@@ -1,4 +1,4 @@
-// The upstream connection (DESIGN.md "Upstream framing and headers", "Keep-alive", "TLS"; ).
+// The upstream connection: framing and headers, keep-alive and TLS.
 //
 //  - node:http / node:https with keep-alive agents (LIFO reuse); idle pooled sockets close after
 //    upstream.keepAliveIdleMs (uvicorn closes at 5 s, so 4 s avoids racing the server's close);
