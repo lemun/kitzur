@@ -43,4 +43,5 @@ test('compare page marks uncompared cells, pins Gobstopper sources and labels Te
   assert.deepEqual(gobstopper.filter((href) => !href.includes('/blob/1aa71294f35d07ff81c82a7e133d0c2a3a220939/')), []);
   assert.match(html, /Gobstopper’s own Terminal-Bench 2\.1 result for v0\.7\.2/);
   assert.match(html, /Kitzur has no Terminal-Bench run/);
+  assert.match(html, /61 tasks solved with Gobstopper vs 60 without, and 84\.3M input tokens with Gobstopper vs 118\.6M without/);
 });
