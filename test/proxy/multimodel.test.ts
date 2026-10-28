@@ -96,8 +96,9 @@ test('overlapping A/B/A requests keep model runtimes pinned through stream calib
   }
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-multimodel-'));
   const statsPath = join(dir, 'stats.jsonl');
-  const loaded = loadConfig({ env: {}, object: { server: { budgetMode: 'silent_truncate' }, models: {
-    alpha: { budget: { window: 49152 } }, beta: { budget: { window: 40960 } },
+  // Only alpha resolves to silent_truncate (ollama + limitCountsMaxTokens false); root and beta stay strict_total.
+  const loaded = loadConfig({ env: {}, object: { server: { type: 'ollama' }, budget: { limitCountsMaxTokens: true }, models: {
+    alpha: { budget: { window: 49152, limitCountsMaxTokens: false } }, beta: { budget: { window: 40960 } },
   } } });
   const rootCounter = charCounter();
   const alphaCounter = charCounter('exact');
@@ -137,9 +138,10 @@ test('overlapping A/B/A requests keep model runtimes pinned through stream calib
     assert.ok(betaCounter.calls > 0);
     assert.ok(rootCounter.calls > 0);
     const status = (await request(port, { method: 'GET', path: '/status' })).json();
-    assert.ok(status.warnings.some((w: { code: string }) => w.code === 'silent_truncate'), 'alpha afterChat must use alpha silent_truncate config');
+    const truncate = status.warnings.find((w: { key: string }) => w.key === 'silent_truncate');
+    assert.equal(truncate?.count, 2, 'only the two alpha requests judge samples under alpha silent_truncate config');
     const records = readFileSync(statsPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
-    assert.deepEqual(records.map((r: { profile?: string }) => r.profile), ['beta', 'small_model', 'alpha', 'alpha']);
+    assert.deepEqual(records.map((r: { profile?: string }) => r.profile), ['beta', undefined, 'alpha', 'alpha']);
   } finally {
     releaseA();
     await proxy.close().catch(() => undefined);
