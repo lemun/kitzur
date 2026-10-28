@@ -1,5 +1,5 @@
-// Learned entries as the engine applies them (DESIGN.md, §8 ) and the planning inputs P
-// with their hash (§5.3, ). The proxy owns learning and persistence; the engine only reads an
+// Learned entries as the engine applies them (DESIGN.md) and the planning inputs P
+// with their hash. The proxy owns learning and persistence; the engine only reads an
 // entry, validates it against the current config and counter, and plans with it.
 import type { ChatRequest, LearnedEntry, PlanningInputs, TokenCounter } from '../types.js';
 import { ENGINE_ALGO_VERSION } from '../types.js';
@@ -26,13 +26,13 @@ export function defaultLearnedEntry(cfg: Config, counterId: string): LearnedEntr
   };
 }
 
-/** An entry is discarded when it was learned under another window or counter (§8 Invalidation, ). */
+/** An entry is discarded when it was learned under another window or counter. */
 export function learnedValid(e: LearnedEntry, cfg: Config, counterId: string): boolean {
   return e.configuredWindow === cfg.budget.window && e.counterId === counterId;
 }
 
 /**
- * `${origin}|${model}`: the learned-state key of a request (§8, ). The origin is normalised (URL
+ * `${origin}|${model}`: the learned-state key of a request. The origin is normalised (URL
  * origin plus path without trailing slashes) so `http://H:80/v1/` and `http://h/v1` share one entry.
  */
 export function learnedKey(origin: string | null, model: unknown): string {
@@ -46,13 +46,13 @@ export function learnedKey(origin: string | null, model: unknown): string {
   return `${o}|${typeof model === 'string' ? model : ''}`;
 }
 
-/** Correction as an integer percentage: ceil to 1%, never below 100 (§4: correction ≥ 1). */
+/** Correction as an integer percentage: ceil to 1%, never below 100 (correction ≥ 1). */
 export function correctionPct(e: LearnedEntry): number {
   const c = typeof e.correction === 'number' && Number.isFinite(e.correction) ? e.correction : 1;
   return Math.max(100, Math.ceil(c * 100 - 1e-9));
 }
 
-/** Effective chat_template_kwargs: the request's booleans over tokenizer.template defaults (§5.3). */
+/** Effective chat_template_kwargs: the request's booleans over tokenizer.template defaults. */
 export function templateKwargs(cfg: Config, req: ChatRequest): Record<string, boolean> {
   const out: Record<string, boolean> = {};
   const t = cfg.tokenizer.template;
@@ -68,7 +68,7 @@ export function templateKwargs(cfg: Config, req: ChatRequest): Record<string, bo
 }
 
 /**
- * Hash of every config value that affects planning (§5.3): budget, client, compaction, oversize,
+ * Hash of every config value that affects planning: budget, client, compaction, oversize,
  * rules, ledger, reasoning, the tokenizer template/fallback/image cost, the server mode inputs, and the
  * counter identity. `noClamp` (a ProcessOptions switch) changes the fit predicate, so it is folded in.
  */
@@ -97,7 +97,7 @@ export function tokenizerShaFromId(counterId: string): string | null {
   return m ? m[1]! : null;
 }
 
-/** bytes(canonical tools) + 512 (§3, ). */
+/** bytes(canonical tools) + 512. */
 export function fixedBytesOf(tools: unknown, canonicalTools?: string): number {
   if (!(Array.isArray(tools) && tools.length)) return 512;
   return Buffer.byteLength(canonicalTools ?? canonicalJSON(tools), 'utf8') + 512;
@@ -118,7 +118,7 @@ export interface InputsArgs {
   noClamp: boolean;
 }
 
-/** P for one request (§5.3). T_req is deliberately absent (ADR-7). */
+/** P for one request. T_req is deliberately absent. */
 export function planningInputs(a: InputsArgs): PlanningInputs {
   const mode = a.counter.mode === 'exact' ? 'exact' : 'estimate';
   const tools = Array.isArray(a.req.tools) ? a.req.tools : null;

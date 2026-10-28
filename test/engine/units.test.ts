@@ -50,7 +50,7 @@ test('headEnd: first assistant, trailing prior summaries left out, n without ass
   assert.equal(headEnd(H, 2, cfg.client), 2);
 });
 
-test('headEnd: client-summary extension (), OpenCode and Kilo shapes', () => {
+test('headEnd: client-summary extension, OpenCode and Kilo shapes', () => {
   const marker = user('What did we do so far?');
   const cs = asst('## Objective\n- migrate\n\n## Next Move\n1. run');
   const H = [sys, marker, cs, asst(null, 'c1'), tool('c1'), user('Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed.')];
@@ -66,7 +66,7 @@ test('headEnd: client-summary extension (), OpenCode and Kilo shapes', () => {
   assert.equal(headEnd(H, 2, cfg.client), 2);
 });
 
-test('units (): assistant/user/system/developer start units; tool, function, unknown attach', () => {
+test('units: assistant/user/system/developer start units; tool, function, unknown attach', () => {
   const H: ChatMessage[] = [
     sys, user('g'), asst('a1', 'c1'), tool('c1'), user('u'), { role: 'function', name: 'f', content: 'x' },
     asst('a2'), asst('a3', 'c2'), tool('c2'), { role: 'weird', content: 'w' }, { role: 'developer', content: 'd' },

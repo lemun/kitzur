@@ -1,4 +1,4 @@
-// The state dir (DESIGN.md "State dir", §8 "Learned state is persisted", ):
+// The state dir (DESIGN.md "State, scope and limitations"):
 //
 //   <stateDir>/learned.json   LearnedState v2: one LearnedEntry per `${origin}|${model}`
 //   <stateDir>/plans/*.jsonl  the optional plan store (store.persist): one append-only file per day
@@ -74,7 +74,7 @@ export function freshLearnedEntry(configuredWindow: number, counterId: string): 
   };
 }
 
-/** Fields that are planning inputs (§5.3) or change what is forwarded. */
+/** Fields that are planning inputs or change what is forwarded. */
 export function planningChanged(a: LearnedEntry | undefined, b: LearnedEntry): boolean {
   if (!a) return b.window !== null || b.maxPrompt !== null || b.maxBodyBytes !== null || b.tighten !== 0 || b.correction !== 1 || b.includeUsageRejected;
   return a.window !== b.window || a.maxPrompt !== b.maxPrompt || a.maxBodyBytes !== b.maxBodyBytes || a.tighten !== b.tighten ||
@@ -162,7 +162,7 @@ export function keyMatches(key: string, filter: string | undefined): boolean {
 
 export class StateStore {
   readonly path: string | null;
-  /** entries dropped at load: learned under another window or counter () */
+  /** entries dropped at load: learned under another window or counter */
   readonly discarded: string[] = [];
   /** last load or write error (the proxy keeps running on a read-only state dir) */
   lastError: string | null = null;

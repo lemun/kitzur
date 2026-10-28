@@ -82,7 +82,7 @@ test('413 learns a byte limit only; mandatory image bytes', () => {
   assert.equal(mandatoryImageBytes({ messages: [{ role: 'user', content: [img] }] }), 0, 'no assistant: head only');
 });
 
-test('pending tighten of ambiguous errors: persisted only after two distinct chains within 24 h ()', () => {
+test('pending tighten of ambiguous errors: persisted only after two distinct chains within 24 h', () => {
   const e0 = freshLearnedEntry(100_000, 'c');
   const a = notePendingSuccess(e0, 'chainA', 62_000, 'gateway.5xx', cfg100, NOW);
   assert.deepEqual([a.persisted, a.entry.tighten, a.entry.pendingTighten.length], [false, 0, 1]);

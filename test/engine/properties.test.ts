@@ -57,7 +57,7 @@ test('interleaved sessions on one engine == each session alone (determinism)', (
   }
 });
 
-test('I7 under fault injection: the original only on attempt 1 and only when it fits ()', () => {
+test('I7 under fault injection: the original only on attempt 1 and only when it fits', () => {
   let fallbacks = 0;
   let rejects = 0;
   for (let i = 0; i < 40; i++) {

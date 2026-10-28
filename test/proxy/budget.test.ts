@@ -34,7 +34,7 @@ test('learned entry and tighten enter the budget; serverFits per mode', () => {
   assert.equal(serverFits(9501, 0, { ...lim, mode: 'silent_truncate' }), false);
 });
 
-test('budget mode precedence ()', () => {
+test('budget mode precedence', () => {
   assert.equal(budgetModeOf(testConfig({ server: { type: 'llamacpp', budgetMode: 'strict_total' } })), 'strict_total');
   assert.equal(budgetModeOf(testConfig({ server: { type: 'tgi' }, budget: { limitCountsMaxTokens: true } })), 'tgi');
   assert.equal(budgetModeOf(testConfig({ server: { type: 'vllm' }, budget: { limitCountsMaxTokens: false } })), 'prompt_only');

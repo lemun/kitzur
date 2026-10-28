@@ -47,11 +47,11 @@ export interface Config {
   budget: {
     /** Resolved numeric window. The loader accepts "auto" and retains that mode at runtime. */
     window: number;
-    /** whether the server checks prompt + max_tokens (vLLM) or the prompt alone; null = from server.budgetMode/type (§3 precedence) */
+    /** whether the server checks prompt + max_tokens (vLLM) or the prompt alone; null = from server.budgetMode/type */
     limitCountsMaxTokens: boolean | null;
     /** used when a request has neither max_tokens nor max_completion_tokens */
     defaultMaxTokens: number;
-    /** session-stable max_tokens used for planning; null = defaultMaxTokens (DESIGN ADR-7) */
+    /** session-stable max_tokens used for planning; null = defaultMaxTokens */
     planMaxTokens: number | null;
     safetyMarginTokens: number;
     safetyMarginFraction: number;
@@ -100,9 +100,9 @@ export interface Config {
     headShare: number;
     /** head too large: 'truncate' the first user message (only it) or return an 'error' */
     headPolicy: 'truncate' | 'error';
-    /** admission rewrites of new tool results (§5.5a) on/off */
+    /** admission rewrites of new tool results on/off */
     admission: boolean;
-    /** admission threshold for new tool results (§5.5a); null = floor((budget - count(head) - floor(budget*summaryFraction)) / 2) */
+    /** admission threshold for new tool results; null = floor((budget - count(head) - floor(budget*summaryFraction)) / 2) */
     admitTokens: number | null;
     /** room reserved for the tail when truncating the head; null = floor(0.25*budget) */
     minTailTokens: number | null;

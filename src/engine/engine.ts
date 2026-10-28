@@ -1,10 +1,10 @@
-// LeanEngine: engine.process(req, opts) — pure and synchronous, local counts only (DESIGN.md, §5).
+// LeanEngine: engine.process(req, opts) — pure and synchronous, local counts only (DESIGN.md).
 //
 //   digests → chain → P → fold over boundaries (memo) → assemble the live output → action and forwarded
-//   max_tokens (§3) → §5.7 for a final plan over budget → guard (§5.8) → result
+//   max_tokens → over-budget handling of the final plan → guard → result
 //
-// Any exception or failed guard falls back per : attempt 1 forwards the original only if counting
-// failed or serverFits(original, T_req); otherwise (and on every retry) the §5.7 400 is returned.
+// Any exception or failed guard falls back: attempt 1 forwards the original only if counting
+// failed or serverFits(original, T_req); otherwise (and on every retry) the context_length_exceeded 400 is returned.
 import type {
   Budget, ChatMessage, ChatRequest, Engine, EngineAction, EngineResult, EngineStats, LearnedEntry, Plan, PlanStore,
   ProcessOptions, TokenCounter, RetentionDecision, RetentionCounts,
@@ -57,7 +57,7 @@ export interface EngineTrace {
   resumedAt: number;
   boundaries: number;
   stepKind: StepKind | null;
-  /** hash(P) of the request (an I6 epoch ends when it changes) */
+  /** hash(P) of the request (a prefix epoch ends when it changes) */
   pHash: string;
 }
 
@@ -133,7 +133,7 @@ export class LeanEngine implements Engine {
 
   constructor(o: EngineOptions) {
     if (o.counter.mode === 'remote') {
-      throw new Error("kitzur engine: counter mode 'remote' is a calibration source only; the engine needs 'exact' or 'estimate' (DESIGN §4, )");
+      throw new Error("kitzur engine: counter mode 'remote' is a calibration source only; the engine needs 'exact' or 'estimate'");
     }
     this.config = o.config;
     this.counter = o.counter;
@@ -173,7 +173,7 @@ export class LeanEngine implements Engine {
     const msgs = req.messages;
     this.lastTrace = null;
 
-    // ---- count the original (a failure here is "counting failed", §5.8)
+    // ---- count the original (a failure here is "counting failed")
     let cnt: Counting;
     let digests: string[];
     let countIn: number;
@@ -215,7 +215,7 @@ export class LeanEngine implements Engine {
       };
       const fr = fold(env, this.store, opts?.dryRun === true);
 
-      // replan diagnostics (): why the memo did not resume at the previous boundary
+      // replan diagnostics: why the memo did not resume at the previous boundary
       let replan: EngineResult['replan'];
       if (fr.resumedAt < fr.boundaries.length - 2) {
         let other = false;
@@ -258,7 +258,7 @@ export class LeanEngine implements Engine {
         action = 'clamp';
         overBudgetAllowed = true;
       } else {
-        // §5.7: the final plan is over budget
+        // the final plan is over budget
         const floorT = cfg.budget.maxTokensClamp.floorTokens;
         const lim = serverLimit(bud);
         let aOk: boolean;
@@ -292,7 +292,7 @@ export class LeanEngine implements Engine {
         }
       }
 
-      // a final plan over budget (§5.7) is reported as such; the memo keeps the plan as the fold made it
+      // a final plan over budget is reported as such; the memo keeps the plan as the fold made it
       const fittedPlan = cOut > bud.budget && action !== 'clamp' && fr.plan.fit !== 'over_budget' ? { ...fr.plan, fit: 'over_budget' as const } : fr.plan;
       // Return detached diagnostics: callers must not be able to mutate memoized attribution.
       const plan = { ...fittedPlan, summaryAttribution: fittedPlan.summaryAttribution
@@ -315,7 +315,7 @@ export class LeanEngine implements Engine {
         };
       }
 
-      // ---- guard (§5.8)
+      // ---- guard
       const exempt = new Set<number>(Object.keys(plan.headRewrites).map(Number));
       if (plan.summary !== null && cfg.compaction.summaryRole === 'merge-into-first-user') {
         const j = out.findIndex((m) => roleOf(m) === 'user');
@@ -390,8 +390,8 @@ export class LeanEngine implements Engine {
 
   /**
    * : attempt 1 forwards the original when counting failed or serverFits(original, T_req); otherwise,
-   * and on every retry, the §5.7 context_length_exceeded 400 (the proxy substitutes the last upstream
-   * error on retries, §5.8).
+   * and on every retry, the context_length_exceeded 400 (the proxy substitutes the last upstream
+   * error on retries).
    */
   private fallback(
     req: ChatRequest, attempt: number, bud: Budget, countIn: number | null, t0: number, reason: string,

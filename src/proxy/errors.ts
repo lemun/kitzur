@@ -1,4 +1,4 @@
-// Upstream error classification (DESIGN.md "Error map", ; reference implementation).
+// Upstream error classification (DESIGN.md "Recovery and streaming"; reference implementation).
 //
 // An error is a non-2xx HTTP response, or the first SSE event of a 200 stream when it carries a
 // top-level `error` (in-stream, status from error.code / error.http_status_code). Classification:
@@ -7,7 +7,7 @@
 //      A rule's `status` gates it: omitted = any status (in-stream included), `null` = in-stream only.
 //      Built-in *specific-text* rules omit `status`, so they still match a vLLM body that a gateway
 //      re-statused as 500; only the generic ones (413, gateway 5xx, the vague "suspect" wording) are
-//      status-gated (). The regex runs on the raw body (`on: 'body'`, default) or on the extracted
+//      status-gated. The regex runs on the raw body (`on: 'body'`, default) or on the extracted
 //      message (`on: 'message'`: error.message ?? error-as-string ?? message).
 //   3. numbers from named groups (window, prompt, completion, total, maxInput, chars, atLeast) and from
 //      `json` paths; `lowerBound` / `lowerBoundIf` mark the prompt number as a lower bound.
@@ -77,7 +77,7 @@ export const BUILTIN_RULES: readonly ErrorRule[] = [
   { id: 'litellm.cwe', server: 'litellm proxy', kind: 'overflow_unknown',
     match: '(?:ContextWindowExceededError|litellm\\._pre_call_checks: Context Window exceeded)' },
   { id: 'openai.code', server: 'generic OpenAI-style', kind: 'overflow_unknown', match: 'context_length_exceeded' },
-  // generic entries stay status-gated ()
+  // generic entries stay status-gated
   { id: 'http.413', server: 'gateway', status: [413], kind: 'payload_too_large', match: '' },
   { id: 'gateway.5xx', server: 'gateway', status: [502, 503, 504], kind: 'gateway_error', match: '' },
   { id: 'generic.suspect', server: 'unknown', status: [400, 413, 422], kind: 'overflow_suspect', flags: 'i',
@@ -90,7 +90,7 @@ export const BUILTIN_EXCLUSIONS: readonly ErrorExclusion[] = [
   { id: 'stream_options', match: 'Stream options can only be defined when `stream=True`' },
 ];
 
-/** The exclusion id whose match triggers the include_usage retry (). */
+/** The exclusion id whose match triggers the include_usage retry. */
 export const STREAM_OPTIONS_EXCLUSION = 'stream_options';
 
 export interface ErrorInput {
@@ -227,7 +227,7 @@ export class ErrorClassifier {
   }
 }
 
-// ---------------------------------------------------------------- validation of learned numbers ()
+// ---------------------------------------------------------------- validation of learned numbers
 
 export interface NumbersContext {
   /** budget.window (the configured window) */
@@ -250,7 +250,7 @@ export interface ValidatedNumbers {
 }
 
 /**
- * Accepts learned numbers only when ():
+ * Accepts learned numbers only when:
  *  (i) they were matched in the extracted message (or structured JSON fields), not in echoed input;
  *  (ii) 0 < explicit window < budget.window;
  *  (iii) any exact prompt number in the same body is within [0.8, 1.25]× our count of the rejected request.
@@ -290,11 +290,11 @@ export function validateNumbers(c: Classification, ctx: NumbersContext): Validat
 /** Kinds that are overflows the ladder re-plans for. */
 export const OVERFLOW_KINDS: ReadonlySet<ErrorKind> = new Set<ErrorKind>(['overflow_prompt', 'overflow_total', 'overflow_unknown']);
 
-/** Kinds that are translated to a 400 context_length_exceeded once recovery is exhausted (). */
+/** Kinds that are translated to a 400 context_length_exceeded once recovery is exhausted. */
 export const TRANSLATED_KINDS: ReadonlySet<ErrorKind> = new Set<ErrorKind>(['overflow_prompt', 'overflow_total', 'overflow_unknown', 'max_tokens_too_large']);
 
 /**
- * Overshoot of a rejection (§8), recorded in stats and /status: total-mode bodies P + M − W, prompt-mode
+ * Overshoot of a rejection, recorded in stats and /status: total-mode bodies P + M − W, prompt-mode
  * bodies P − W, lower-bound bodies P_lb − W. Undefined without both numbers.
  */
 export function overshootOf(c: Classification): number | undefined {

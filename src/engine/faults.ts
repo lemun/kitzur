@@ -1,6 +1,6 @@
-// Test fault injection (DESIGN.md "How the invariants are tested", ):
+// Test fault injection:
 // KITZUR_TEST_FAULTS=engine-throw:<p> makes engine.process throw inside its pipeline with probability p,
-// so the fuzz suite can check the I7 fallback. The decision is a deterministic function of the request
+// so the fuzz suite can check the never-worse-than-no-proxy fallback. The decision is a deterministic function of the request
 // (its chain key and attempt), so a failing case reproduces. Unset or unparsable = no faults.
 import { sha256Hex } from './canonical.js';
 

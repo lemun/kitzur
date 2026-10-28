@@ -1,4 +1,4 @@
-// Error bodies the engine generates (DESIGN.md/(c), §5.8 guard_reject; ).
+// Error bodies the engine generates (fixed prompt too large, cannot fit, guard_reject).
 //
 // Numbers print as one-decimal thousands ("26.0k"). OpenCode retries any error whose message or body
 // contains 429/500/502/503/504/524 as a substring (retry.ts:33, 88-98), so a printed number whose
@@ -31,7 +31,7 @@ const body = (message: string, code: string): ErrorBody => ({
 const reserving = (reserve: number): string => (reserve > 0 ? ` after reserving ${fmtK(reserve)} for the reply` : '');
 
 /**
- * §5.7 (b): system prompt + tools alone do not fit the server limit. `need` = their count, `fit` = the
+ * Fixed prompt too large: system prompt + tools alone do not fit the server limit. `need` = their count, `fit` = the
  * most that fits (W − margin − tighten − reserve), `reserve` = the reply reservation used in the test.
  */
 export function fixedPromptTooLarge(need: number, fit: number, window: number, reserve: number): ErrorBody {
@@ -43,7 +43,7 @@ export function fixedPromptTooLarge(need: number, fit: number, window: number, r
 }
 
 /**
- * §5.7 (c) and the guard's reject (§5.8): the request cannot be made to fit; the client should compact
+ * Cannot fit, and the guard's reject: the request cannot be made to fit; the client should compact
  * (OpenCode and Kilo recognise the context_length_exceeded code).
  */
 export function contextLengthExceeded(need: number, fit: number, window: number, reserve: number): ErrorBody {

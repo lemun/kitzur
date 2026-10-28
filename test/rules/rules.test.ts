@@ -43,7 +43,7 @@ test('role(): OpenCode MCP prefix and bare names, per role (DESIGN §7 defaults)
   assert.deepEqual(createToolRules(custom).role('todowrite'), []);
 });
 
-test('classify(): snapshot content beats names and the test rule ()', () => {
+test('classify(): snapshot content beats names and the test rule', () => {
   const snap = mcpSnapshot({ url: 'https://staging-3.shop.example/checkout/cart', title: 'Checkout - Shop' });
   assert.equal(rules.classify(snap, call('playwright_browser_snapshot', {})), 'snapshot');
   assert.equal(rules.classify(snap, call('bash', { command: 'npx playwright test tests/e2e/checkout/cart.spec.ts' })), 'snapshot');

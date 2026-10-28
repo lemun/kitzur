@@ -1,4 +1,4 @@
-// Test-runner results (DESIGN.md "test"): recognized by the shell command (rules.test.commands) or by
+// Test-runner results (DESIGN.md "Mechanical summary"): recognized by the shell command (rules.test.commands) or by
 // content (`N passed` / `N failed` / `Tests:`); condensed to the failure lines plus the final tally.
 import { capHead, collapseWs } from '../ledger/text.js';
 

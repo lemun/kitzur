@@ -112,7 +112,7 @@ test('hold: the timer starts at the upstream headers and commits after firstEven
   }, { config: { stream: { firstEventTimeoutMs: 200 } } });
 });
 
-test('late upstream error status (): the client gets the real HTTP status, not an invented 200', async () => {
+test('late upstream error status: the client gets the real HTTP status, not an invented 200', async () => {
   const up = await fakeUpstream(async (_h, res) => {
     await sleep(250);
     jsonRes(res, 429, { error: { message: 'Rate limit exceeded', type: 'rate_limit_error', code: '429' } });
@@ -517,7 +517,7 @@ test('engine exceptions: the original only when it fits (I7)', async () => {
   }, { config: { budget: { window: 10_000, defaultMaxTokens: 1000 } } });
 });
 
-test('an unsafe-integer body is never rewritten ()', async () => {
+test('an unsafe-integer body is never rewritten', async () => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, okCompletion()));
   const engine = new FakeEngine((req) => result(req, { ...req, messages: req.messages.slice(-1) }, true));
   await withProxy(up, engine, async (f) => {

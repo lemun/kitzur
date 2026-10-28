@@ -33,7 +33,7 @@ function session(k: number, chars: number): ChatMessage[] {
 }
 const req = (messages: ChatMessage[], extra: Partial<ChatRequest> = {}): ChatRequest => ({ model: 'm', messages, ...extra });
 
-test("the engine refuses a 'remote' counter ()", () => {
+test("the engine refuses a 'remote' counter", () => {
   const c = estimateCounter();
   const remote = { ...c, mode: 'remote' as const, id: c.id, countText: c.countText, measure: c.measure, countRequest: c.countRequest };
   assert.throws(() => mk(testConfig(), remote), /remote/);
@@ -51,7 +51,7 @@ test('passthrough: a small request is returned as the same object', () => {
   assert.equal(res.stats.tokensIn, res.stats.tokensOut);
 });
 
-test('forwarded max_tokens fit (): every field the client sent, else max_tokens added', () => {
+test('forwarded max_tokens fit: every field the client sent, else max_tokens added', () => {
   const e = mk(presetConfig('32k'));
   const base = session(1, 500);
   const a = e.process(req(base, { max_tokens: 32_000 }), { attempt: 1 });
@@ -168,7 +168,7 @@ test('§5.7 (a) truncate: prompt_only serves a head over the budget but within n
   assert.ok(res.stats.tokensOut > res.stats.budget.budget);
 });
 
-test('clamp (): reachable with a declared-large client window; M = min(T_req, W − margin − c)', () => {
+test('clamp: reachable with a declared-large client window; M = min(T_req, W − margin − c)', () => {
   const cfg = testConfig({
     budget: { maxTokensClamp: { enabled: true, floorTokens: 8192 } }, client: { compactionPointTokens: 100_000 },
     oversize: { admission: false },
@@ -186,7 +186,7 @@ test('clamp (): reachable with a declared-large client window; M = min(T_req, W 
   assert.ok(nc.stats.tokensOut <= 67_000);
 });
 
-test('I7 fallback under injected faults: original only on attempt 1 and only if it fits ()', () => {
+test('I7 fallback under injected faults: original only on attempt 1 and only if it fits', () => {
   const cfg = presetConfig('32k');
   const e = mk(cfg, estimateCounter(), { faults: 'engine-throw:1' });
   const small = req(session(1, 500));
@@ -247,7 +247,7 @@ test('merge-into-first-user: the summary is appended to the goal, no extra messa
   assert.equal(out[2]!.role, 'assistant');
 });
 
-test('client-written summary (OpenCode shape) stays verbatim in the head ()', () => {
+test('client-written summary (OpenCode shape) stays verbatim in the head', () => {
   const cfg = presetConfig('32k');
   const cs: ChatMessage = { role: 'assistant', content: '## Objective\n- CS-ONLY-P4W7Q migrate\n\n## Next Move\n1. run specs' };
   const h: ChatMessage[] = [sys, user('What did we do so far?'), cs, ...session(10, 12_000).slice(2), user(cfg.client.boilerplateUserTexts[0]!)];
@@ -278,7 +278,7 @@ test('reasoning.tail = drop removes reasoning from kept assistants at compaction
   assert.ok(checked >= 1);
 });
 
-test('replan diagnostics: new_session, inputs_changed, client_mutation ()', () => {
+test('replan diagnostics: new_session, inputs_changed, client_mutation', () => {
   const cfg = presetConfig('32k');
   const e = mk(cfg);
   const h = session(6, 3000);
@@ -312,7 +312,7 @@ test('R3: the mandatory unit oversized result is truncated head+tail (admission 
   assert.ok(res.stats.tokensOut <= res.stats.budget.hard);
 });
 
-test('R4 runs right after R1 when bytes drive the loop: images omitted, oldest first ()', () => {
+test('R4 runs right after R1 when bytes drive the loop: images omitted, oldest first', () => {
   const img = (n: number) => ({ type: 'image_url', image_url: { url: 'data:image/png;base64,' + 'A'.repeat(n) } });
   const cfg = presetConfig('32k', { upstream: { maxBodyBytes: 60_000 } });
   const h: ChatMessage[] = [...session(2, 3000), { role: 'user', content: [{ type: 'text', text: 'look' }, img(30_000), img(30_000)] }];

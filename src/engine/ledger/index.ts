@@ -1,8 +1,8 @@
-// Facts ledger assembly (DESIGN.md–§6.4): turns the per-message facts of H[0..b) into the summary's
+// Facts ledger assembly (DESIGN.md): turns the per-message facts of H[0..b) into the summary's
 // items. Items come from the summarized region [hEnd, cut); their status is evaluated over H[0..b):
 //   - an item whose key recurs in [cut, b) is not an item (the verbatim tail carries the latest state);
 //   - supersession of user instructions considers corrections anywhere after the instruction, tail included.
-// Each item carries its category, its rank inside the category (the one strict total order of §6.4) and its
+// Each item carries its category, its rank inside the category (the one strict total order below) and its
 // position inside its section (first appearance, for rendering).
 import type { ChatMessage, ToolCall } from '../../types.js';
 import type { RetentionSource, RetentionAttribution } from '../contracts.js';
@@ -14,15 +14,15 @@ import { isConfigLike, longerSpelling, PathIndex, samePath } from './paths.js';
 
 export type ItemCategory = RetentionAttribution['category'];
 
-/** Category priority, highest first (§6.4). */
+/** Category priority, highest first. */
 export const CATEGORY_ORDER: readonly ItemCategory[] = ['user', 'decision', 'todo', 'file', 'rest', 'narrative1', 'narrative2', 'toolLog'];
 
-/** The floor (§6.4): everything but narrative tier 2 and the tool log. */
+/** The floor: everything but narrative tier 2 and the tool log. */
 export const FLOOR_CATEGORIES: ReadonlySet<ItemCategory> = new Set(['user', 'decision', 'todo', 'file', 'rest', 'narrative1']);
 
 export type SectionId = 'user' | 'decisions' | 'todos' | 'files' | 'browser' | 'test' | 'paths' | 'notes' | 'log';
 
-/** Fixed section order of the summary (). */
+/** Fixed section order of the summary. */
 export const SECTION_ORDER: readonly SectionId[] = ['user', 'decisions', 'todos', 'files', 'browser', 'test', 'paths', 'notes', 'log'];
 
 export interface UserItemText {
@@ -64,7 +64,7 @@ const cmpArr = (a: readonly number[], b: readonly number[]): number => {
   return a.length - b.length;
 };
 
-/** The one strict total order of §6.4: category, rank inside it, message index, then id. */
+/** The one strict total order of ledger items: category, rank inside it, message index, then id. */
 export function compareItems(a: LedgerItem, b: LedgerItem): number {
   return (
     CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category) ||

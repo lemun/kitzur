@@ -116,7 +116,7 @@ export interface Sentence {
 }
 
 /**
- * Sentences as DESIGN §6.1 splits them: at `(?<=[.!?;])\s+` and at newlines. Empty pieces are dropped;
+ * Sentences as the ledger splits them: at `(?<=[.!?;])\s+` and at newlines. Empty pieces are dropped;
  * spans index the original text so the remaining sentences can be re-joined with their own separators.
  */
 export function splitSentences(text: string): Sentence[] {

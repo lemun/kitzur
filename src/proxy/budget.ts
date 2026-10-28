@@ -1,19 +1,19 @@
-// The §3 budget quantities the proxy needs on its own: when the engine threw (I7), for the rewrite-
-// rejection resend (), for the max_tokens_too_large retry value and for the near-budget test of
-// ambiguous errors (§8). Normally these come from EngineResult.stats.budget; this module computes the
+// The budget quantities the proxy needs on its own: when the engine threw, for the rewrite-
+// rejection resend, for the max_tokens_too_large retry value and for the near-budget test of
+// ambiguous errors. Normally these come from EngineResult.stats.budget; this module computes the
 // same numbers from config and the learned entry so the proxy never depends on an engine result.
 import { clientCompactionPoint } from '../config/client-point.js';
 import type { Config, BudgetMode } from '../config/schema.js';
 import type { LearnedEntry } from '../types.js';
 
-/** floor(x · f) with the §3 epsilon (41,000 · 0.35 must be 14,350). */
+/** floor(x · f) with a 1e-9 epsilon (41,000 · 0.35 must be 14,350). */
 export const floorFrac = (x: number, f: number): number => Math.floor(x * f + 1e-9);
 /** ceil(x · f) with the same epsilon, downwards (0.01 · 100,000 must be 1,000). */
 export const ceilFrac = (x: number, f: number): number => Math.ceil(x * f - 1e-9);
-/** count(x) = ceil(raw(x) · correction) (§4). */
+/** count(x) = ceil(raw(x) · correction). */
 export const corrected = (raw: number, correction: number): number => Math.ceil(raw * correction - 1e-9);
 
-/** §3 precedence (): explicit mode, then limitCountsMaxTokens, then the server type. */
+/** Budget mode by precedence: explicit mode, then limitCountsMaxTokens, then the server type. */
 export function budgetModeOf(cfg: Config): BudgetMode {
   if (cfg.server.budgetMode) return cfg.server.budgetMode;
   const t = cfg.server.type;
@@ -42,9 +42,9 @@ export interface ServerLimits {
   tighten: number;
   /** T_plan */
   planMaxTokens: number;
-  /** budget₀ = W − T_plan − margin (§8) */
+  /** budget₀ = W − T_plan − margin */
   budget0: number;
-  /** the §3 budget */
+  /** the budget */
   budget: number;
   /** hard = min(budget, clientPoint − allowance) */
   hard: number;
@@ -64,7 +64,7 @@ export function serverLimits(cfg: Config, e: LearnedEntry | null, extraTighten =
   return { mode: budgetModeOf(cfg), window: W, margin, tighten, planMaxTokens: tPlan, budget0, budget, hard: Math.min(budget, clientPoint - allowance) };
 }
 
-/** serverFits(x, M) of §3 on an already corrected count. */
+/** serverFits(x, M) on an already corrected count. */
 export function serverFits(count: number, maxTokens: number, lim: Pick<ServerLimits, 'mode' | 'window' | 'margin' | 'tighten'>): boolean {
   const room = lim.window - lim.margin - lim.tighten;
   switch (lim.mode) {
@@ -77,7 +77,7 @@ export function serverFits(count: number, maxTokens: number, lim: Pick<ServerLim
   }
 }
 
-/** All §3 quantities for /status (T_req-independent: planning uses T_plan). */
+/** All budget quantities for /status (T_req-independent: planning uses T_plan). */
 export interface BudgetQuantities extends ServerLimits {
   clientPoint: number;
   allowance: number;

@@ -193,7 +193,7 @@ test('the last attempt\'s rejection still teaches: with maxRetries 0 a validated
     const body = { model: 'm1', messages: [{ role: 'system', content: 's' }, { role: 'user', content: 'x'.repeat(1560) }], max_tokens: 100 };
     const r = await request(f.port, { body });
     assert.equal(r.status, 400);
-    assert.equal(r.json().error.code, 'context_length_exceeded', 'translated ()');
+    assert.equal(r.json().error.code, 'context_length_exceeded', 'translated');
     assert.equal(up.hits.length, 1, 'no retry with maxRetries 0');
     const { readLearnedState, learnedKey } = await import('../../src/proxy/state.js');
     await f.state.flush();

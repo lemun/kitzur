@@ -49,7 +49,7 @@ const KIND: Record<string, string[]> = {
   ambiguous_overflow: ['gateway_error'], output_overflow: ['max_tokens_too_large'], context_overflow: ['overflow_prompt', 'overflow_unknown'],
 };
 
-test('import-eval: every fixture set agrees with the reference prototype (adapted per //)', () => {
+test('import-eval: every fixture set agrees with the reference prototype', () => {
   const exits: Record<string, number> = {};
   for (const set of Object.keys(bundle.sets)) {
     const { res, inputs } = importSet(set);
@@ -134,7 +134,7 @@ function loadWritten(res: ImportResult) {
   });
 }
 
-test('import-eval: mock-vllm specifics ( allowance from the capture p99, derived budget, report)', () => {
+test('import-eval: mock-vllm specifics (allowance from the capture p99, derived budget, report)', () => {
   const { res, inputs } = importSet('mock-vllm');
   assert.equal(inputs.capture?.length, 57, 'one record per captured request (one had no usage)');
   assert.equal(bundle.captureN, 56);
@@ -143,7 +143,7 @@ test('import-eval: mock-vllm specifics ( allowance from the capture p99, derived
   // min(T_plan 32000, max(2000, p99 137)) = 2000
   assert.equal(bundle.captureP99, 137);
   assert.deepEqual(res.provenance['client.outputAllowanceTokens'], {
-    value: 2000, source: 'capture.jsonl (p99)', rule: 'min(T_plan, max(2000, p99 completion_tokens)) ()', confidence: 'measured',
+    value: 2000, source: 'capture.jsonl (p99)', rule: 'min(T_plan, max(2000, p99 completion_tokens))', confidence: 'measured',
   });
   // without the raw capture: dist.max is the p99 upper bound
   const noCap = mapEvalResults(inputs.results);
@@ -154,7 +154,7 @@ test('import-eval: mock-vllm specifics ( allowance from the capture p99, derived
   assert.deepEqual(res.unsafe, []);
   const report = renderImportReport(res, { inputs: inputs.sources });
   assert.match(report, /client baseURL = http:\/\/127\.0\.0\.1:8270\/v1/);
-  assert.match(report, /derived \(DESIGN §3\): mode strict_total, W 100000, T_plan 32000, margin 1000, budget 67000, clientPoint 84000, allowance 2000, hard 67000/);
+  assert.match(report, /derived: mode strict_total, W 100000, T_plan 32000, margin 1000, budget 67000, clientPoint 84000, allowance 2000, hard 67000/);
   assert.match(report, /proposed: 46\/46 steps, 7 compactions, peak prompt 60984, sum 1734118/);
   assert.match(report, /exit code 0/);
   // deterministic: same input, same output
@@ -247,7 +247,7 @@ test('variant: client compaction points (Kilo threshold_percent, limit.input + r
   assert.equal(computeBudget(loadWritten(res)).hard, 67_000 - 0, 'hard = budget when the client never compacts');
 });
 
-test('variant: prompt-only limit -> limitCountsMaxTokens false, planMaxTokens from the reserve ()', () => {
+test('variant: prompt-only limit -> limitCountsMaxTokens false, planMaxTokens from the reserve', () => {
   const R = mockResults();
   overflow(R)['prompt_plus_max_tokens_over_window'] = {
     accepted: true, finish_reason: 'stop', gob_estimate: 98332, max_tokens: 32000, secs: 4.2, stream: false, target_prompt_tokens: 72000,
@@ -260,7 +260,7 @@ test('variant: prompt-only limit -> limitCountsMaxTokens false, planMaxTokens fr
   assert.equal(getPath(res.config, 'client.outputAllowanceTokens'), 2000);
   const eff = loadWritten(res);
   assert.equal(computeBudget(eff).mode, 'prompt_only', 'vllm type + limitCountsMaxTokens false');
-  assert.equal(getPath(res.config, 'server.budgetMode'), undefined, 'never server.budgetMode ()');
+  assert.equal(getPath(res.config, 'server.budgetMode'), undefined, 'never server.budgetMode');
   assert.deepEqual(validateConfig(eff).errors, []);
 });
 

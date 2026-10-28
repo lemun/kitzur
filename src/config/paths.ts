@@ -1,4 +1,4 @@
-// File locations derived from the config and the environment (DESIGN.md "State dir").
+// File locations derived from the config and the environment (DESIGN.md "State, scope and limitations").
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, posix, win32 } from 'node:path';

@@ -100,7 +100,7 @@ test('validate: an unusable budget is an error with a preset hint', () => {
   assert.match(hardErr[0]!, /no room below the client's compaction point/);
 });
 
-test('validate: startup warnings ( clamp,  T_plan,  snapshot, preset mismatch)', () => {
+test('validate: startup warnings (clamp, T_plan, snapshot, preset mismatch)', () => {
   const clamp = warningsOf(cfgWith((c) => (c.budget.maxTokensClamp.enabled = true)));
   assert.ok(clamp.some((w) => /^clamp enabled but unreachable: range \(61000, 61000\) is empty/.test(w)), clamp.join('\n'));
   const reachable = warningsOf(cfgWith((c) => {
