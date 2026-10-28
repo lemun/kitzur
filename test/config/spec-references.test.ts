@@ -117,7 +117,8 @@ const PROSE_RESIDUE: [string, RegExp][] = [
   ['doubled comma', /,\s*,/],
   ['space after an opening parenthesis', /\( +\S/],
   ['dangling word before a closing parenthesis', /\b(to|of|or|and|the|per|see|in|by|with|from|as) +\)/],
-  ['space before a colon', /^[^?]*\w :(\s|$)/],
+  // a ternary `a ? b : c` quoted in prose is code, not residue
+  ['space before a colon', /(?<!\s\?\s[^:?]*)\w :(\s|$)/],
   ['doubled space after "the" or "per"', /\b(the|per)  +\S/i],
 ];
 
@@ -180,10 +181,15 @@ export function scanTs(src: string): Finding[] {
 /** Findings in one markdown document, outside code fences; inline code spans are code, not prose. */
 export function scanMd(src: string): Finding[] {
   const out: Finding[] = [];
-  let fence = false;
+  // an open fence closes only on a run of its own character at least as long as the opening run
+  let fence = '';
   src.split('\n').forEach((l, k) => {
-    if (/^\s*(```|~~~)/.test(l)) { fence = !fence; return; }
-    if (fence) return;
+    const run = /^\s*(`{3,}|~{3,})/.exec(l)?.[1];
+    if (fence) {
+      if (run && run[0] === fence[0] && run.length >= fence.length && /^\s*[`~]+\s*$/.test(l)) fence = '';
+      return;
+    }
+    if (run) { fence = run; return; }
     lineScan(l, k + 1, CITATION, out);
     lineScan(l.replace(/`[^`]*`/g, 'code'), k + 1, PROSE_RESIDUE, out);
     designScan(l, k + 1, out);
@@ -214,6 +220,7 @@ test('scanner flags dangling citations and their residue', () => {
     ['ts', '// the map (adapted to ) holds'],
     ['ts', '// the rule holds :'],
     ['ts', '// per  the design'],
+    ['ts', '// Why? value : detail'],
     ['ts', '/**\n * as in the  plan\n */'],
     ['ts', "const m = 'budget exceeded ()';"],
     ['ts', 'const m = "cap (; see notes)";'],
@@ -223,6 +230,8 @@ test('scanner flags dangling citations and their residue', () => {
     ['md', 'The cap (ADR-3) applies.'],
     ['md', 'The cap () applies.'],
     ['md', 'See DESIGN.md "Nowhere".'],
+    ['md', '````\n```\n````\nThe cap §4 applies.'],
+    ['md', '~~~\n```\n~~~\nThe cap §4 applies.'],
   ];
   for (const [kind, src] of bad) {
     const found = kind === 'ts' ? scanTs(src) : scanMd(src);
@@ -246,6 +255,8 @@ test('scanner keeps ordinary code and real references', () => {
     ['ts', '// RFC 9110 and ./docs/DIAGNOSTICS.md'],
     ['md', 'Call `render()` here; see DESIGN.md "Budgets and counting".'],
     ['md', '```\nconst x = f( , );\n§1\n```'],
+    ['md', '````\n```\n§1\n```\n````'],
+    ['md', '~~~\n```\n§1\n~~~'],
   ];
   for (const [kind, src] of good) {
     const found = kind === 'ts' ? scanTs(src) : scanMd(src);
