@@ -176,6 +176,13 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       statsError: deps.stats.lastError,
       upstream: { origin, ...upstream.stats, endpoint: deps.remote ? deps.remote.stats() : null },
       modelTokenizers: deps.modelRuntimes?.tokenizerStatus(),
+      profiles: deps.modelRuntimes ? Object.fromEntries(Object.entries(deps.modelRuntimes.tokenizerStatus())
+        .filter(([id]) => id !== 'root')
+        .map(([id]) => {
+          const runtime = deps.modelRuntimes!.forModel(id);
+          const b = budgetQuantities(runtime.cfg, null);
+          return [id, { W: b.window, T_plan: b.planMaxTokens, hard: b.hard, trigger: b.trigger, counter_mode: runtime.counter.mode }];
+        })) : undefined,
     }),
     concurrency_rejected: concurrencyRejected,
     ...deps.watchdog?.snapshot(),
@@ -466,6 +473,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     const requestCfg = runtime?.cfg ?? cfg;
     const requestEngine = runtime?.engine ?? deps.engine;
     const requestCounter = runtime?.counter ?? deps.counter;
+    const requestProfile = creq.model && deps.modelRuntimes && Object.hasOwn(deps.modelRuntimes.tokenizerStatus(), creq.model)
+      ? creq.model : undefined;
     const requestCounterMode: CounterKind = requestCounter.mode === 'exact' ? 'exact' : 'estimate';
     if (deps.modelRuntimes?.shouldWarnUnknown(creq.model)) {
       const message = `No model profile configured for ${JSON.stringify(creq.model)}; using the root runtime.`;
@@ -811,7 +820,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       try {
         afterChat(result, {
           seq, ts, pathname, tBody, cpu0, key, creq, clientSession, reqPathMs, respPathMs, clientStatus: clientGone && !res.headersSent ? 499 : res.statusCode,
-          requestCfg, requestCounter, requestEngine,
+          requestCfg, requestCounter, requestEngine, requestProfile,
         });
       } catch (e) {
         log('error', `post-processing failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -895,6 +904,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     requestCfg: Config;
     requestCounter: TokenCounter & { profile?: TemplateProfile };
     requestEngine: Engine;
+    requestProfile: string | undefined;
   }
 
   function afterChat(r: ChatResult, c: AfterCtx): void {
@@ -987,6 +997,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       ...(c.respPathMs !== undefined ? { respPathMs: c.respPathMs } : {}),
       cpuUs: cpu.user + cpu.system,
       upstreamMs,
+      ...(c.requestProfile ? { profile: c.requestProfile } : {}),
     }));
   }
 

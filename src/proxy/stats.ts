@@ -42,6 +42,8 @@ export interface ProxyStatsRecord extends StatsRecord {
   /** time spent in upstream attempts (all of them) */
   upstream_ms?: number;
   cpu_us?: number;
+  /** selected model profile, captured from the request-pinned runtime */
+  profile?: string;
 }
 
 export class StatsWriter {
@@ -117,6 +119,7 @@ export interface StatsInput {
   respPathMs?: number;
   cpuUs?: number;
   upstreamMs?: number;
+  profile?: string;
 }
 
 /** Builds the JSONL record (StatsRecord field order first, then kitzur extras). */
@@ -162,6 +165,7 @@ export function buildStatsRecord(s: StatsInput): ProxyStatsRecord {
     carry_chars: 0,
     threshold_tokens: st?.budget.trigger ?? 0,
     ratio_permille: Math.round(s.correction * 1000),
+    ...(s.profile ? { profile: s.profile } : {}),
   };
   if (s.clientSession) rec.client_session = s.clientSession;
   if (s.shadow) {
