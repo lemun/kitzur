@@ -5,7 +5,9 @@ import { testConfig } from './harness.js';
 
 test('status retains the last compaction and the latest 64 requests in completion order', () => {
   const tracker = new StatusTracker(testConfig(), 'test', () => 1000);
+  tracker.paths = () => ({ config: '/tmp/kitzur.jsonc', state_dir: '/tmp/state', log_file: '/tmp/kitzur.log' });
   const snapshot = () => tracker.snapshot({ counter: { mode: 'estimate', id: 'test' }, learned: {} });
+  assert.deepEqual(snapshot().paths, { config: '/tmp/kitzur.jsonc', state_dir: '/tmp/state', log_file: '/tmp/kitzur.log' });
   assert.equal(snapshot().last_compaction, null);
   for (let i = 0; i < 66; i++) {
     tracker.recordRequest({ action: i === 0 ? 'compact' : 'passthrough', tokens: { in: 100, out: i === 0 ? 20 : 100, trigger: 80 }, model: `m${i}`, ms: i });

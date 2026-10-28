@@ -133,6 +133,13 @@ test('loadConfig: env mapping, empty values ignored, unknown KITZUR_* warned', (
   assert.deepEqual(r.warnings, ['unknown environment variable KITZUR_TYPO ignored (see CONFIG.md "Environment")']);
 });
 
+test('loadConfig: probe token is runtime-only and never enters config or provenance', () => {
+  const baseline = loadConfig({ env: {} });
+  const loaded = loadConfig({ env: { KITZUR_PROBE_TOKEN: 'secret-probe-token' } });
+  assert.deepEqual(loaded, baseline);
+  assert.doesNotMatch(JSON.stringify(loaded), /secret-probe-token/);
+});
+
 test('parseRawValue / parseSetArg / splitEnvSet', () => {
   assert.equal(parseRawValue(LEAF_SPECS['budget.planMaxTokens']!, 'null'), null);
   assert.equal(parseRawValue(LEAF_SPECS['budget.planMaxTokens']!, '12_000'), 12_000);
