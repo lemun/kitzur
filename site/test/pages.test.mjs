@@ -30,3 +30,18 @@ test('compare page is dated and every citation resolves to a listed source', asy
   assert.deepEqual([...cited].filter((n) => !listed.has(n)), []);
   assert.deepEqual([...listed].filter((n) => !cited.has(n)), []);
 });
+
+test('compare page marks uncompared cells, pins Gobstopper sources and labels Terminal-Bench as Gobstopper’s own', async () => {
+  const html = await page('compare/');
+  const rows = [...html.matchAll(/<tr>([\s\S]*?)<\/tr>/g)].map((m) => [...m[1].matchAll(/<td>([\s\S]*?)<\/td>/g)].map((c) => c[1].trim()));
+  const body = rows.filter((cells) => cells.length);
+  assert.ok(body.length > 0);
+  for (const cells of body) assert.equal(cells[1], 'Not compared');
+  assert.doesNotMatch(html, /<td>—<\/td>/);
+  const gobstopper = [...html.matchAll(/href="(https:\/\/github\.com\/hraness\/gobstopper\/blob\/[^"]+)"/g)].map((m) => m[1]);
+  assert.ok(gobstopper.length > 0);
+  assert.deepEqual(gobstopper.filter((href) => !href.includes('/blob/1aa71294f35d07ff81c82a7e133d0c2a3a220939/')), []);
+  assert.match(html, /Gobstopper’s own Terminal-Bench 2\.1 result for v0\.7\.2/);
+  assert.match(html, /Kitzur has no Terminal-Bench run/);
+  assert.match(html, /61 tasks solved with Gobstopper vs 60 without, and 84\.3M input tokens with Gobstopper vs 118\.6M without/);
+});
