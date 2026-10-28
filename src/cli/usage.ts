@@ -5,6 +5,8 @@ export const USAGE = `usage: kitzur <command> [options]
   serve                         run the proxy (logs the bound address to a file)
   replay <file|dir>...          run captured request bodies through the engine offline; sizes only,
                                 plus a live-vs-fresh determinism check
+  redact <file|dir>... [--out DIR|-]  copy request bodies with every text replaced by same-length filler
+                                (default: <name>.redacted.json next to the input)
   count <request.json>          exact token count of a request (per message, no content)
   status [--url URL] [--json]   Show a running instance’s status
   doctor [--model ID] [--client-config PATH] [--json] [--check-upstream] [--timeout-ms N]  read-only setup diagnostics
@@ -33,10 +35,10 @@ Precedence: defaults < preset < config file < KITZUR_* env < command line. Every
 `;
 
 /** Commands that answer --help / -h with their usage (bench forwards help flags to the suite only after `--`). */
-export const HELP_COMMANDS = new Set(['serve', 'replay', 'count', 'status', 'doctor', 'tls-probe', 'report', 'config', 'state', 'bench', 'version']);
+export const HELP_COMMANDS = new Set(['serve', 'replay', 'count', 'status', 'doctor', 'tls-probe', 'report', 'config', 'state', 'bench', 'redact', 'version']);
 
 /** Commands that read no config, so their usage leaves out the config options. */
-export const NO_CONFIG_COMMANDS = new Set(['report', 'bench', 'version']);
+export const NO_CONFIG_COMMANDS = new Set(['report', 'bench', 'redact', 'version']);
 
 /** One command's USAGE lines (with their continuation lines), plus the config options unless it reads no config. */
 export function usageOf(cmd: string): string {

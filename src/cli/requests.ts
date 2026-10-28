@@ -5,7 +5,7 @@ import type { ChatRequest } from '../types.js';
 import { UsageError } from './io.js';
 import { parseNoEcho } from './format.js';
 
-function readRequestFile(path: string): unknown[] {
+export function readRequestFile(path: string): unknown[] {
   const text = readFileSync(path, 'utf8');
   if (path.endsWith('.jsonl')) {
     return text.split('\n').flatMap((l, i) => (l.trim() ? [parseNoEcho(l, i + 1)] : []));
