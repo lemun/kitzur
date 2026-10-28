@@ -12,9 +12,10 @@ import { createProxyServer } from '../../src/proxy/server.js';
 import { StateStore } from '../../src/proxy/state.js';
 import { StatsWriter } from '../../src/proxy/stats.js';
 import { budgetQuantities } from '../../src/proxy/budget.js';
+import { judgeSample } from '../../src/proxy/calibration.js';
 
 test('model runtime selection is exact, stable, and preserves runtimeFor compatibility', () => {
-  const loaded = loadConfig({ env: {}, object: { models: { alpha: {}, beta: {} } } });
+  const loaded = loadConfig({ env: {}, object: { budget: { window: 65536 }, server: { budgetMode: 'silent_truncate' }, models: { alpha: { budget: { window: 49152 } }, beta: {} } } });
   const runtime = (cfg: typeof loaded.config): ModelRuntime => ({
     cfg,
     counter: {} as ModelRuntime['counter'],
@@ -36,7 +37,22 @@ test('model runtime selection is exact, stable, and preserves runtimeFor compati
     assert.equal(runtimes.forModel(model).engine, selected.engine);
     assert.equal(runtimes.forModel(model).counter, selected.counter);
   }
-  assert.equal(budgetQuantities(runtimes.forModel().cfg, null).window, loaded.config.budget.window);
+  const rootQuantities = budgetQuantities(runtimes.forModel().cfg, null);
+  assert.equal(rootQuantities.window, loaded.config.budget.window);
+  assert.equal(rootQuantities.mode, 'silent_truncate');
+  assert.notEqual(rootQuantities.window, budgetQuantities(runtimes.forModel('alpha').cfg, null).window);
+
+  // Resolve a small_model request between A requests as happens while A's stream is pending.
+  const pinnedA = runtimes.forModel('alpha');
+  assert.equal(runtimes.forModel('small_model'), root);
+  assert.equal(runtimes.forModel('alpha'), pinnedA);
+  assert.equal(budgetQuantities(pinnedA.cfg, null).window, 49152);
+  const sample = judgeSample({
+    cfg: pinnedA.cfg, mode: 'exact', budget: 1, counted: 100, reported: 50,
+    source: 'usage', complete: true, finishReason: 'stop', sameAttempt: true,
+    silentTruncate: pinnedA.cfg.server.budgetMode === 'silent_truncate',
+  });
+  assert.equal(sample.warning, 'server truncates: window smaller than configured');
 });
 
 test('unknown model warnings are bounded and emitted once per ID', () => {
@@ -80,8 +96,8 @@ test('overlapping A/B/A requests keep model runtimes pinned through stream calib
   }
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-multimodel-'));
   const statsPath = join(dir, 'stats.jsonl');
-  const loaded = loadConfig({ env: {}, object: { server: { budgetMode: 'strict_total' }, models: {
-    alpha: { server: { budgetMode: 'silent_truncate' } }, beta: { server: { budgetMode: 'strict_total' } },
+  const loaded = loadConfig({ env: {}, object: { server: { budgetMode: 'silent_truncate' }, models: {
+    alpha: { budget: { window: 49152 } }, beta: { budget: { window: 40960 } },
   } } });
   const rootCounter = charCounter();
   const alphaCounter = charCounter('exact');
@@ -110,18 +126,20 @@ test('overlapping A/B/A requests keep model runtimes pinned through stream calib
     const a1 = request(port, { body: { model: 'alpha', stream: true, messages: [{ role: 'user', content: 'first alpha' }] } });
     await aSeen;
     await request(port, { body: { model: 'beta', messages: [{ role: 'user', content: 'beta' }] } });
+    await request(port, { body: { model: 'small_model', messages: [{ role: 'user', content: 'root runtime' }] } });
     await request(port, { body: { model: 'alpha', messages: [{ role: 'user', content: 'second alpha' }] } });
     releaseA();
     await a1;
     assert.equal(alphaEngine.calls.length, 2);
     assert.equal(betaEngine.calls.length, 1);
+    assert.equal(rootEngine.calls.length, 1);
     assert.ok(alphaCounter.calls > 0);
     assert.ok(betaCounter.calls > 0);
-    assert.equal(rootCounter.calls, 0);
+    assert.ok(rootCounter.calls > 0);
     const status = (await request(port, { method: 'GET', path: '/status' })).json();
     assert.ok(status.warnings.some((w: { code: string }) => w.code === 'silent_truncate'), 'alpha afterChat must use alpha silent_truncate config');
     const records = readFileSync(statsPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
-    assert.deepEqual(records.map((r: { profile?: string }) => r.profile), ['beta', 'alpha', 'alpha']);
+    assert.deepEqual(records.map((r: { profile?: string }) => r.profile), ['beta', 'small_model', 'alpha', 'alpha']);
   } finally {
     releaseA();
     await proxy.close().catch(() => undefined);
