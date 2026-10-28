@@ -23,6 +23,7 @@ header. This file lists exactly what it does with that.
   only you can read (for example the config file, mode `0600`).
 - **Talks to exactly one upstream**: `upstream.origin`. The client's request path is appended, but the host never
   comes from the request.
+  - Kitzur never stores or rotates more than the one client key it forwards.
   - Optionally it also calls the gateway's tokenize endpoint (`tokenizer.endpoint`) on that same origin.
   - There is no other network traffic: no telemetry, no update checks, no downloads.
   - `HTTP(S)_PROXY` variables are not honoured.

@@ -206,6 +206,10 @@ Columns: **Default**; **Meaning**; **If wrong**: what breaks; **Probe field**: t
 
 ### upstream
 
+Kitzur forwards one client key to the configured upstream. For key rotation across
+authorized gateway accounts, place a dedicated rotator in front of the gateway and
+set `upstream.origin` to the rotator; see [the LiteLLM example](docs/UPSTREAM-ROTATION.md).
+
 | Key | Default | Meaning | If wrong | Probe field |
 |---|---|---|---|---|
 | `upstream.origin` | `null` (required by `serve`) | `scheme://host[:port]` of the gateway, no path; the client's request path is appended unchanged. | Every request fails or reaches the wrong server. A path is rejected: put it in the client's `baseURL`. | manual (the host is masked in the pack); the probe's `config.base_path` becomes the printed client baseURL |
