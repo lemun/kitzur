@@ -1,6 +1,6 @@
-// Digests, the hash chain and plan keys (DESIGN.md, §5.3).
+// Digests, the hash chain and plan keys (DESIGN.md).
 //
-//   d_i    = sha256(canonicalJSON(H[i]))            every field included, reasoning too (ADR-8)
+//   d_i    = sha256(canonicalJSON(H[i]))            every field included, reasoning too
 //   K_i    = sha256(K_{i-1} ‖ d_i),  K_{-1} = sha256("kitzur/chain/1")   (hex strings concatenated)
 //   key(b) = sha256(K_{b-1} ‖ hash(P))
 //

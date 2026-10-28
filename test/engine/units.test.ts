@@ -22,7 +22,7 @@ test('chain: K_i = sha256(K_{i-1} ‖ d_i) from sha256("kitzur/chain/1")', () =>
   const K = chainKeys(d);
   assert.equal(K[0], sha256Hex(CHAIN_ROOT + d[0]));
   assert.equal(K[1], sha256Hex(K[0] + d[1]!));
-  // digests include every field, reasoning too (ADR-8); key order does not matter
+  // digests include every field, reasoning too; key order does not matter
   assert.notEqual(digestOf({ role: 'assistant', content: 'x' }), digestOf({ role: 'assistant', content: 'x', reasoning_content: 'r' }));
   assert.equal(digestOf({ role: 'user', content: 'x' }), digestOf({ content: 'x', role: 'user' }));
   // plan keys depend on both the chain and P
@@ -50,7 +50,7 @@ test('headEnd: first assistant, trailing prior summaries left out, n without ass
   assert.equal(headEnd(H, 2, cfg.client), 2);
 });
 
-test('headEnd: client-summary extension (), OpenCode and Kilo shapes', () => {
+test('headEnd: client-summary extension, OpenCode and Kilo shapes', () => {
   const marker = user('What did we do so far?');
   const cs = asst('## Objective\n- migrate\n\n## Next Move\n1. run');
   const H = [sys, marker, cs, asst(null, 'c1'), tool('c1'), user('Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed.')];
@@ -66,7 +66,7 @@ test('headEnd: client-summary extension (), OpenCode and Kilo shapes', () => {
   assert.equal(headEnd(H, 2, cfg.client), 2);
 });
 
-test('units (): assistant/user/system/developer start units; tool, function, unknown attach', () => {
+test('units: assistant/user/system/developer start units; tool, function, unknown attach', () => {
   const H: ChatMessage[] = [
     sys, user('g'), asst('a1', 'c1'), tool('c1'), user('u'), { role: 'function', name: 'f', content: 'x' },
     asst('a2'), asst('a3', 'c2'), tool('c2'), { role: 'weird', content: 'w' }, { role: 'developer', content: 'd' },

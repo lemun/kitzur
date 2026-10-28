@@ -1,7 +1,7 @@
-// The invariant checks of DESIGN §1 over one chain of client requests, shared by the random-chain
+// The invariant checks over one chain of client requests, shared by the random-chain
 // properties, the reference-scenario test and the real-summarizer integration test:
-//   I1 pairing (independent oracle), I2 with an independent counter, I3, I4 canonical head,
-//   I5 live == fresh engine (per request, and on H[0..b) at boundaries b: ), I6 epoch-aware prefix
+//   pairing (independent oracle), budget with an independent counter, never larger than the input,
+//   canonical head, live == fresh engine (per request, and on H[0..b) at boundaries b), epoch-aware prefix
 //   stability, store caps 1–4, restart equivalence with and without the JSONL file store.
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -95,7 +95,7 @@ export const tReq = (req: ChatRequest, def: number): number => {
   return v.length ? Math.max(...v) : def;
 };
 
-/** I1–I4 (and I7 for fallbacks) on one result; returns the forwarded messages (null: nothing forwarded). */
+/** Pairing, budget, never larger and canonical head (and the fallback rule) on one result; returns the forwarded messages (null: nothing forwarded). */
 export function checkOne(
   c: ChainSpec, k: number, req: ChatRequest, res: EngineResult, oc: (r: ChatRequest) => number, corrPct: number,
 ): ChatMessage[] | null {
@@ -110,29 +110,29 @@ export function checkOne(
   }
   if (res.action === 'guard_fallback') {
     assert.equal(res.request, req, where);
-    if (res.reason !== 'counting_failed') assert.ok(serverFits(b, count(req.messages), T), `I7 ${where}`);
+    if (res.reason !== 'counting_failed') assert.ok(serverFits(b, count(req.messages), T), `fallback ${where}`);
     return req.messages;
   }
   const out = res.request!.messages;
   const inp = req.messages;
-  // I1
-  if (pairingIntact(inp)) assert.ok(pairingIntact(out), `I1 intact ${where}`);
-  assert.ok(subset(oracleDefects(out), oracleDefects(inp)), `I1 defects ${where}`);
-  // I2 (the oracle is a separate counter; they must agree exactly)
+  // pairing
+  if (pairingIntact(inp)) assert.ok(pairingIntact(out), `pairing intact ${where}`);
+  assert.ok(subset(oracleDefects(out), oracleDefects(inp)), `pairing defects ${where}`);
+  // budget (the oracle is a separate counter; they must agree exactly)
   const M = res.maxTokens?.value ?? T;
   const cOut = count(out);
   assert.equal(cOut, res.stats.tokensOut, `engine count == oracle count ${where}`);
-  assert.ok(serverFits(b, cOut, M), `I2 serverFits ${where}: ${cOut} + ${M} vs ${lim(b)}`);
-  if (res.action !== 'clamp' && res.action !== 'truncate') assert.ok(cOut <= b.budget, `I2 ${where}: ${cOut} > ${b.budget}`);
-  // I3
-  assert.ok(cOut <= count(inp), `I3 tokens ${where}`);
-  assert.ok(bytesOf(out) <= bytesOf(inp), `I3 bytes ${where}`);
-  assert.ok(out.length <= inp.length, `I3 messages ${where}`);
-  // I4
+  assert.ok(serverFits(b, cOut, M), `budget serverFits ${where}: ${cOut} + ${M} vs ${lim(b)}`);
+  if (res.action !== 'clamp' && res.action !== 'truncate') assert.ok(cOut <= b.budget, `budget ${where}: ${cOut} > ${b.budget}`);
+  // never larger than the input
+  assert.ok(cOut <= count(inp), `larger tokens ${where}`);
+  assert.ok(bytesOf(out) <= bytesOf(inp), `larger bytes ${where}`);
+  assert.ok(out.length <= inp.length, `larger messages ${where}`);
+  // canonical head
   const h = oracleHeadEnd(inp, c.cfg.client);
   const exempt = new Set(Object.keys(res.plan?.headRewrites ?? {}).map(Number));
   if (c.cfg.compaction.summaryRole === 'merge-into-first-user') exempt.add(inp.findIndex((m) => m.role === 'user'));
-  for (let i = 0; i < h; i++) if (!exempt.has(i)) assert.equal(digest(out[i]), digest(inp[i]), `I4 index ${i} ${where}`);
+  for (let i = 0; i < h; i++) if (!exempt.has(i)) assert.equal(digest(out[i]), digest(inp[i]), `head index ${i} ${where}`);
   return out;
 }
 
@@ -169,24 +169,24 @@ export function checkChain(c: ChainSpec, cov: Coverage, o: CheckOptions = {}): E
     if (res.action === 'impossible') seen.impossible = true;
     if (res.action === 'truncate') seen.truncate = true;
     if (res.action === 'clamp') seen.clamp = true;
-    // I6 (epoch-aware): same P, same compactions, append-only client, something forwarded both times
+    // prefix stability (epoch-aware): same P, same compactions, append-only client, something forwarded both times
     const tr = L.lastTrace;
     if (out && p && tr && res.action !== 'guard_fallback') {
       const ds = out.map(digest);
       if (prev && prev.pHash === tr.pHash && prev.compactions === p.compactions && !c.mutated[k] && c.cfg.rules.snapshot.stub !== 'eager') {
         cov.i6pairs++;
-        assert.deepEqual(ds.slice(0, prev.out.length), prev.out, `I6 seed ${c.seed} request ${k}`);
+        assert.deepEqual(ds.slice(0, prev.out.length), prev.out, `prefix seed ${c.seed} request ${k}`);
       }
       prev = { out: ds, pHash: tr.pHash, compactions: p.compactions };
     } else prev = null;
-    // I5: a fresh engine on the same request (shared counter: its caches do not change results)
+    // determinism: a fresh engine on the same request (shared counter: its caches do not change results)
     if (freshEvery > 0 && (k % freshEvery === 0 || k === c.requests.length - 1)) {
-      assert.equal(essence(engineFor(c, counter, parts).process(req, opts)), live[k], `I5 fresh seed ${c.seed} request ${k}`);
+      assert.equal(essence(engineFor(c, counter, parts).process(req, opts)), live[k], `fresh seed ${c.seed} request ${k}`);
     }
   }
   for (const [kk, v] of Object.entries(seen)) if (v) cov[kk as keyof typeof seen]++;
 
-  // : for boundaries b of the final history, a fresh engine on H[0..b) == the live fold's plan at b
+  // determinism: for boundaries b of the final history, a fresh engine on H[0..b) == the live fold's plan at b
   const last = c.requests.length - 1;
   const H = c.requests[last]!.messages;
   const lastOpts = optsFor(c, last, counter);
@@ -205,7 +205,7 @@ export function checkChain(c: ChainSpec, cov: Coverage, o: CheckOptions = {}): E
   if (o.caps !== false) {
     const cap = 1 + (c.seed % 4);
     const S = engineFor(c, counter, parts, { store: new MemoryPlanStore({ maxPlans: cap, maxBytes: 1e9 }) });
-    c.requests.forEach((r, k) => assert.equal(essence(S.process(r, optsFor(c, k, counter))), live[k], `I5 store cap ${cap} seed ${c.seed} request ${k}`));
+    c.requests.forEach((r, k) => assert.equal(essence(S.process(r, optsFor(c, k, counter))), live[k], `store cap ${cap} seed ${c.seed} request ${k}`));
   }
   // restart equivalence: memory only (cold counter too), and through the JSONL store
   if (o.restart !== false) {

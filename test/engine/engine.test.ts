@@ -33,10 +33,10 @@ function session(k: number, chars: number): ChatMessage[] {
 }
 const req = (messages: ChatMessage[], extra: Partial<ChatRequest> = {}): ChatRequest => ({ model: 'm', messages, ...extra });
 
-test("the engine refuses a 'remote' counter ()", () => {
+test("the engine refuses a 'remote' counter", () => {
   const c = estimateCounter();
   const remote = { ...c, mode: 'remote' as const, id: c.id, countText: c.countText, measure: c.measure, countRequest: c.countRequest };
-  assert.throws(() => mk(testConfig(), remote), /remote/);
+  assert.throws(() => mk(testConfig(), remote), /needs 'exact' or 'estimate'$/);
 });
 
 test('passthrough: a small request is returned as the same object', () => {
@@ -51,7 +51,7 @@ test('passthrough: a small request is returned as the same object', () => {
   assert.equal(res.stats.tokensIn, res.stats.tokensOut);
 });
 
-test('forwarded max_tokens fit (): every field the client sent, else max_tokens added', () => {
+test('forwarded max_tokens fit: every field the client sent, else max_tokens added', () => {
   const e = mk(presetConfig('32k'));
   const base = session(1, 500);
   const a = e.process(req(base, { max_tokens: 32_000 }), { attempt: 1 });
@@ -101,7 +101,7 @@ test('compaction on the reference session keeps pairing, the head and the budget
   assert.equal(again.action, 'compact');
 });
 
-test('admission (§5.5a): a new oversized result is rewritten once, stage admission', (t) => {
+test('admission: a new oversized result is rewritten once, stage admission', (t) => {
   const counter = exactCounter('sim');
   if (!counter) return t.skip('Reference-session thresholds require the development tokenizer; estimate-mode behavior is covered separately.');
   const cfg = presetConfig('32k', { tokenizer: { template: { name: 'sim' } } });
@@ -115,12 +115,12 @@ test('admission (§5.5a): a new oversized result is rewritten once, stage admiss
   for (const [, r] of rw) assert.equal(r.stage, 'admission');
   assert.equal(res.plan!.compactions, 0);
   const next = e.process(reqs[4]!, { attempt: 1 });
-  // I6: the admitted message is forwarded identically in the next request
+  // prefix stability: the admitted message is forwarded identically in the next request
   const a = res.request!.messages.map(digestOf);
   assert.deepEqual(next.request!.messages.slice(0, a.length).map(digestOf), a);
 });
 
-test('head truncation (§5.7, ): an oversized first user message, stored in headRewrites', () => {
+test('head truncation: an oversized first user message, stored in headRewrites', () => {
   const cfg = presetConfig('32k');
   const e = mk(cfg);
   const huge = 'Here is the conversation so far:\n\n<conversation>\n' + words(40_000) + '\n</conversation>';
@@ -135,7 +135,7 @@ test('head truncation (§5.7, ): an oversized first user message, stored in head
   assert.equal(res.request!.messages[0], sys);
 });
 
-test('§5.7 (b) impossible: tools alone do not fit (kitzur_fixed_prompt_too_large, no request)', () => {
+test('impossible: tools alone do not fit (kitzur_fixed_prompt_too_large, no request)', () => {
   const cfg = presetConfig('32k');
   const tools = [{ type: 'function', function: { name: 'huge', description: words(30_000), parameters: {} } }];
   const res = mk(cfg).process(req(session(1, 200), { tools }), { attempt: 1 });
@@ -146,7 +146,7 @@ test('§5.7 (b) impossible: tools alone do not fit (kitzur_fixed_prompt_too_larg
   assert.equal((res.error?.body as { error: { code: string } }).error.code, 'kitzur_fixed_prompt_too_large');
 });
 
-test('§5.7 (c) impossible: headPolicy error and a head over the server limit', () => {
+test('impossible: headPolicy error and a head over the server limit', () => {
   const cfg = presetConfig('32k', { oversize: { headPolicy: 'error' } });
   const res = mk(cfg).process(req([sys, user(words(40_000))]), { attempt: 1 });
   assert.equal(res.action, 'impossible');
@@ -154,7 +154,7 @@ test('§5.7 (c) impossible: headPolicy error and a head over the server limit', 
   assert.equal((res.error?.body as { error: { code: string } }).error.code, 'context_length_exceeded');
 });
 
-test('§5.7 (a) truncate: prompt_only serves a head over the budget but within n_ctx', () => {
+test('truncate: prompt_only serves a head over the budget but within n_ctx', () => {
   const counter = estimateCounter();
   const cfg = testConfig({ server: { type: 'llamacpp' }, budget: { window: 32_768, defaultMaxTokens: 8000 }, oversize: { headPolicy: 'error' } });
   let n = 1000;
@@ -168,7 +168,7 @@ test('§5.7 (a) truncate: prompt_only serves a head over the budget but within n
   assert.ok(res.stats.tokensOut > res.stats.budget.budget);
 });
 
-test('clamp (): reachable with a declared-large client window; M = min(T_req, W − margin − c)', () => {
+test('clamp: reachable with a declared-large client window; M = min(T_req, W − margin − c)', () => {
   const cfg = testConfig({
     budget: { maxTokensClamp: { enabled: true, floorTokens: 8192 } }, client: { compactionPointTokens: 100_000 },
     oversize: { admission: false },
@@ -186,7 +186,7 @@ test('clamp (): reachable with a declared-large client window; M = min(T_req, W 
   assert.ok(nc.stats.tokensOut <= 67_000);
 });
 
-test('I7 fallback under injected faults: original only on attempt 1 and only if it fits ()', () => {
+test('fallback under injected faults: original only on attempt 1 and only if it fits', () => {
   const cfg = presetConfig('32k');
   const e = mk(cfg, estimateCounter(), { faults: 'engine-throw:1' });
   const small = req(session(1, 500));
@@ -247,7 +247,7 @@ test('merge-into-first-user: the summary is appended to the goal, no extra messa
   assert.equal(out[2]!.role, 'assistant');
 });
 
-test('client-written summary (OpenCode shape) stays verbatim in the head ()', () => {
+test('client-written summary (OpenCode shape) stays verbatim in the head', () => {
   const cfg = presetConfig('32k');
   const cs: ChatMessage = { role: 'assistant', content: '## Objective\n- CS-ONLY-P4W7Q migrate\n\n## Next Move\n1. run specs' };
   const h: ChatMessage[] = [sys, user('What did we do so far?'), cs, ...session(10, 12_000).slice(2), user(cfg.client.boilerplateUserTexts[0]!)];
@@ -264,7 +264,7 @@ test('reasoning.tail = drop removes reasoning from kept assistants at compaction
   const res = mk(cfg).process(req(h), { attempt: 1 });
   const p = res.plan!;
   assert.ok(p.compactions >= 1);
-  // messages kept at the compaction lose their reasoning; later ones are appended verbatim (I6)
+  // messages kept at the compaction lose their reasoning; later ones are appended verbatim (prefix stability)
   const out = res.request!.messages;
   let checked = 0;
   for (let i = p.cut; i < h.length; i++) {
@@ -278,7 +278,7 @@ test('reasoning.tail = drop removes reasoning from kept assistants at compaction
   assert.ok(checked >= 1);
 });
 
-test('replan diagnostics: new_session, inputs_changed, client_mutation ()', () => {
+test('replan diagnostics: new_session, inputs_changed, client_mutation', () => {
   const cfg = presetConfig('32k');
   const e = mk(cfg);
   const h = session(6, 3000);
@@ -291,7 +291,7 @@ test('replan diagnostics: new_session, inputs_changed, client_mutation ()', () =
   assert.equal(e.process(req(h2), { attempt: 1, learned: E }).replan, 'inputs_changed');
 });
 
-// ---------------------------------------------------------------- fit-loop rungs (§5.4 step 4)
+// ---------------------------------------------------------------- fit-loop rungs
 
 const step = (i: number, content: string, tool = 'read', args = `{"filePath":"/f${i}.ts"}`): ChatMessage[] => [
   { role: 'assistant', content: `Step ${i}.`, tool_calls: [{ id: `k${i}`, type: 'function', function: { name: tool, arguments: args } }] },
@@ -312,7 +312,7 @@ test('R3: the mandatory unit oversized result is truncated head+tail (admission 
   assert.ok(res.stats.tokensOut <= res.stats.budget.hard);
 });
 
-test('R4 runs right after R1 when bytes drive the loop: images omitted, oldest first ()', () => {
+test('R4 runs right after R1 when bytes drive the loop: images omitted, oldest first', () => {
   const img = (n: number) => ({ type: 'image_url', image_url: { url: 'data:image/png;base64,' + 'A'.repeat(n) } });
   const cfg = presetConfig('32k', { upstream: { maxBodyBytes: 60_000 } });
   const h: ChatMessage[] = [...session(2, 3000), { role: 'user', content: [{ type: 'text', text: 'look' }, img(30_000), img(30_000)] }];

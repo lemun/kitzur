@@ -1,12 +1,12 @@
-// The fold and its step (DESIGN.md–§5.7).
+// The fold and its step (DESIGN.md).
 //
 //   f(H, P) = fold(step, emptyPlan(H, P), boundaries(H))
 //
-// step(plan, b) looks only at the virtual request H[0..b): head truncation (§5.7, once per (head, P)),
-// admission (§5.5a), eager stubs (§5.5 ablation), then reuse when the assembled candidate fits (§3
-// fits(c) and the byte limit), else the compaction step (§5.4): rewrite set, cut walk against target,
-// summary at summaryBudget, the fit loop R1–R8, and the no-gain check (). Every step is a pure
-// function of (plan, H[0..b), P); the memo store only skips steps (I5).
+// step(plan, b) looks only at the virtual request H[0..b): head truncation (once per (head, P)),
+// admission, eager stubs (ablation), then reuse when the assembled candidate fits (fits(c)
+// and the byte limit), else the compaction step: rewrite set, cut walk against target,
+// summary at summaryBudget, the fit loop R1–R8, and the no-gain check. Every step is a pure
+// function of (plan, H[0..b), P); the memo store only skips steps, so results never depend on it.
 import type { Budget, ChatMessage, Plan, Rewrite } from '../types.js';
 import { ENGINE_ALGO_VERSION } from '../types.js';
 import type { Config } from '../config/schema.js';
@@ -25,7 +25,7 @@ import { admissionRewrites } from './admission.js';
 import { isSnapshotResult, stubFor, supersededSnapshots, type ResultsEnv } from './results.js';
 import { boundaries, headEnd, keptStart, unitsOf, type Unit } from './units.js';
 
-/** Head rewrites and count(head) of one (head, P) (§5.7 head truncation, ). */
+/** Head rewrites and count(head) of one (head, P) (head truncation). */
 export interface HeadInfo {
   headRewrites: Record<number, Rewrite>;
   /** corrected count of the head as forwarded, template overhead (generation prompt, …) included */
@@ -93,7 +93,7 @@ const strongest = (a: Rewrite['kind'], b: Rewrite['kind'] | undefined): Rewrite[
 
 // ---------------------------------------------------------------- empty plan, derive
 
-/** The fold's initial plan: nothing summarized, no rewrites (§5.2). The head truncation is added by
+/** The fold's initial plan: nothing summarized, no rewrites. The head truncation is added by
  *  the first step, which knows the head. */
 export function emptyPlan(env: FoldEnv): Plan {
   return {
@@ -138,11 +138,11 @@ function overBy(env: FoldEnv, ev: Eval, F: number, withBytes: boolean): number {
   return o;
 }
 
-/** The step's reuse test: fits(c) (§3, with the clamp clause) and the byte limit. */
+/** The step's reuse test: fits(c) (with the clamp clause) and the byte limit. */
 export const fitsNow = (env: FoldEnv, ev: Eval): boolean =>
   fits(env.cfg, env.bud, ev.count, env.noClamp) && !bytesOver(env, ev);
 
-// ---------------------------------------------------------------- head (§5.7, )
+// ---------------------------------------------------------------- head
 
 /** Head truncation and count(head), computed once per (head, P) from the head alone. */
 export function headInfo(env: FoldEnv, h: number): HeadInfo {
@@ -210,7 +210,7 @@ function sameRewrites(env: FoldEnv, a: Record<number, Rewrite>, b: Record<number
   return true;
 }
 
-// ---------------------------------------------------------------- step (§5.2)
+// ---------------------------------------------------------------- step
 
 /** One fold step at boundary b; pb = the previous boundary (0 for the first). */
 export function step(env: FoldEnv, plan: Plan, b: number, pb: number): StepResult {
@@ -225,13 +225,13 @@ export function step(env: FoldEnv, plan: Plan, b: number, pb: number): StepResul
     kind = 'head';
     p = derive(env, p, b, h, { headRewrites: hi.headRewrites }, kind);
   }
-  // 0. admission (§5.5a)
+  // 0. admission
   const adm = admissionRewrites(env, p, b, Math.max(pb, h), hi.count);
   if (adm) {
     if (kind === 'reuse') kind = 'admit';
     p = derive(env, p, b, h, { rewrites: { ...p.rewrites, ...adm } }, kind);
   }
-  // eager stubs (§5.5): the only I6 exception
+  // eager stubs: the only change to an already forwarded message without a compaction
   if (cfg.rules.snapshot.stub === 'eager') {
     const st = eagerStubs(env, p, b, h);
     if (st) {
@@ -261,7 +261,7 @@ function eagerStubs(env: FoldEnv, p: Plan, b: number, h: number): Record<number,
   return out;
 }
 
-// ---------------------------------------------------------------- compaction step (§5.4)
+// ---------------------------------------------------------------- compaction step
 
 interface Draft extends PlanShape {
   cut: number;
@@ -283,7 +283,7 @@ export function compact(env: FoldEnv, planIn: Plan, b: number, h: number, cEv: E
   const render = (cut: number, level: SummaryOptions): SummaryRender => {
     env.diag.summaryRenders++;
     const r = env.summarizer.render({ messages: V, digests: Vd, hEnd: h, cut, compaction }, level);
-    // the plan's summary is null iff cut == hEnd (): never let a region go unsummarized
+    // the plan's summary is null iff cut == hEnd: never let a region go unsummarized
     return r.text === null ? { ...r, text: SUMMARY_HEADER } : r;
   };
 
@@ -319,7 +319,7 @@ export function compact(env: FoldEnv, planIn: Plan, b: number, h: number, cEv: E
   }
 
   // 2. cut walk: newest to oldest, keep the kept-always units, then older units while
-  //    count(head) + summaryBudget + count(tail) ≤ target ()
+  //    count(head) + summaryBudget + count(tail) ≤ target
   let cut: number;
   {
     // the candidate with the rewrite set and nothing summarized: position k is original index k
@@ -357,7 +357,7 @@ export function compact(env: FoldEnv, planIn: Plan, b: number, h: number, cEv: E
     ev = evaluate(env, draft, b, h);
   };
 
-  // 4. fit loop ()
+  // 4. fit loop
   const F = bud.hard;
   const overF = (): number => overBy(env, ev, F, true);
 
@@ -392,7 +392,7 @@ export function compact(env: FoldEnv, planIn: Plan, b: number, h: number, cEv: E
     if (S2.tokens >= S.tokens) break;
     // the level is the budget the summary now has: R2 cannot evict the floor, so a render asked for less than the
     // floor comes back at the floor size; recording the smaller request would make R6 (which starts from this
-    // level) evict every floor item for an overshoot of a few tokens (; fuzz seed 4873)
+    // level) evict every floor item for an overshoot of a few tokens (fuzz seed 4873)
     level = { ...level, budgetTokens: Math.max(nb, S2.tokens) };
     S = S2;
     again();
@@ -470,7 +470,7 @@ export function compact(env: FoldEnv, planIn: Plan, b: number, h: number, cEv: E
     }
   }
 
-  // From here on only I2 matters: count(out) ≤ budget (the byte limit is soft)
+  // From here on only the budget matters: count(out) ≤ budget (the byte limit is soft)
   const B = bud.budget;
   const overB = (): number => overBy(env, ev, B, false);
 
@@ -520,10 +520,10 @@ export function compact(env: FoldEnv, planIn: Plan, b: number, h: number, cEv: E
 
   const fit: Plan['fit'] = ev.count <= F ? 'ok' : ev.count <= B ? 'over_hard' : 'over_budget';
 
-  // 4a. no-gain check (). DESIGN returns the input plan when count ≥ c and c ≤ budget; we also do
-  // so when c > budget, so that a step never makes the candidate larger (I3).
+  // 4a. no-gain check. DESIGN returns the input plan when count ≥ c and c ≤ budget; we also do
+  // so when c > budget, so that a step never makes the candidate larger.
   if (ev.count >= cEv.count) return { plan: planIn, kind: kindIn };
-  // ... and never larger in bytes (I3 and the guard compare bytes too): on a tiny window the summary of a short
+  // ... and never larger in bytes (the guard compares bytes too): on a tiny window the summary of a short
   // region can be longer in characters than the messages it replaces while a few tokens smaller, and the guard
   // then rejected the output (fuzz seeds 7205, 7248). Every later request carries the same byte offset.
   if (env.cnt.bytes(ev.out, ev.ds) > env.cnt.bytes(cEv.out, cEv.ds)) return { plan: planIn, kind: kindIn };
@@ -566,7 +566,7 @@ export interface FoldResult {
 }
 
 /**
- * f(H, P): probes the memo at boundaries of H only, deepest first (), resumes after the first hit,
+ * f(H, P): probes the memo at boundaries of H only, deepest first, resumes after the first hit,
  * and stores the plan after every boundary it steps over (unless dryRun).
  */
 export function fold(env: FoldEnv, store: FoldStore, dryRun: boolean): FoldResult {

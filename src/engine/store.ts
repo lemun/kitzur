@@ -1,7 +1,7 @@
 // The memo store (DESIGN.md): planKey -> plan after a boundary, in memory with LRU order and caps
 // on entries and bytes (store.maxPlans, store.maxBytes). Persistence is optional and injected (the
 // engine does no I/O itself; see store-file.ts for the JSONL adapter). The store only saves CPU: the
-// fold recomputes the same plans without it (I5), so eviction and restarts never change results.
+// fold recomputes the same plans without it, so eviction and restarts never change results.
 //
 // As in gobstopper v0.7.2 (crates/gobstopper-adapters/src/request/store.rs:86-97) eviction never
 // empties the store: an oversized newest entry stays.

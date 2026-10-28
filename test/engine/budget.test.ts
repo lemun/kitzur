@@ -14,7 +14,7 @@ test('ffloor avoids IEEE drift (41,000 · 0.35 = 14,350)', () => {
   assert.equal(ffloor(41_000, 0.35), 14_350);
 });
 
-test('presets reproduce the DESIGN §3 table', () => {
+test('presets reproduce the documented window table', () => {
   const rows: Array<[string, number, number, number, number, number]> = [
     ['32k', 23_488, 24_000, 4_000, 20_000, 7_000],
     ['64k', 47_360, 48_000, 7_000, 41_000, 14_350],
@@ -28,7 +28,7 @@ test('presets reproduce the DESIGN §3 table', () => {
   }
 });
 
-test('trigger/target clamps (), learned window, maxPrompt, tighten, byte limit', () => {
+test('trigger/target clamps, learned window, maxPrompt, tighten, byte limit', () => {
   const cfg = testConfig({ compaction: { triggerTokens: 66_000, targetTokens: 31_124 }, upstream: { maxBodyBytes: 1_000_000 } });
   const e = { ...E(cfg), window: 90_000, tighten: 512, maxBodyBytes: 800_000 };
   const b = computeBudget(cfg, e, 256, 32_000);
@@ -53,7 +53,7 @@ test('T_req: max of positive max_tokens / max_completion_tokens, else default', 
   assert.deepEqual(maxTokensFields({ messages: [], max_tokens: 1, max_completion_tokens: 5 }), ['max_tokens', 'max_completion_tokens']);
 });
 
-test('budget mode precedence ()', () => {
+test('budget mode precedence', () => {
   assert.equal(budgetMode(testConfig({ server: { type: 'llamacpp', budgetMode: 'strict_total' } })), 'strict_total');
   assert.equal(budgetMode(testConfig({ server: { type: 'tgi' }, budget: { limitCountsMaxTokens: true } })), 'tgi');
   assert.equal(budgetMode(testConfig({ server: { type: 'vllm' }, budget: { limitCountsMaxTokens: true } })), 'strict_total');
@@ -66,7 +66,7 @@ test('budget mode precedence ()', () => {
   for (const [t, m] of byType) assert.equal(budgetMode(testConfig({ server: { type: t as 'vllm' } })), m, t);
 });
 
-test('serverFits per mode and the forwarded max_tokens ()', () => {
+test('serverFits per mode and the forwarded max_tokens', () => {
   const mk = (type: string) => {
     const cfg = testConfig({ server: { type: type as 'vllm' } });
     return { cfg, b: computeBudget(cfg, E(cfg), 0, 32_000) };
@@ -96,7 +96,7 @@ test('restore raises a shrunken max_tokens (Kilo) up to toTokens within the serv
   assert.deepEqual(decideMaxTokens(cfg, b, 90_000, false), { value: 9_000, kind: 'restore' });
 });
 
-test('clamp clause (): opt-in, strict_total, floor and client point', () => {
+test('clamp clause: opt-in, strict_total, floor and client point', () => {
   const off = testConfig();
   const bo = computeBudget(off, E(off), 0, 32_000);
   assert.ok(!clampClause(off, bo, 70_000, false));
