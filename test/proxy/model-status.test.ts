@@ -8,6 +8,7 @@ import { loadConfig } from '../../src/config/load.js';
 import { ModelRuntimeMap, type ModelRuntime } from '../../src/proxy/model-runtime.js';
 import { createProxyServer } from '../../src/proxy/server.js';
 import { StateStore } from '../../src/proxy/state.js';
+import { budgetQuantities } from '../../src/proxy/budget.js';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -53,33 +54,35 @@ test('legacy status and stats preserve their golden keys; profiles are opt-in', 
 
 test('proxy status and stats expose the request profile only when models are configured', async () => {
   const upstream = await fakeUpstream((_hit, res) => jsonRes(res, 200, { id: 'ok', choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }] }));
-  const dir = mkdtempSync(join(tmpdir(), 'kitzur-profile-status-'));
-  const statsPath = join(dir, 'stats.jsonl');
-  const loaded = loadConfig({ env: {}, object: { models: { reasoning: { budget: { window: 100_000, defaultMaxTokens: 8_000 } } } } });
-  const cfg = { ...loaded.config, listen: { ...loaded.config.listen, port: 0 }, upstream: { ...loaded.config.upstream, origin: upstream.origin }, stateDir: dir, stats: { ...loaded.config.stats, path: statsPath } };
-  const rootCounter = charCounter();
-  const profileCounter = charCounter('exact');
-  const root = { cfg: loaded.config, counter: rootCounter, engine: passthroughEngine() } as unknown as ModelRuntime;
-  const profCfg = loaded.models.reasoning!;
-  const profile = { cfg: profCfg, counter: profileCounter, engine: passthroughEngine() } as unknown as ModelRuntime;
-  const runtimes = new ModelRuntimeMap(root, loaded.models, new Map([['reasoning', profile]]));
-  const state = new StateStore({ dir, configuredWindow: cfg.budget.window, counterId: rootCounter.id });
-  const stats = new StatsWriter(statsPath);
-  const proxy = createProxyServer(cfg, { counter: rootCounter, engine: root.engine, modelRuntimes: runtimes, state, stats });
   try {
-    const { port } = await proxy.listen();
-    const status = (await request(port, { method: 'GET', path: '/status' })).json();
-    assert.deepEqual(status.profiles.reasoning, {
-      W: profCfg.budget.window, T_plan: profCfg.budget.defaultMaxTokens, hard: 80_000, trigger: 80_000, counter_mode: 'exact',
-    });
-    await request(port, { body: { model: 'reasoning', messages: [{ role: 'user', content: 'hello' }] } });
-    await proxy.close();
-    const records = readFileSync(statsPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
-    assert.equal(records[0].profile, 'reasoning');
-  } finally {
-    await proxy.close().catch(() => undefined);
-    rmSync(dir, { recursive: true, force: true });
-  }
+    const dir = mkdtempSync(join(tmpdir(), 'kitzur-profile-status-'));
+    const statsPath = join(dir, 'stats.jsonl');
+    const loaded = loadConfig({ env: {}, object: { models: { reasoning: { budget: { window: 100_000, defaultMaxTokens: 8_000 } } } } });
+    const cfg = { ...loaded.config, listen: { ...loaded.config.listen, port: 0 }, upstream: { ...loaded.config.upstream, origin: upstream.origin }, stateDir: dir, stats: { ...loaded.config.stats, path: statsPath } };
+    const rootCounter = charCounter();
+    const profileCounter = charCounter('exact');
+    const root = { cfg: loaded.config, counter: rootCounter, engine: passthroughEngine() } as unknown as ModelRuntime;
+    const profCfg = loaded.models.reasoning!;
+    const profile = { cfg: profCfg, counter: profileCounter, engine: passthroughEngine() } as unknown as ModelRuntime;
+    const runtimes = new ModelRuntimeMap(root, loaded.models, new Map([['reasoning', profile]]));
+    const state = new StateStore({ dir, configuredWindow: cfg.budget.window, counterId: rootCounter.id });
+    const stats = new StatsWriter(statsPath);
+    const proxy = createProxyServer(cfg, { counter: rootCounter, engine: root.engine, modelRuntimes: runtimes, state, stats });
+    try {
+      const { port } = await proxy.listen();
+      const status = (await request(port, { method: 'GET', path: '/status' })).json();
+      const quantities = budgetQuantities(profCfg, null);
+      assert.deepEqual(status.profiles.reasoning, {
+        W: profCfg.budget.window, T_plan: profCfg.budget.defaultMaxTokens, hard: quantities.hard, trigger: quantities.trigger, counter_mode: 'exact',
+      });
+      await request(port, { body: { model: 'reasoning', messages: [{ role: 'user', content: 'hello' }] } });
+      await proxy.close();
+      const records = readFileSync(statsPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
+      assert.equal(records[0].profile, 'reasoning');
+    } finally {
+      await proxy.close().catch(() => undefined);
+      rmSync(dir, { recursive: true, force: true });
+    }
 
   const legacyDir = mkdtempSync(join(tmpdir(), 'kitzur-legacy-status-'));
   const legacyStatsPath = join(legacyDir, 'stats.jsonl');
@@ -95,10 +98,12 @@ test('proxy status and stats expose the request profile only when models are con
     await request(port, { body: { model: 'reasoning', messages: [{ role: 'user', content: 'hello' }] } });
     await legacyProxy.close();
     const records = readFileSync(legacyStatsPath, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
-    assert.equal(Object.hasOwn(records[0], 'profile'), false);
+      assert.equal(Object.hasOwn(records[0], 'profile'), false);
+    } finally {
+      await legacyProxy.close().catch(() => undefined);
+      rmSync(legacyDir, { recursive: true, force: true });
+    }
   } finally {
-    await legacyProxy.close().catch(() => undefined);
     await upstream.close();
-    rmSync(legacyDir, { recursive: true, force: true });
   }
 });
