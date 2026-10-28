@@ -33,7 +33,7 @@ import { hostAllowed } from './hostcheck.js';
 import { ErrorClassifier } from './errors.js';
 import { runChat, attemptRecords, type AttemptOutcome, type ChatResult, type ErrorOutcome, type Final, type OutgoingAttempt } from './recovery.js';
 import { SseRelay, type RelayStep } from './sse.js';
-import { Upstream, forwardRequestHeaders, forwardResponseHeaders, readBody, type ProbeResult, type UpstreamResponse } from './upstream.js';
+import { Upstream, forwardRequestHeaders, forwardResponseHeaders, readErrorBody, type ProbeResult, type UpstreamResponse } from './upstream.js';
 import { learnedKey, type StateStore } from './state.js';
 import { buildStatsRecord, type StatsWriter } from './stats.js';
 import { StatusTracker, type RecentRequest } from './status.js';
@@ -335,6 +335,28 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     return { o, fields, inspect, end };
   }
 
+  const cutErrorBodies = new WeakMap<Buffer, Buffer>();
+  async function readUpstreamError(up: UpstreamResponse): Promise<{ body: Buffer; relay: Buffer; cut: boolean }> {
+    const read = await readErrorBody(up.body, 5_000, 64 * 1024);
+    if (read.complete) return { body: read.body, relay: read.body, cut: false };
+    log('warn', `upstream error body cut: ${read.reason} status=${up.status}`);
+    const relay = errorBody(`kitzur: upstream error body truncated (${read.reason})`, 'upstream_error', 'upstream_error_body_truncated');
+    const body = Buffer.from(read.body.subarray(0, 64 * 1024));
+    cutErrorBodies.set(body, relay);
+    return { body, relay, cut: true };
+  }
+
+  function errorHeaders(raw: string[], cut: boolean): string[] {
+    const headers = forwardResponseHeaders(raw, { dropContentLength: true });
+    if (!cut) return headers;
+    const out: string[] = [];
+    for (let i = 0; i < headers.length; i += 2) {
+      if (!['content-type', 'content-encoding', 'content-md5', 'digest', 'etag'].includes(headers[i]!.toLowerCase())) out.push(headers[i]!, headers[i + 1]!);
+    }
+    out.push('content-type', 'application/json');
+    return out;
+  }
+
   async function passthrough(req: IncomingMessage, res: ServerResponse, body: Buffer, observation = observeResponse(res)): Promise<void> {
     status.passthroughRequests++;
     const ac = new AbortController();
@@ -353,6 +375,18 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         observation.o.outcome = 'upstream_error';
         sendJson(res, 502, upstreamUnavailableBody());
       }
+      return;
+    }
+    if (up.status < 200 || up.status >= 300) {
+      const { relay, cut } = await readUpstreamError(up);
+      if (ac.signal.aborted) return;
+      observation.o.outcome = 'upstream_error';
+      observation.o.bytes += relay.length;
+      observation.end();
+      const headers = errorHeaders(up.rawHeaders, cut);
+      headers.push('content-length', String(relay.length));
+      res.writeHead(up.status, up.statusMessage, headers);
+      res.end(relay);
       return;
     }
     if (String(up.headers['content-type'] ?? '').includes('text/event-stream')) observation.o.relay = new SseRelay({ hold: false, strip: false, committed: true, detectErrors: false });
@@ -537,7 +571,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         return { type: 'unavailable', committed, error: e instanceof Error ? e.message : String(e), upstreamMs: performance.now() - t0 };
       }
       if (up.status < 200 || up.status >= 300) {
-        const { body } = await readBody(up.body);
+        const { body } = await readUpstreamError(up);
         if (clientGone) return { type: 'aborted', upstreamMs: performance.now() - t0 };
         return {
           type: 'error', status: up.status, httpStatus: up.status, statusMessage: up.statusMessage, headers: up.rawHeaders, body,
@@ -863,10 +897,11 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
             res.writeHead(e.httpStatus, e.statusMessage, forwardResponseHeaders(e.headers, { dropContentLength: true }));
             endWith(res, e.streamBytes ?? e.body, cont, onBytes);
           } else {
-            const hdrs = forwardResponseHeaders(e.headers, { dropContentLength: true });
-            hdrs.push('content-length', String(e.body.length));
+            const body = cutErrorBodies.get(e.body) ?? e.body;
+            const hdrs = errorHeaders(e.headers, cutErrorBodies.has(e.body));
+            hdrs.push('content-length', String(body.length));
             res.writeHead(e.httpStatus, e.statusMessage, hdrs);
-            end(e.body);
+            end(body);
           }
           setCommitted(true);
         } else if (e.inStream) {
