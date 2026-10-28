@@ -337,7 +337,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
 
   const cutErrorBodies = new WeakMap<Buffer, Buffer>();
   async function readUpstreamError(up: UpstreamResponse): Promise<{ body: Buffer; relay: Buffer; cut: boolean }> {
-    const read = await readErrorBody(up.body, 10_000, 64 * 1024);
+    const read = await readErrorBody(up.body, 5_000, 64 * 1024);
     if (read.complete) return { body: read.body, relay: read.body, cut: false };
     log('warn', `upstream error body cut: ${read.reason} status=${up.status}`);
     const relay = errorBody(`kitzur: upstream error body truncated (${read.reason})`, 'upstream_error', 'upstream_error_body_truncated');
