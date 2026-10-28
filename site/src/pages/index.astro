@@ -18,12 +18,11 @@ const jsonLd = {
   name: 'Kitzur',
   description:
     'Zero-dependency context compaction proxy for coding agents using local LLMs. Keep coding in the context window your local model actually serves.',
-  url: new URL(`${base}/`, Astro.site).href,
+  url: repo,
   applicationCategory: 'DeveloperApplication',
-  operatingSystem: 'Windows, macOS, Linux',
+  operatingSystem: 'Linux, macOS, Windows',
   softwareRequirements: 'Node.js 22+',
-  license: `${repo}/blob/main/LICENSE`,
-  downloadUrl: repo,
+  license: 'MIT',
 };
 
 const fromSource = `git clone https://github.com/lemun/kitzur.git
@@ -42,7 +41,8 @@ kitzur version`;
 <StarlightPage
 	frontmatter={{
 		title: 'Kitzur',
-		description: 'Keep coding in the context window your local model actually serves.',
+		description:
+			'A zero-dependency local proxy that compacts coding-agent requests to fit the context window your local model actually serves.',
 		template: 'splash',
 		head: [{ tag: 'script', attrs: { type: 'application/ld+json' }, content: JSON.stringify(jsonLd) }],
 		hero: {
