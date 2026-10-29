@@ -28,7 +28,7 @@ import http from 'node:http';
 import { join } from 'node:path';
 import { loadavg } from 'node:os';
 import { performance } from 'node:perf_hooks';
-import { p99InterChunkGap, pooledP99InterChunkGap } from './stream-gap.js';
+import { countOverlappingIntervals, p99InterChunkGap, pooledP99InterChunkGap, type TimeInterval } from './stream-gap.js';
 import type { ChatMessage, ChatRequest } from '../src/types.js';
 import { loadConfig } from '../src/config/load.js';
 import { createEngine } from '../src/engine/engine.js';
@@ -98,7 +98,7 @@ const s = http.createServer((req, res) => {
     let i = 0;
     const timer = setInterval(() => {
       res.write('data: ' + JSON.stringify({ id: 'tick', choices: [{ index: 0, delta: { content: 'x' }, finish_reason: null }] }) + '\\n\\n');
-      if (++i === 20) { clearInterval(timer); res.end('data: [DONE]\\n\\n'); }
+      if (++i === 120) { clearInterval(timer); res.end('data: [DONE]\\n\\n'); }
     }, 10);
   });
 });
@@ -132,15 +132,26 @@ function spawnStreamUpstream(): Promise<{ child: ChildProcess; url: string }> {
   });
 }
 
-function chunkGaps(base: string, body: Buffer, streams: number): Promise<number[][]> {
+interface StreamObservation { times: number[]; interval: TimeInterval }
+
+function chunkGaps(base: string, body: Buffer, streams: number, onAllStarted?: () => void): Promise<StreamObservation[]> {
   const u = new URL(base);
-  return Promise.all(Array.from({ length: streams }, (_, i) => new Promise<number[]>((resolve, reject) => {
+  let started = 0;
+  return Promise.all(Array.from({ length: streams }, (_, i) => new Promise<StreamObservation>((resolve, reject) => {
     const times: number[] = [];
+    let first = 0;
     const req = http.request({ host: u.hostname, port: Number(u.port), method: 'POST', path: '/v1/chat/completions', headers: { 'content-type': 'application/json', 'content-length': String(body.length), 'x-session-id': `parallel-${i}` } });
     req.on('error', reject);
     req.on('response', (res) => {
-      res.on('data', () => times.push(performance.now()));
-      res.on('end', () => resolve(times));
+      res.on('data', () => {
+        const now = performance.now();
+        if (times.length === 0) {
+          first = now;
+          if (++started === streams) onAllStarted?.();
+        }
+        times.push(now);
+      });
+      res.on('end', () => resolve({ times, interval: { start: first, end: times.at(-1) ?? performance.now() } }));
     });
     req.end(body);
   })));
@@ -148,22 +159,31 @@ function chunkGaps(base: string, body: Buffer, streams: number): Promise<number[
 
 type GapP99 = { worstStream: number; pooled: number };
 
-async function streamGapClass(run: Run, streamCount: number, streamBody: Buffer, compactBody: Buffer): Promise<{ alone: GapP99; withCompaction: GapP99 }> {
+async function streamGapClass(run: Run, streamCount: number, streamBody: Buffer, compactBody: Buffer): Promise<{ alone: GapP99; withCompaction: GapP99; overlappedCompactions: number }> {
   const alone = await chunkGaps(run.base, streamBody, streamCount);
+  const compactions: TimeInterval[] = [];
+  let startCompactions!: () => void;
+  const compactionsStarted = new Promise<void>((resolve) => { startCompactions = resolve; });
+  const loaded = chunkGaps(run.base, streamBody, streamCount, startCompactions);
   const compactor = (async () => {
+    await compactionsStarted;
     for (let i = 0; i < 4; i++) {
+      const start = performance.now();
       const response = await post(run.base, compactBody, `parallel-compact-${i}`);
+      const end = performance.now();
       if (response.status !== 200) throw new Error(`parallel compaction status ${response.status}`);
+      compactions.push({ start, end });
     }
   })();
-  const loaded = chunkGaps(run.base, streamBody, streamCount);
-  const [gapSets] = await Promise.all([loaded, compactor]);
+  const [observations] = await Promise.all([loaded, compactor]);
+  const overlappedCompactions = compactions.filter((interval) => countOverlappingIntervals(interval, observations.map((stream) => stream.interval)) >= 3).length;
+  if (overlappedCompactions < 3) throw new Error(`parallel-streams expected at least 3 overlapping compactions, got ${overlappedCompactions}`);
   // worstStream: the highest per-stream p99; pooled: one p99 over the gaps of all streams together
-  const p99 = (sets: number[][]): GapP99 => ({
-    worstStream: r1(Math.max(...sets.map(p99InterChunkGap))),
-    pooled: r1(pooledP99InterChunkGap(sets)),
+  const p99 = (sets: StreamObservation[]): GapP99 => ({
+    worstStream: r1(Math.max(...sets.map((set) => p99InterChunkGap(set.times)))),
+    pooled: r1(pooledP99InterChunkGap(sets.map((set) => set.times))),
   });
-  return { alone: p99(alone), withCompaction: p99(gapSets) };
+  return { alone: p99(alone), withCompaction: p99(observations), overlappedCompactions };
 }
 
 // ---------------------------------------------------------------- client
@@ -444,12 +464,13 @@ async function main(): Promise<void> {
         const sample = await streamGapClass(parallel, 8,
           bodyOf(bases.steady), bodyOf([...bases.nearTrigger, ...newUnit('parallel', 50_000, 91)]));
         result['parallel_streams'] = {
-          n: 8, mockUpstreamIntervalMs: 10, chunksPerStream: 20,
+          n: 8, mockUpstreamIntervalMs: 10, chunksPerStream: 120,
+          overlappedCompactions: sample.overlappedCompactions,
           worstStreamP99InterChunkGapMs: { withoutCompaction: sample.alone.worstStream, withCompaction: sample.withCompaction.worstStream },
           pooledP99InterChunkGapMs: { withoutCompaction: sample.alone.pooled, withCompaction: sample.withCompaction.pooled },
           finding: sample.withCompaction.worstStream > 50 ? 'worst-stream p99 exceeds ~50 ms: consider yielding in chunks with setImmediate or moving compaction to a worker thread' : 'worst-stream p99 is at or below ~50 ms at the default sizes',
         };
-        console.log(`  (p) parallel streams: p99 gap worst stream ${sample.alone.worstStream} ms alone, ${sample.withCompaction.worstStream} ms with compaction; pooled ${sample.alone.pooled} ms alone, ${sample.withCompaction.pooled} ms with compaction`);
+        console.log(`  (p) parallel streams: p99 gap worst stream ${sample.alone.worstStream} ms alone, ${sample.withCompaction.worstStream} ms with compaction; pooled ${sample.alone.pooled} ms alone, ${sample.withCompaction.pooled} ms with compaction; ${sample.overlappedCompactions}/4 compactions overlapped at least 3 streams`);
       } finally {
         await parallel.sys.stop();
         streamUp.child.kill('SIGTERM');
