@@ -128,6 +128,20 @@ test('doctor treats refused probes and other HTTP services as warnings without r
   }
 });
 
+test('doctor reports the stats writer counters from a running Kitzur /status', async () => {
+  for (const [stats, status] of [[{ dropped: 3, write_failures: 1 }, 'warn'], [{ dropped: 0, write_failures: 0 }, 'ok']] as const) {
+    const server = createServer((_req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ name: 'kitzur', stats })); });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const cfg = defaultConfig();
+      cfg.listen.port = (server.address() as { port: number }).port;
+      const check = (await doctor(cfg)).checks.find((c) => c.code === 'stats.writer');
+      assert.equal(check?.status, status);
+      assert.match(check?.message ?? '', new RegExp(`dropped ${stats.dropped} record\\(s\\) and seen ${stats.write_failures} write failure`));
+    } finally { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); }
+  }
+});
+
 test('probe classifies HTTP answers and transport failures without requiring a listening socket', async () => {
   const { probeInstance } = await import('../../src/diagnostics/doctor.js');
   for (const [status, body, code, expected] of [

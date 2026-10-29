@@ -15,6 +15,19 @@ test('stats writer bounds queued records while the destination is blocked', () =
   sink.destroy();
 });
 
+test('stats writer bounds records the stream accepted but has not completed (default highWaterMark)', async () => {
+  const callbacks: Array<() => void> = [];
+  const lines: string[] = [];
+  const sink = new Writable({ write(chunk, _encoding, callback) { lines.push(String(chunk)); callbacks.push(callback); } });
+  const writer = new StatsWriter(null, sink);
+  for (let i = 0; i < 1100; i++) writer.write({ seq: i } as never);
+  assert.equal(writer.written, 1024);
+  assert.equal(writer.dropped, 76);
+  while (callbacks.length) { callbacks.shift()!(); await new Promise((r) => setImmediate(r)); }
+  assert.equal(lines.length, 1024);
+  sink.destroy();
+});
+
 test('stats writer resolves close when the blocked stream errors', async () => {
   const sink = new Writable({ highWaterMark: 1, write() {} });
   const writer = new StatsWriter('/unused', sink);

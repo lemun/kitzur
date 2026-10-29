@@ -54,6 +54,7 @@ export class StatsWriter {
   private writing = false;
   private inFlightBytes = 0;
   private closeResolve: (() => void) | null = null;
+  private idle: (() => void) | null = null;
   private seqNo = 0;
   written = 0;
   dropped = 0;
@@ -90,35 +91,37 @@ export class StatsWriter {
 
   private attach(stream: Writable): void {
     this.stream = stream;
-    stream.on('drain', () => { this.writing = false; this.inFlightBytes = 0; this.flush(); });
     stream.on('error', (e: Error) => {
       this.lastError = e.message; this.writeFailures++; this.dropped += this.queue.length + (this.writing ? 1 : 0);
-      this.queue = []; this.pendingBytes = 0; this.inFlightBytes = 0; this.writing = false; this.stream = null;
+      this.queue = []; this.pendingBytes = 0; this.inFlightBytes = 0; this.writing = false; this.stream = null; this.idle = null;
       this.closeResolve?.(); this.closeResolve = null;
     });
   }
 
+  /** One line at a time: a line counts against the bounds until the stream has completed it. */
   private flush(): void {
-    if (this.writing || !this.stream) return;
-    while (this.queue.length) {
-      const line = this.queue.shift()!;
-      this.pendingBytes -= Buffer.byteLength(line);
-      try { if (!this.stream.write(line)) { this.writing = true; this.inFlightBytes = Buffer.byteLength(line); return; } }
-      catch (e) { this.lastError = e instanceof Error ? e.message : String(e); this.writeFailures++; this.dropped += this.queue.length + 1; this.queue = []; this.pendingBytes = 0; this.stream = null; this.closeResolve?.(); this.closeResolve = null; return; }
-    }
+    const s = this.stream;
+    if (this.writing || !s) return;
+    if (!this.queue.length) { this.idle?.(); return; }
+    const line = this.queue.shift()!;
+    const bytes = Buffer.byteLength(line);
+    this.pendingBytes -= bytes;
+    this.writing = true; this.inFlightBytes = bytes;
+    try {
+      s.write(line, (err) => {
+        if (err || this.stream !== s) return;
+        this.writing = false; this.inFlightBytes = 0; this.flush();
+      });
+    } catch (e) { this.lastError = e instanceof Error ? e.message : String(e); this.writeFailures++; this.dropped += this.queue.length + 1; this.queue = []; this.pendingBytes = 0; this.inFlightBytes = 0; this.writing = false; this.stream = null; this.idle = null; this.closeResolve?.(); this.closeResolve = null; }
   }
 
   close(): Promise<void> {
     const s = this.stream;
     if (!s) return Promise.resolve();
     return new Promise((resolve) => {
-      const end = (): void => {
-        if (this.queue.length || this.writing) { this.closeResolve = () => { this.closeResolve = null; resolve(); }; s.once('drain', () => { this.writing = false; this.inFlightBytes = 0; this.flush(); end(); }); return; }
-        this.stream = null;
-        s.end(() => resolve());
-      };
+      this.closeResolve = resolve;
+      this.idle = () => { this.idle = null; this.closeResolve = null; this.stream = null; s.end(() => resolve()); };
       this.flush();
-      end();
     });
   }
 }
