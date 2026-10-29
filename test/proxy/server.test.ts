@@ -849,6 +849,24 @@ test('chat diagnostics: passthrough, refusal and unparseable requests', async ()
   });
 });
 
+test('chat diagnostics: local x-kitzur-* headers win over upstream ones on error relays and fail-open passthroughs', async () => {
+  const spoof = { 'X-Kitzur-Action': 'spoofed', 'X-Kitzur-Tokens': 'spoofed' };
+  const up = await fakeUpstream((_hit, res) => jsonRes(res, 400, { error: { message: 'bad request' } }, spoof));
+  await withProxy(up, passthroughEngine(), async (f) => {
+    const r = await request(f.port, { body: chatBody('hi') });
+    assert.equal(r.status, 400);
+    assert.equal(r.headers['x-kitzur-action'], 'passthrough');
+    assert.match(String(r.headers['x-kitzur-tokens']), /^\d+\/\d+\/\d+$/);
+  });
+  const up2 = await fakeUpstream((_hit, res) => jsonRes(res, 200, okCompletion(), spoof));
+  await withProxy(up2, passthroughEngine(), async (f) => {
+    const r = await request(f.port, { body: '{' });
+    assert.equal(r.status, 200);
+    assert.equal(r.headers['x-kitzur-action'], 'passthrough');
+    assert.equal(r.headers['x-kitzur-tokens'], 'unknown/unknown/unknown');
+  });
+});
+
 test('the proxy leaves environment fault injection to the engine', async () => {
   const previous = process.env['KITZUR_TEST_FAULTS'];
   process.env['KITZUR_TEST_FAULTS'] = 'engine-throw:1:42';

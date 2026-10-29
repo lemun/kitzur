@@ -47,3 +47,9 @@ test('p99 completion usage warns only above allowance and ignores invalid sample
   assert.equal(snapshot().completion_tokens_p99, 101);
   assert.match(JSON.stringify(snapshot().warnings), /client.outputAllowanceTokens/);
 });
+
+test('status exposes bounded stats writer drop and failure counters', () => {
+  const tracker = new StatusTracker(testConfig(), 'test');
+  const s = tracker.snapshot({ counter: { mode: 'estimate', id: 'test' }, learned: {}, statsDropped: 3, statsWriteFailures: 2 });
+  assert.deepEqual(s.stats, { path: null, error: null, dropped: 3, write_failures: 2 });
+});
