@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { main, type CliIO } from '../../src/cli.js';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { packageInfo } from '../../src/config/paths.js';
+import { ROOT } from '../helpers.js';
 
 test('config show and validate report each model profile and --model selects it', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-model-cli-'));
@@ -37,6 +39,10 @@ test('config show and validate report each model profile and --model selects it'
     assert.match(errors[0]!, /^upstream\.caFile: file not found:/);
     assert.match(errors[1]!, /^models\["alpha"\]: upstream\.caFile: file not found:/);
     assert.match(errors[2]!, /^models\["beta"\]: upstream\.caFile: file not found:/);
+    const text = await run(['config', 'validate', '--config', path]);
+    assert.equal(text.code, 2);
+    assert.match(text.out, /\nerror: models\["beta"\]: upstream\.caFile: file not found:/);
+    assert.match(text.out, /\n3 error\(s\)\n$/);
 
     writeFileSync(path, JSON.stringify({ models: { auto: { budget: { window: 'auto' } } } }));
     const auto = await run(['config', 'show', '--config', path]);
@@ -46,11 +52,12 @@ test('config show and validate report each model profile and --model selects it'
     // Legacy CLI output remains a fixed contract when there is no models map.
     writeFileSync(path, '{}');
     const legacyShow = await run(['config', 'show', '--config', path]);
-    assert.match(legacyShow.out, /^# kitzur \S+ effective config: default < file:/);
-    assert.doesNotMatch(legacyShow.out, /# model |derivedByModel/);
+    const golden = readFileSync(join(ROOT, 'test', 'fixtures', 'config', 'legacy-show.txt'), 'utf8');
+    assert.equal(legacyShow.out, golden.replace('{VERSION}', packageInfo().version).replace('{PATH}', path));
     assert.equal((await run(['config', 'show', '--json', '--config', path])).out.includes('"derivedByModel"'), false);
     const legacyValidate = await run(['config', 'validate', '--config', path]);
-    assert.match(legacyValidate.out, /^warning: upstream\.origin is not set: serve refuses to start without it\nwarning: tokenizer\.path is not set:/);
-    assert.match(legacyValidate.out, /ok \(2 warning\(s\)\)\n$/);
+    assert.equal(legacyValidate.out, 'warning: upstream.origin is not set: serve refuses to start without it\n'
+      + "warning: tokenizer.path is not set: counting uses the per-class estimate (set it to the model's tokenizer.json for exact counts)\n"
+      + 'ok (2 warning(s))\n');
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

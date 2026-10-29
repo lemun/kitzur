@@ -91,7 +91,8 @@ export async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
         for (const e of v.errors) io.stdout(`error: ${e}\n`);
         for (const e of errors) io.stdout(`error: ${e}\n`);
         for (const x of warnings) io.stdout(`warning: ${x}\n`);
-        io.stdout(v.errors.length ? `${v.errors.length} error(s)\n` : `ok (${warnings.length} warning(s))\n`);
+        const n = v.errors.length + errors.length;
+        io.stdout(n ? `${n} error(s)\n` : `ok (${warnings.length} warning(s))\n`);
       }
       return v.errors.length || errors.length ? 2 : 0;
     }
