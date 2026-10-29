@@ -587,22 +587,6 @@ on restart.
 leaf/knob table. Existing config files need no migration. OpenCode checks resolve each
 wire model against its own profile; unknown IDs use root defaults and produce a warning.
 
-```json
-{
-  "budget": { "window": 100000 },
-  "models": {
-    "org/qwen.v1": {
-      "budget": { "window": 252000 },
-      "client": { "compactionPointTokens": 200000 }
-    },
-    "org/gpt-oss": {
-      "budget": { "window": 131071, "planMaxTokens": 32000, "maxTokensClamp": { "enabled": true } },
-      "tokenizer": { "mode": "estimate", "template": { "name": "generic" } }
-    }
-  }
-}
-```
-
 IDs match the wire model exactly, including case, dots and slashes; aliases and
 globs are not expanded. IDs must be non-blank, at most 256 characters, without
 control characters or prototype keys. Unknown/missing IDs use root defaults; the
@@ -611,7 +595,7 @@ own profile, otherwise root defaults. Kitzur does not rewrite model IDs.
 
 Preset and file model leaves merge in layer order. Each profile inherits the
 **final** root: a late `--set budget.window=200000` changes inheriting profiles,
-while the explicit windows above stay 252000 and 131071. Model leaves are edited
+while explicit model windows stay fixed. Model leaves are edited
 in files; bracket addressing through `--set` is deferred. Nullable leaves can be
 cleared with `null`; arrays and model-local presets are not supported.
 
@@ -672,23 +656,18 @@ Phase 1 uses the shared root tokenizer: select estimate mode for foreign models.
 | `debug.capture.requests` | `5` | Capture the next 1–50 upstream request attempts, including retries; startup discovery probes are excluded. Automatically stops admitting captures after this budget. | Too large: more output retained. | – |
 | `debug.capture.maxBytes` | `10485760` | Total file cap including JSONL/base64 overhead, minimum 1024 bytes. Stops all capture with an end marker when the next whole record would exceed the cap. | Too small: capture ends before useful frames. | – |
 
-Enable with `--set debug.capture.path=/private/new-capture.jsonl` or
-`KITZUR_SET='debug.capture.path=/private/new-capture.jsonl'`. Each restart rearms
-the budget and requires a new path. `/status` exposes `debug.capture` (active,
-remaining attempts, in-flight captures, bytes and file error); startup logs show
-whether capture is active. Budget exhaustion never interrupts the response.
+Set `debug.capture.path=/private/new-capture.jsonl` via `--set` or
+`KITZUR_SET`. Each restart needs a new path. `/status` and startup logs show
+capture state; budget exhaustion never interrupts responses.
 
-Records have UTC `ts`, `type` and a request-attempt `id`: request shape, upstream
-status line and response headers, each raw response chunk as byte-exact `base64`
-before parsing, and an end reason (`end`, `closed`, `aborted`, `upstream_error`,
-or a global `maxBytes` marker). Decode and concatenate chunk records per ID to
-recover the raw response. A byte-limit capture omits the whole record that
-would overflow. Disabling capture attaches no per-chunk observer.
+JSONL records carry UTC `ts`, `type` and attempt `id`, with request shape, upstream
+status/headers, byte-exact raw chunks in `base64` before parsing, or end reason
+(`end`, `closed`, `aborted`, `upstream_error`, `maxBytes`). Concatenate chunks per
+ID to recover the response; records exceeding the cap are omitted.
 
-Request shape includes message/tool counts and only known numeric, boolean or
-null generation parameters, including `chat_template_kwargs.enable_thinking`,
-`preserve_thinking` and `thinking_budget`. String values, arbitrary keys, message
-text, model names, tool definitions and request headers are never captured;
-there is no request-body switch. Response authorization, proxy-authorization,
-cookie, set-cookie, x-api-key and every configured `upstream.headers` key are
-redacted case-insensitively. Raw response bodies remain unredacted.
+Shape contains message/tool counts and known numeric, boolean or null generation
+parameters (`chat_template_kwargs.enable_thinking`, `preserve_thinking`,
+`thinking_budget`). It excludes text, model/tool names, definitions, headers and
+arbitrary/string values; no body switch exists. Sensitive response headers,
+including configured `upstream.headers`, are redacted case-insensitively; bodies
+remain raw.
