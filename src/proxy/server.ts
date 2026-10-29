@@ -182,6 +182,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       stateError: deps.state.lastError,
       statsPath: deps.stats.path,
       statsError: deps.stats.lastError,
+      statsDropped: deps.stats.dropped,
+      statsWriteFailures: deps.stats.writeFailures,
       upstream: { origin, ...upstream.stats, endpoint: deps.remote ? deps.remote.stats() : null },
       modelTokenizers: deps.modelRuntimes?.tokenizerStatus(),
       profiles: profileStatus(deps.modelRuntimes),

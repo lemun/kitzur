@@ -7,6 +7,11 @@ Run `kitzur doctor` (add `--check-upstream`, `--client-config FILE` or `--json` 
 - Cause: invalid settings, another service on `listen.port`, or a state/stats path that is blocked or not writable.
 - Fix: run `kitzur config validate`; if `instance.responsive` warns, inspect what answers on the port and change `listen.host`/`listen.port`; point `stateDir` and `stats.path` below an accessible directory.
 
+## Stats records are missing
+- Code: `stats.writer`.
+- Cause: the stats writer dropped records while its output was blocked or encountered a write failure. `/status` and `kitzur doctor` report the dropped-record and write-failure counters.
+- Fix: check the stats destination's disk and directory permissions, then restart Kitzur to reset the in-memory counters.
+
 ## Requests pass through uncompacted
 - Codes: `budget.compatible`, `upstream.skipped`.
 - Cause: the session has not reached the trigger, `shadow` is on, or the budget leaves no room to compact.
