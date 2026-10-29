@@ -113,6 +113,20 @@ configurable; use the benchmark sweep to evaluate alternatives. With the referen
 `admitTokens` is 6,586 / 18,045 / 27,472 at 32k / 64k / 100k, and at 32k at most one Playwright snapshot fits
 per compaction epoch (the startup warning says so when `budget.observedFixedPromptTokens` is set).
 
+### Worked example: from limits to trigger
+
+These synthetic cases use the default fractions and a known 9,376-token fixed prompt (needed to calculate the
+oversize admission cap). `plan` is `T_plan`; `hard` is the pre-fraction trigger ceiling. The last columns are
+derived by the formulas above, including `admitTokens`, the maximum size admitted verbatim for a new tool result.
+
+| Case | Preset | `budget.window` | `plan` | `client.inputLimit` | `client.outputLimit` | Fixed prompt | `budget` | `clientPoint` | allowance | hard | trigger | target | `admitTokens` |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| A | `32k` | 32,000 | 8,000 | null | null | 9,376 | 23,488 | 24,000 | 4,000 | 20,000 | 20,000 | 7,000 | 6,586 |
+| B | `128k` | 128,000 | 32,000 | 100,000 | 8,000 | 9,376 | 94,720 | 92,000 | 7,000 | 85,000 | 85,000 | 29,750 | 40,778 |
+
+With the client's limits left at their defaults, the larger-window case derives `clientPoint` from
+`window − min(T_plan, 32,000)`, so compaction starts later than with the explicit limits in case B.
+
 **Server budget mode** (`server.budgetMode`, derived when null;  precedence):
 1. an explicit `server.budgetMode` wins;
 2. else `budget.limitCountsMaxTokens`: `true` → `strict_total` (`tgi` for `server.type` tgi); `false` →
