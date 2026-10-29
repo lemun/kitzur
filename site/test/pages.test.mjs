@@ -1,9 +1,53 @@
 // Run after `npm run build`: node --test test/pages.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 
-const page = (route) => readFile(new URL(`../dist/${route}index.html`, import.meta.url), 'utf8');
+const dist = new URL('../dist/', import.meta.url);
+const page = (route) => readFile(new URL(`${route}index.html`, dist), 'utf8');
+const builtPages = async () =>
+  (await readdir(dist, { recursive: true })).filter((f) => f.endsWith('.html')).sort();
+const all = (html, re) => [...html.matchAll(re)].map((m) => m[1]);
+
+test('every built page has one title, its own 70-160 character description, a canonical URL and og:image', async () => {
+  const files = await builtPages();
+  assert.ok(files.includes('index.html') && files.includes('404.html'));
+  const seen = new Map();
+  for (const file of files) {
+    const html = await readFile(new URL(file, dist), 'utf8');
+    assert.equal(all(html, /<title>([^<]*)<\/title>/g).length, 1, `${file}: title`);
+    const descriptions = all(html, /<meta name="description" content="([^"]*)"/g);
+    assert.equal(descriptions.length, 1, `${file}: description`);
+    const [description] = descriptions;
+    assert.ok(description.length >= 70 && description.length <= 160, `${file}: description is ${description.length} characters`);
+    assert.equal(seen.get(description), undefined, `${file}: description duplicates ${seen.get(description)}`);
+    seen.set(description, file);
+    const [canonical] = all(html, /<link rel="canonical" href="([^"]*)"/g);
+    assert.match(canonical ?? '', /^https:\/\/lemun\.github\.io\/kitzur\/(.*\/)?$/, `${file}: canonical`);
+    assert.match(html, /<meta property="og:image" content="https:\/\/lemun\.github\.io\/kitzur\/social-preview\.png"/, `${file}: og:image`);
+  }
+});
+
+test('home page describes the app as JSON-LD from README facts only', async () => {
+  const html = await page('');
+  const [json] = all(html, /<script type="application\/ld\+json">([\s\S]*?)<\/script>/g);
+  const app = JSON.parse(json);
+  assert.equal(app['@type'], 'SoftwareApplication');
+  assert.equal(app.name, 'Kitzur');
+  assert.equal(app.license, 'MIT');
+  assert.equal(app.operatingSystem, 'Linux, macOS, Windows');
+  assert.equal(app.url, 'https://github.com/lemun/kitzur');
+  assert.equal(app.aggregateRating ?? app.review ?? app.offers, undefined);
+});
+
+test('404 page links back to quick start, troubleshooting and the repository', async () => {
+  const html = await readFile(new URL('404.html', dist), 'utf8');
+  assert.match(html, /<h1[^>]*>Page not found<\/h1>/);
+  assert.match(html, /href="\/kitzur\/docs\/quick-start\/"/);
+  assert.match(html, /href="https:\/\/github\.com\/lemun\/kitzur\/blob\/main\/docs\/TROUBLESHOOTING\.md"/);
+  assert.match(html, /href="https:\/\/github\.com\/lemun\/kitzur"/);
+  assert.doesNotMatch(html, /<script[^>]+src="https?:/);
+});
 
 test('benchmarks page separates demo, replay and coding harness and says live validation is pending', async () => {
   const html = await page('benchmarks/');

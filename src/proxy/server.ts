@@ -182,6 +182,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       stateError: deps.state.lastError,
       statsPath: deps.stats.path,
       statsError: deps.stats.lastError,
+      statsDropped: deps.stats.dropped,
+      statsWriteFailures: deps.stats.writeFailures,
       upstream: { origin, ...upstream.stats, endpoint: deps.remote ? deps.remote.stats() : null },
       modelTokenizers: deps.modelRuntimes?.tokenizerStatus(),
       profiles: profileStatus(deps.modelRuntimes),
@@ -373,7 +375,15 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     return out;
   }
 
-  async function passthrough(req: IncomingMessage, res: ServerResponse, body: Buffer, observation = observeResponse(res)): Promise<void> {
+  // Local diagnostics take precedence over similarly named upstream headers.
+  function dropLocalHeaders(hdrs: string[]): string[] {
+    const clean: string[] = [];
+    for (let i = 0; i < hdrs.length; i += 2) if (!hdrs[i]!.toLowerCase().startsWith('x-kitzur-')) clean.push(hdrs[i]!, hdrs[i + 1]!);
+    return clean;
+  }
+
+  async function passthrough(req: IncomingMessage, res: ServerResponse, body: Buffer, observation = observeResponse(res), local = false): Promise<void> {
+    const own = (hdrs: string[]): string[] => local ? dropLocalHeaders(hdrs) : hdrs;
     status.passthroughRequests++;
     const ac = new AbortController();
     res.on('close', () => {
@@ -399,7 +409,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       observation.o.outcome = 'upstream_error';
       observation.o.bytes += relay.length;
       observation.end();
-      const headers = errorHeaders(up.rawHeaders, contentType);
+      const headers = own(errorHeaders(up.rawHeaders, contentType));
       headers.push('content-length', String(relay.length));
       res.writeHead(up.status, up.statusMessage, headers);
       res.end(relay);
@@ -407,7 +417,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     }
     if (String(up.headers['content-type'] ?? '').includes('text/event-stream')) observation.o.relay = new SseRelay({ hold: false, strip: false, committed: true, detectErrors: false });
     if (up.status >= 400) observation.o.outcome = 'upstream_error';
-    res.writeHead(up.status, up.statusMessage, forwardResponseHeaders(up.rawHeaders));
+    res.writeHead(up.status, up.statusMessage, own(forwardResponseHeaders(up.rawHeaders)));
     await new Promise<void>((resolve) => {
       up.body.on('data', (d: Buffer) => {
         observation.o.bytes += d.length;
@@ -490,10 +500,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       if (committed) return;
       committed = true;
       setVisibleHeaders();
-      // Local diagnostics take precedence over similarly named upstream headers.
-      const clean: string[] = [];
-      for (let i = 0; i < hdrs.length; i += 2) if (!hdrs[i]!.toLowerCase().startsWith('x-kitzur-')) clean.push(hdrs[i]!, hdrs[i + 1]!);
-      res.writeHead(st, msg, clean);
+      res.writeHead(st, msg, dropLocalHeaders(hdrs));
       res.flushHeaders();
     };
 
@@ -503,7 +510,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     if (!parsed.ok) {
       status.failedOpen(parsed.reason);
       status.action('passthrough');
-      await passthrough(req, res, raw, observation);
+      await passthrough(req, res, raw, observation, true);
       deps.stats.write(buildStatsRecord({
         seq, ts, path: pathname, first: null, last: null, action: 'passthrough', attempts: [], clientStatus: res.statusCode, tokensIn: null,
         correction: 1, engineMs: 0, totalMs: performance.now() - tBody, compacted: false, shadow: cfg.shadow, usage: null, usageMismatch: false,
@@ -712,7 +719,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       setVisibleHeaders();
       status.failedOpen('internal');
       status.action('passthrough');
-      await passthrough(req, res, raw, observation);
+      await passthrough(req, res, raw, observation, true);
       deps.stats.write(buildStatsRecord({
         seq, ts, path: pathname, first: null, last: null, action: 'passthrough', attempts: [], clientStatus: res.statusCode, tokensIn: null,
         correction: 1, engineMs: 0, totalMs: performance.now() - tBody, compacted: false, shadow: requestCfg.shadow, usage: null, usageMismatch: false,
@@ -797,12 +804,12 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         const e = f.error;
         if (!committed) {
           if (e.inStream) {
-            res.writeHead(e.httpStatus, e.statusMessage, forwardResponseHeaders(e.headers, { dropContentLength: true }));
+            res.writeHead(e.httpStatus, e.statusMessage, dropLocalHeaders(forwardResponseHeaders(e.headers, { dropContentLength: true })));
             endWith(res, e.streamBytes ?? e.body, cont, onBytes);
           } else {
             const cut = cutErrorBodies.get(e.body);
             const body = cut?.relay ?? e.body;
-            const hdrs = errorHeaders(e.headers, cut?.contentType);
+            const hdrs = dropLocalHeaders(errorHeaders(e.headers, cut?.contentType));
             hdrs.push('content-length', String(body.length));
             res.writeHead(e.httpStatus, e.statusMessage, hdrs);
             end(body);
@@ -882,10 +889,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       const cur = deps.state.entry(c.key);
       const applied = applyAcceptedRatio(cur, v.ratio, afterCfg, afterMode, now());
       deps.state.set(c.key, applied.entry);
-      if (applied.correctionChanged) {
-        if (deps.modelRuntimes) deps.modelRuntimes.setLearned(c.creq.model, c.key, applied.entry);
-        else afterEngine.setLearned(c.key, applied.entry);
-      }
+      // the engine pinned at request start, never a fresh lookup
+      if (applied.correctionChanged) afterEngine.setLearned(c.key, applied.entry);
     };
     if (sent && r.final.type === 'relayed') {
       status.forwardedPrompt(c.creq.model, c.clientSession, usage?.prompt_tokens ?? null);
