@@ -20,6 +20,8 @@ against its exact wire-ID profile and qualifies findings by model. An unknown mo
 uses root defaults and is reported; `model` and `small_model` must resolve within an
 OpenCode provider for routing through Kitzur to be checked.
 
+When a local instance answers `/status`, doctor also reports the stats writer's dropped-record and write-failure counters. The writer keeps at most 1,024 queued records and 4 MiB of queued JSONL data; records arriving beyond either limit are dropped and counted. These counters reset when the process restarts.
+
 ```sh
 kitzur doctor
 kitzur doctor --json

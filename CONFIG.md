@@ -316,6 +316,7 @@ set `upstream.origin` to the rotator; see [the LiteLLM example](docs/UPSTREAM-RO
 | `ledger.outputPaths.maxPerResult` | `3` | Cap of output paths per tool result. | – | – |
 | `ledger.outputPaths.maxTotal` | `20` | Cap of output paths in the ledger. | – | – |
 | `ledger.mirrorPath` | `null` | Reserved: would write the rendered facts section to this file after each compaction (user content; SECURITY.md). **Not implemented in v1**: setting it writes nothing (startup warning). | – | – |
+| `ledger.ranking` | `false` | Reserved: would rank ledger facts by relevance before rendering. **Not implemented yet**: setting it changes nothing. | – | – |
 
 ### rules (tool rules, )
 

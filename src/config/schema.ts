@@ -131,6 +131,8 @@ export interface Config {
     stopWords: string[];
     outputPaths: { enabled: boolean; maxPerResult: number; maxTotal: number };
     mirrorPath: string | null;
+    /** rank ledger facts by relevance before rendering (not implemented yet: no effect) */
+    ranking: boolean;
   };
   rules: {
     /** tool-name globs per role ('*' wildcard) */
@@ -259,6 +261,7 @@ export const DEFAULT_CONFIG: Config = {
     stopWords: [],
     outputPaths: { enabled: true, maxPerResult: 3, maxTotal: 20 },
     mirrorPath: null,
+    ranking: false,
   },
   rules: {
     toolNames: {
