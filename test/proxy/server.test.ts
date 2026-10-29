@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ChatRequest } from '../../src/types.js';
 import { readLearnedState, learnedKey } from '../../src/proxy/state.js';
+import { enableAutoWindow } from '../../src/config/window.js';
 import { classifyHttpError, classifyStreamError, OC_RETRY_RUNS } from './opencode-port.js';
 import { FakeEngine, passthroughEngine, result, shrinkingEngine } from './fake-engine.js';
 import {
@@ -880,4 +881,20 @@ test('the proxy leaves environment fault injection to the engine', async () => {
     if (previous === undefined) delete process.env['KITZUR_TEST_FAULTS'];
     else process.env['KITZUR_TEST_FAULTS'] = previous;
   }
+});
+
+test('auto window: window_auto_fallback warns once per new model and remembers at most 100 model ids', async () => {
+  const log: string[] = [];
+  const up = await fakeUpstream((_h, res) => jsonRes(res, 200, okCompletion()));
+  await withProxy(up, passthroughEngine(), async (f) => {
+    enableAutoWindow(f.cfg, f.cfg.budget.window);
+    const warned = () => log.filter((s) => s.startsWith('No context window discovered for model')).length;
+    const send = async (model: string) => assert.equal((await request(f.port, { body: { model, messages: [{ role: 'user', content: 'hi' }], max_tokens: 10 } })).status, 200);
+    await send('m-0');
+    assert.equal(warned(), 1, 'the first request for a new model warns');
+    await send('m-0');
+    assert.equal(warned(), 1, 'a repeat does not warn again');
+    for (let i = 1; i <= 100; i++) await send(`m-${i}`);
+    assert.equal(warned(), 100, 'past the cap no new model is remembered or warned');
+  }, { log: (_level, message) => log.push(message) });
 });

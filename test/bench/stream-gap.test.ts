@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { p99InterChunkGap, pooledP99InterChunkGap } from '../../bench/stream-gap.js';
+import { countOverlappingIntervals, p99InterChunkGap, pooledP99InterChunkGap } from '../../bench/stream-gap.js';
 
 test('p99 inter-chunk gap reports the observed interval', () => {
   assert.equal(p99InterChunkGap([0, 10, 20, 45]), 25);
@@ -23,4 +23,16 @@ test('pooled p99 handles empty and single-chunk streams', () => {
   assert.equal(pooledP99InterChunkGap([]), 0);
   assert.equal(pooledP99InterChunkGap([[], [5]]), 0);
   assert.equal(pooledP99InterChunkGap([[], [5], [0, 10, 20, 45]]), 25);
+});
+
+test('interval overlap counts positive overlap but excludes separated and touching intervals', () => {
+  const query = { start: 10, end: 20 };
+  assert.equal(countOverlappingIntervals(query, [
+    { start: 9, end: 11 },
+    { start: 15, end: 25 },
+  ]), 2);
+  assert.equal(countOverlappingIntervals(query, [
+    { start: 0, end: 10 },
+    { start: 20, end: 30 },
+  ]), 0);
 });

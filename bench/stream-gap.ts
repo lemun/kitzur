@@ -17,3 +17,10 @@ export function p99InterChunkGap(times: number[]): number {
 export function pooledP99InterChunkGap(sets: number[][]): number {
   return nearestRankP99(sets.flatMap(gapsOf));
 }
+
+export interface TimeInterval { start: number; end: number }
+
+/** Count intervals with a positive-duration overlap with the query interval. */
+export function countOverlappingIntervals(query: TimeInterval, intervals: TimeInterval[]): number {
+  return intervals.filter((interval) => interval.start < query.end && query.start < interval.end).length;
+}
