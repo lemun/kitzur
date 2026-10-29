@@ -123,6 +123,7 @@ export const LEAF_SPECS: Readonly<Record<string, LeafSpec>> = Object.assign(Obje
   'ledger.outputPaths.maxPerResult': int(0, 1000),
   'ledger.outputPaths.maxTotal': int(0, 10_000),
   'ledger.mirrorPath': strN,
+  'ledger.ranking': bool,
 
   'rules.toolNames.snapshot': globs,
   'rules.toolNames.browserNavigate': globs,

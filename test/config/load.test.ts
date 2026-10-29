@@ -86,6 +86,11 @@ test('loadConfig: arrays replace, objects merge, headers merge key by key', () =
   }
 });
 
+test('loadConfig: ledger.ranking defaults to false and --set accepts a boolean', () => {
+  assert.equal(loadConfig({ env: {} }).config.ledger.ranking, false);
+  assert.equal(loadConfig({ env: {}, sets: ['ledger.ranking=true'] }).config.ledger.ranking, true);
+});
+
 test('loadConfig: unknown keys, bad values and missing files are ConfigErrors with hints', () => {
   const t = tmp();
   try {
