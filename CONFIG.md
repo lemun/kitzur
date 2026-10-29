@@ -113,6 +113,20 @@ configurable; use the benchmark sweep to evaluate alternatives. With the referen
 `admitTokens` is 6,586 / 18,045 / 27,472 at 32k / 64k / 100k, and at 32k at most one Playwright snapshot fits
 per compaction epoch (the startup warning says so when `budget.observedFixedPromptTokens` is set).
 
+### Worked example: from limits to trigger
+
+These synthetic cases use the default fractions and a known 9,376-token fixed prompt (needed to calculate the
+oversize admission cap). `plan` is `T_plan`; `hard` is the pre-fraction trigger ceiling. The last columns are
+derived by the formulas above, including `admitTokens`, the maximum size admitted verbatim for a new tool result.
+
+| Case | Preset | `budget.window` | `plan` | `client.inputLimit` | `client.outputLimit` | Fixed prompt | `budget` | `clientPoint` | allowance | hard | trigger | target | `admitTokens` |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| A | `32k` | 32,000 | 8,000 | null | null | 9,376 | 23,488 | 24,000 | 4,000 | 20,000 | 20,000 | 7,000 | 6,586 |
+| B | `128k` | 128,000 | 32,000 | 100,000 | 8,000 | 9,376 | 94,720 | 92,000 | 7,000 | 85,000 | 85,000 | 29,750 | 40,778 |
+
+With the client's limits left at their defaults, the larger-window case derives `clientPoint` from
+`window − min(T_plan, 32,000)`, so compaction starts later than with the explicit limits in case B.
+
 **Server budget mode** (`server.budgetMode`, derived when null;  precedence):
 1. an explicit `server.budgetMode` wins;
 2. else `budget.limitCountsMaxTokens`: `true` → `strict_total` (`tgi` for `server.type` tgi); `false` →
@@ -205,6 +219,10 @@ Columns: **Default**; **Meaning**; **If wrong**: what breaks; **Probe field**: t
 | `listen.allowedOrigins` | `[]` | Browser origins (`scheme://host[:port]`, exact match) that may call the proxy. A request with any other `Origin` header, or a `Sec-Fetch-Site` of `cross-site`/`same-site`, gets 403; CLI agents send neither. | An origin listed here: any page served from it can use the proxy and the credentials it forwards. | – |
 
 ### upstream
+
+Kitzur forwards one client key to the configured upstream. For key rotation across
+authorized gateway accounts, place a dedicated rotator in front of the gateway and
+set `upstream.origin` to the rotator; see [the LiteLLM example](docs/UPSTREAM-ROTATION.md).
 
 | Key | Default | Meaning | If wrong | Probe field |
 |---|---|---|---|---|
@@ -312,6 +330,7 @@ Columns: **Default**; **Meaning**; **If wrong**: what breaks; **Probe field**: t
 | `ledger.outputPaths.maxPerResult` | `3` | Cap of output paths per tool result. | – | – |
 | `ledger.outputPaths.maxTotal` | `20` | Cap of output paths in the ledger. | – | – |
 | `ledger.mirrorPath` | `null` | Reserved: would write the rendered facts section to this file after each compaction (user content; SECURITY.md). **Not implemented in v1**: setting it writes nothing (startup warning). | – | – |
+| `ledger.ranking` | `false` | Reserved: would rank ledger facts by relevance before rendering. **Not implemented yet**: setting it changes nothing. | – | – |
 
 ### rules (tool rules, )
 
@@ -601,3 +620,85 @@ arbitrary/string values; no body switch exists. Response headers
 `authorization`, `proxy-authorization`, `cookie`, `set-cookie`, `x-api-key` and
 every configured `upstream.headers` key are redacted case-insensitively; bodies
 remain raw.
+## Model profiles
+
+`models` is optional loader metadata, like `preset`, outside `DEFAULT_CONFIG` and the
+leaf/knob table. Existing config files need no migration. OpenCode checks resolve each
+wire model against its own profile; unknown IDs use root defaults and produce a warning.
+
+```json
+{
+  "budget": { "window": 100000 },
+  "models": {
+    "org/qwen.v1": {
+      "budget": { "window": 252000 },
+      "client": { "compactionPointTokens": 200000 }
+    },
+    "org/gpt-oss": {
+      "budget": { "window": 131071, "planMaxTokens": 32000, "maxTokensClamp": { "enabled": true } },
+      "tokenizer": { "mode": "estimate", "template": { "name": "generic" } }
+    }
+  }
+}
+```
+
+IDs match the wire model exactly, including case, dots and slashes; aliases and
+globs are not expanded. IDs must be non-blank, at most 256 characters, without
+control characters or prototype keys. Unknown/missing IDs use root defaults; the
+resolver can emit one warning per configured map. A listed `small_model` uses its
+own profile, otherwise root defaults. Kitzur does not rewrite model IDs.
+
+Preset and file model leaves merge in layer order. Each profile inherits the
+**final** root: a late `--set budget.window=200000` changes inheriting profiles,
+while the explicit windows above stay 252000 and 131071. Model leaves are edited
+in files; bracket addressing through `--set` is deferred. Nullable leaves can be
+cleared with `null`; arrays and model-local presets are not supported.
+
+Allowed profile leaves (validated with the root leaf specs):
+
+- `budget.window`, `budget.limitCountsMaxTokens`, `budget.defaultMaxTokens`,
+  `budget.planMaxTokens`, `budget.safetyMarginTokens`, `budget.safetyMarginFraction`,
+  `budget.maxTokensClamp.enabled`, `budget.maxTokensClamp.floorTokens`,
+  `budget.maxTokensRestore.enabled`, `budget.maxTokensRestore.toTokens`.
+- `client.compactionPointTokens`, `client.inputLimit`, `client.reservedTokens`,
+  `client.outputLimit`, `client.outputTokenMax`, `client.outputAllowanceTokens`.
+- `tokenizer.mode`, `tokenizer.template.name`.
+
+A profile inheriting root auto mode retains auto mode. An explicit model window
+of `"auto"` falls back to the final root's numeric window until discovery; a
+fallback above an explicit client input/compaction limit produces a warning.
+Resolved profiles are deeply frozen full configs, without a `models` key.
+
+Phase 1 shares the root tokenizer file: use `estimate` for foreign tokenizers;
+selecting a template does not establish exact counts. Per-model tokenizer paths
+and verified Harmony counting come later. For output-equals-context models behind
+`strict_total` servers, enable `budget.maxTokensClamp.enabled` so a client sending
+its full output limit can fit. `budget.planMaxTokens` remains the explicit planning
+reservation knob; adding profiles does not change the reservation formula.
+
+For example, OpenCode can route two exact wire IDs through one provider:
+
+```json
+{
+  "model": "kitzur/org/qwen.v1",
+  "small_model": "kitzur/org/gpt-oss",
+  "provider": { "kitzur": {
+    "npm": "@ai-sdk/openai-compatible",
+    "options": { "baseURL": "http://127.0.0.1:8270/v1" },
+    "models": {
+      "org/qwen.v1": { "limit": { "context": 252000, "output": 32000 } },
+      "org/gpt-oss": { "limit": { "context": 131071, "output": 32000 } }
+    }
+  } },
+  "compaction": { "auto": true }
+}
+```
+
+The corresponding profiles set Qwen `client.compactionPointTokens: 200000`, giving
+clientPoint 200,000 and hard limit 193,000. GPT-OSS sets
+`budget.planMaxTokens: 32000`, giving T_plan 32,000 and hard limit 92,071. These
+figures are derived, engine, and proxy budgets for their respective profiles. OpenCode's
+`small_model` must name a model in a provider routed through Kitzur to be compacted.
+If the model emits output equal to its context window, the client must advertise a
+smaller output limit (here 32,000); enable `maxTokensClamp` for strict-total servers.
+Phase 1 uses the shared root tokenizer: select estimate mode for foreign models.

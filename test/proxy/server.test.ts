@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ChatRequest } from '../../src/types.js';
 import { readLearnedState, learnedKey } from '../../src/proxy/state.js';
+import { enableAutoWindow } from '../../src/config/window.js';
 import { classifyHttpError, classifyStreamError, OC_RETRY_RUNS } from './opencode-port.js';
 import { FakeEngine, passthroughEngine, result, shrinkingEngine } from './fake-engine.js';
 import {
@@ -66,7 +67,7 @@ test('SSE: relayed byte-exactly across arbitrary chunking (CRLF, comments, event
   });
 });
 
-// ---------------------------------------------------------------- first-event hold ()
+// ---------------------------------------------------------------- first-event hold
 
 test('hold: the client status line waits for the first data event; comments are flushed before it', async () => {
   const up = await fakeUpstream(async (_h, res) => {
@@ -112,7 +113,7 @@ test('hold: the timer starts at the upstream headers and commits after firstEven
   }, { config: { stream: { firstEventTimeoutMs: 200 } } });
 });
 
-test('late upstream error status (): the client gets the real HTTP status, not an invented 200', async () => {
+test('late upstream error status: the client gets the real HTTP status, not an invented 200', async () => {
   const up = await fakeUpstream(async (_h, res) => {
     await sleep(250);
     jsonRes(res, 429, { error: { message: 'Rate limit exceeded', type: 'rate_limit_error', code: '429' } });
@@ -194,7 +195,7 @@ test('after a committed 200, a failed overflow recovery is reported in the  shap
   }, { config: { stream: { firstEventTimeoutMs: 100 } } });
 });
 
-// ---------------------------------------------------------------- include_usage (§9, )
+// ---------------------------------------------------------------- include_usage
 
 test('include_usage: injected only for stream:true, the usage chunk is stripped, the tap still sees it', async () => {
   const up = await fakeUpstream(async (hit, res) => {
@@ -240,7 +241,7 @@ test(': a stream_options rejection of an injected include_usage is retried once 
   }, { config: { stream: { injectIncludeUsage: true } } });
 });
 
-// ---------------------------------------------------------------- abort ()
+// ---------------------------------------------------------------- abort
 
 test('client disconnect aborts the upstream within 50 ms (mid-stream and before headers)', async () => {
   const up = await fakeUpstream(async (hit, res) => {
@@ -502,7 +503,7 @@ test('guard_reject and impossible return the engine error without an upstream ca
   });
 });
 
-test('engine exceptions: the original only when it fits (I7)', async () => {
+test('engine exceptions: the original only when it fits', async () => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, okCompletion()));
   await withProxy(up, new FakeEngine(() => { throw new Error('injected failure'); }), async (f) => {
     const small = JSON.stringify(chatBody('small'));
@@ -517,7 +518,7 @@ test('engine exceptions: the original only when it fits (I7)', async () => {
   }, { config: { budget: { window: 10_000, defaultMaxTokens: 1000 } } });
 });
 
-test('an unsafe-integer body is never rewritten ()', async () => {
+test('an unsafe-integer body is never rewritten', async () => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, okCompletion()));
   const engine = new FakeEngine((req) => result(req, { ...req, messages: req.messages.slice(-1) }, true));
   await withProxy(up, engine, async (f) => {
@@ -584,7 +585,7 @@ test('everything else is a streamed pass-through to the same upstream; /status n
     const s = await request(f.port, { method: 'GET', path: '/kitzur/status' });
     const j = s.json();
     for (const k of ['version', 'uptime_s', 'config', 'budget', 'counter', 'learned', 'counters', 'actions', 'error_kinds', 'guard', 'replan', 'upstream_rejected_rewrite', 'warnings', 'sessions', 'latency_ms', 'memory']) assert.ok(k in j, k);
-    assert.equal(j.budget.budget, 67_000, 'the §3 budget of the 100k preset');
+    assert.equal(j.budget.budget, 67_000, 'the budget of the 100k preset');
     assert.equal(up.hits.length, 2);
     assert.equal(j.counters.passthrough_requests, 2);
   });
@@ -848,6 +849,24 @@ test('chat diagnostics: passthrough, refusal and unparseable requests', async ()
   });
 });
 
+test('chat diagnostics: local x-kitzur-* headers win over upstream ones on error relays and fail-open passthroughs', async () => {
+  const spoof = { 'X-Kitzur-Action': 'spoofed', 'X-Kitzur-Tokens': 'spoofed' };
+  const up = await fakeUpstream((_hit, res) => jsonRes(res, 400, { error: { message: 'bad request' } }, spoof));
+  await withProxy(up, passthroughEngine(), async (f) => {
+    const r = await request(f.port, { body: chatBody('hi') });
+    assert.equal(r.status, 400);
+    assert.equal(r.headers['x-kitzur-action'], 'passthrough');
+    assert.match(String(r.headers['x-kitzur-tokens']), /^\d+\/\d+\/\d+$/);
+  });
+  const up2 = await fakeUpstream((_hit, res) => jsonRes(res, 200, okCompletion(), spoof));
+  await withProxy(up2, passthroughEngine(), async (f) => {
+    const r = await request(f.port, { body: '{' });
+    assert.equal(r.status, 200);
+    assert.equal(r.headers['x-kitzur-action'], 'passthrough');
+    assert.equal(r.headers['x-kitzur-tokens'], 'unknown/unknown/unknown');
+  });
+});
+
 test('the proxy leaves environment fault injection to the engine', async () => {
   const previous = process.env['KITZUR_TEST_FAULTS'];
   process.env['KITZUR_TEST_FAULTS'] = 'engine-throw:1:42';
@@ -862,4 +881,20 @@ test('the proxy leaves environment fault injection to the engine', async () => {
     if (previous === undefined) delete process.env['KITZUR_TEST_FAULTS'];
     else process.env['KITZUR_TEST_FAULTS'] = previous;
   }
+});
+
+test('auto window: window_auto_fallback warns once per new model and remembers at most 100 model ids', async () => {
+  const log: string[] = [];
+  const up = await fakeUpstream((_h, res) => jsonRes(res, 200, okCompletion()));
+  await withProxy(up, passthroughEngine(), async (f) => {
+    enableAutoWindow(f.cfg, f.cfg.budget.window);
+    const warned = () => log.filter((s) => s.startsWith('No context window discovered for model')).length;
+    const send = async (model: string) => assert.equal((await request(f.port, { body: { model, messages: [{ role: 'user', content: 'hi' }], max_tokens: 10 } })).status, 200);
+    await send('m-0');
+    assert.equal(warned(), 1, 'the first request for a new model warns');
+    await send('m-0');
+    assert.equal(warned(), 1, 'a repeat does not warn again');
+    for (let i = 1; i <= 100; i++) await send(`m-${i}`);
+    assert.equal(warned(), 100, 'past the cap no new model is remembered or warned');
+  }, { log: (_level, message) => log.push(message) });
 });

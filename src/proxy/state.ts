@@ -1,4 +1,4 @@
-// The state dir (DESIGN.md "State dir", §8 "Learned state is persisted", ):
+// The state dir, where learned state is persisted:
 //
 //   <stateDir>/learned.json   LearnedState v2: one LearnedEntry per `${origin}|${model}`
 //   <stateDir>/plans/*.jsonl  the optional plan store (store.persist): one append-only file per day
@@ -74,7 +74,7 @@ export function freshLearnedEntry(configuredWindow: number, counterId: string): 
   };
 }
 
-/** Fields that are planning inputs (§5.3) or change what is forwarded. */
+/** Fields that are planning inputs or change what is forwarded. */
 export function planningChanged(a: LearnedEntry | undefined, b: LearnedEntry): boolean {
   if (!a) return b.window !== null || b.maxPrompt !== null || b.maxBodyBytes !== null || b.tighten !== 0 || b.correction !== 1 || b.includeUsageRejected;
   return a.window !== b.window || a.maxPrompt !== b.maxPrompt || a.maxBodyBytes !== b.maxBodyBytes || a.tighten !== b.tighten ||
@@ -145,6 +145,8 @@ export interface StateStoreOptions {
   configuredWindow: number;
   /** the counter id: entries learned with another counter are discarded */
   counterId: string;
+  /** Per-key learned identity; omitted to preserve the legacy, constant identity. */
+  identityFor?: (key: string) => { configuredWindow: number; counterId: string };
   now?: () => Date;
   /** Delay for sample-only checkpoints (default 5000 ms); planning changes take at most 250 ms. */
   debounceMs?: number;
@@ -160,7 +162,7 @@ export function keyMatches(key: string, filter: string | undefined): boolean {
 
 export class StateStore {
   readonly path: string | null;
-  /** entries dropped at load: learned under another window or counter () */
+  /** entries dropped at load: learned under another window or counter */
   readonly discarded: string[] = [];
   /** last load or write error (the proxy keeps running on a read-only state dir) */
   lastError: string | null = null;
@@ -171,15 +173,18 @@ export class StateStore {
   private scheduledAt = 0;
   private writing: Promise<void> | null = null;
   private readonly now: () => Date;
+  private readonly identityFor: (key: string) => { configuredWindow: number; counterId: string };
 
   constructor(private readonly o: StateStoreOptions) {
     this.path = o.dir ? join(o.dir, 'learned.json') : null;
     this.now = o.now ?? (() => new Date());
+    this.identityFor = o.identityFor ?? (() => ({ configuredWindow: o.configuredWindow, counterId: o.counterId }));
     if (!this.path) return;
     const { state, error } = readLearnedState(this.path);
     if (error) this.lastError = `learned.json: ${error}`;
     for (const [k, e] of Object.entries(state.entries)) {
-      if (e.configuredWindow !== o.configuredWindow || e.counterId !== o.counterId) this.discarded.push(k);
+      const identity = this.identityFor(k);
+      if (e.configuredWindow !== identity.configuredWindow || e.counterId !== identity.counterId) this.discarded.push(k);
       else this.entriesMap.set(k, e);
     }
   }
@@ -187,7 +192,8 @@ export class StateStore {
   /** The valid entry for `key` (a copy), or a fresh one. */
   entry(key: string): LearnedEntry {
     const e = this.entriesMap.get(key);
-    return e ? clone(e) : freshLearnedEntry(this.o.configuredWindow, this.o.counterId);
+    const identity = this.identityFor(key);
+    return e ? clone(e) : freshLearnedEntry(identity.configuredWindow, identity.counterId);
   }
 
   has(key: string): boolean {

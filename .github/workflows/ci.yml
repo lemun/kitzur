@@ -104,6 +104,33 @@ jobs:
           [IO.File]::WriteAllText($stats, '')
           node $cli report --json $stats
           if ($LASTEXITCODE -ne 0) { throw 'packaged empty report failed' }
+      - name: Per-user autostart shortcut and port guard
+        shell: pwsh
+        run: |
+          node --test dist/test/cli/autostart.test.js
+          if ($LASTEXITCODE -ne 0) { throw 'autostart unit tests failed' }
+          $cli = (Resolve-Path dist/src/cli.js).Path
+          $dir = Join-Path $env:RUNNER_TEMP "Kitzur Autostart O'Brien"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $config = Join-Path $dir 'kitzur config.json'
+          @{ preset = '32k'; upstream = @{ origin = 'http://127.0.0.1:1' }; listen = @{ host = '127.0.0.1'; port = 18977 }; stateDir = (Join-Path $dir 'state') } | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $config
+          node $cli autostart install --config $config
+          if ($LASTEXITCODE -ne 0) { throw 'autostart install failed' }
+          $lnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'Kitzur.lnk'
+          $link = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
+          if ($link.TargetPath -ne (Get-Command node).Source) { throw "unexpected TargetPath $($link.TargetPath)" }
+          if ($link.Arguments -ne "`"$cli`" autostart run --config `"$config`"") { throw "unexpected Arguments $($link.Arguments)" }
+          if ($link.WindowStyle -ne 7) { throw 'shortcut is not minimised' }
+          $status = node $cli autostart status --config $config | Out-String
+          if ($status -notmatch 'TargetPath: ') { throw "unexpected status $status" }
+          node $cli autostart run --config $config
+          if ($LASTEXITCODE -ne 0) { throw 'first guard run failed' }
+          for ($i = 0; $i -lt 60 -and -not (Get-NetTCPConnection -LocalPort 18977 -State Listen -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 500 }
+          $second = node $cli autostart run --config $config | Out-String
+          if ($LASTEXITCODE -ne 0 -or $second -notmatch 'already running') { throw "second guard run did not find the instance: $second" }
+          Get-NetTCPConnection -LocalPort 18977 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+          node $cli autostart remove --config $config
+          if ($LASTEXITCODE -ne 0 -or (Test-Path -LiteralPath $lnk)) { throw 'autostart remove left Kitzur.lnk behind' }
       - name: Portable compaction, ledger, tokenizer and diagnostics suites
         run: node scripts/run-tests.mjs --test-concurrency=2 dist/test/engine dist/test/ledger dist/test/summary dist/test/rules dist/test/tokenize dist/test/diagnostics
       - name: Windows distribution, PowerShell installation and lifecycle

@@ -86,6 +86,11 @@ test('loadConfig: arrays replace, objects merge, headers merge key by key', () =
   }
 });
 
+test('loadConfig: ledger.ranking defaults to false and --set accepts a boolean', () => {
+  assert.equal(loadConfig({ env: {} }).config.ledger.ranking, false);
+  assert.equal(loadConfig({ env: {}, sets: ['ledger.ranking=true'] }).config.ledger.ranking, true);
+});
+
 test('loadConfig: unknown keys, bad values and missing files are ConfigErrors with hints', () => {
   const t = tmp();
   try {
@@ -131,6 +136,13 @@ test('loadConfig: env mapping, empty values ignored, unknown KITZUR_* warned', (
   assert.equal(r.config.listen.host, '127.0.0.1');
   assert.equal(r.provenance['budget.window'], 'env:KITZUR_WINDOW');
   assert.deepEqual(r.warnings, ['unknown environment variable KITZUR_TYPO ignored (see CONFIG.md "Environment")']);
+});
+
+test('loadConfig: probe token is runtime-only and never enters config or provenance', () => {
+  const baseline = loadConfig({ env: {} });
+  const loaded = loadConfig({ env: { KITZUR_PROBE_TOKEN: 'secret-probe-token' } });
+  assert.deepEqual(loaded, baseline);
+  assert.doesNotMatch(JSON.stringify(loaded), /secret-probe-token/);
 });
 
 test('parseRawValue / parseSetArg / splitEnvSet', () => {

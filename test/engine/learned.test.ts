@@ -9,7 +9,7 @@ import { estimateCounter, testConfig } from './stubs.js';
 
 const counter = estimateCounter();
 
-test('learned entries are keyed per origin|model and invalidated by window or counter ()', () => {
+test('learned entries are keyed per origin|model and invalidated by window or counter', () => {
   const cfg = testConfig({ upstream: { origin: 'http://gw:8000' } });
   assert.equal(learnedKey(cfg.upstream.origin, 'qwen'), 'http://gw:8000|qwen');
   const e = defaultLearnedEntry(cfg, counter.id);
@@ -30,7 +30,7 @@ test('templateKwargs: request booleans over config defaults; only the two known 
   assert.deepEqual(templateKwargs(testConfig(), { messages: [], chat_template_kwargs: { enable_thinking: 'yes' } }), {});
 });
 
-test('P (): kwargs, tools, tighten and correction change it; T_req does not (ADR-7)', () => {
+test('P: kwargs, tools, tighten and correction change it; T_req does not', () => {
   const cfg = testConfig();
   const E = defaultLearnedEntry(cfg, counter.id);
   const P = (req: Record<string, unknown>, e = E, tighten = 0) =>

@@ -1,4 +1,4 @@
-// Playwright MCP snapshot results (DESIGN.md, §5.6 step 1, ): detection by content, page info,
+// Playwright MCP snapshot results (DESIGN.md): detection by content, page info,
 // the superseded-snapshot stub and slimming.
 //
 // A Playwright MCP result looks like (OpenCode may cut it at 50 KB and append its truncation notice):
@@ -32,7 +32,7 @@ export function countRefs(text: string): number {
   return n;
 }
 
-/** : a result with `- Page Snapshot:` or at least 10 `[ref=` markers is a snapshot, whatever produced it. */
+/** A result with `- Page Snapshot:` or at least 10 `[ref=` markers is a snapshot, whatever produced it. */
 export function isSnapshotText(text: string): boolean {
   if (text.includes(SNAPSHOT_MARK)) return true;
   let n = 0;
@@ -105,7 +105,7 @@ export function savedOutputPath(text: string): string | null {
   return m[1]!.slice(0, e);
 }
 
-/** URL, title, refs and saved path of a snapshot result; null when the text is not a snapshot (). */
+/** URL, title, refs and saved path of a snapshot result; null when the text is not a snapshot. */
 export function snapshotInfo(text: string): SnapshotInfo | null {
   if (!isSnapshotText(text)) return null;
   let url = lineValue(text, 'Page URL');
@@ -120,17 +120,17 @@ export function snapshotInfo(text: string): SnapshotInfo | null {
   return { url: url || null, title, refs: countRefs(text), savedPath: savedOutputPath(text) };
 }
 
-/** §7: the text that replaces a superseded snapshot result. */
+/** The text that replaces a superseded snapshot result. */
 export function snapshotStub(info: SnapshotInfo): string {
   return `[superseded snapshot: ${info.url ?? 'unknown URL'} — "${info.title ?? ''}", ${info.refs} refs; take a new browser_snapshot for current refs]`;
 }
 
-/** §6.3: the condensed form of a snapshot in the summary tool log. */
+/** The condensed form of a snapshot in the summary tool log. */
 export function snapshotCondensed(info: SnapshotInfo): string {
   return info.url !== null ? `[snapshot: ${info.url} — "${info.title ?? ''}", ${info.refs} refs]` : `[snapshot: ${info.refs} refs]`;
 }
 
-/** : the marker appended to a slimmed snapshot. It must not invite a re-snapshot. */
+/** The marker appended to a slimmed snapshot. It must not invite a re-snapshot. */
 export function slimMarker(kept: number, total: number, savedPath: string | null): string {
   const tail = savedPath
     ? `Full output: ${savedPath}; use grep/Read on it or browser_evaluate for specific text.`
@@ -146,7 +146,7 @@ const TREE_LINE = /^\s*- /;
 const HEADER_LINE = /^\s*- Page (?:URL|Title|Snapshot):/;
 
 /**
- * §5.6 step 1 (). Keeps the page-state header (`### Page state`, `- Page URL/Title/Snapshot:` and the yaml
+ * Slims a snapshot. Keeps the page-state header (`### Page state`, `- Page URL/Title/Snapshot:` and the yaml
  * fences, the `### Open tabs` block), OpenCode's `Full output saved to:` line, every element line with a `[ref=`
  * whose role is in `roles`, and then, in document order while `count` stays within `maxTokens`, the kept
  * elements' direct `- text:` and `- /url:` child lines. Everything else (other elements, console messages, the

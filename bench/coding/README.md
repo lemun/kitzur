@@ -8,8 +8,19 @@ workspace, learned state, plan cache and stats file. Initial histories are synth
 long histories corresponding to the actual initial source file. Corrections arrive
 after the first live tool turn, identically in both arms.
 
-The fixtures cover English corrected requirements, Hebrew cancellation and tool
-output pressure. Hidden executable acceptance checks grade exported behavior and
+The seven fixtures in `tasks.ts` are:
+
+- `corrected-dedupe`: an English requirement corrected once.
+- `hebrew-cancellation`: a Hebrew requirement partly cancelled and reversed.
+- `tool-pressure`: an additive instruction under long tool output.
+- `stacked-corrections`: two successive changes to one requirement; the first
+  sits inside the synthetic history, the second arrives live.
+- `revoked-instruction`: one part of the requirement is revoked, the rest holds.
+- `corrected-constant`: a numeric constant given early and corrected later.
+- `first-turn-rule`: a standing rule given only in the first user turn must still
+  hold after a later correction to the task itself.
+
+Hidden executable acceptance checks grade exported behavior and
 input preservation. They do not grade marker presence. File tools can only access
 `solution.mjs`; they reject other paths and symlinks. Public `run_tests` checks
 syntax only. A model's final response ends the run; hitting a turn/time/output limit
@@ -27,6 +38,22 @@ node dist/bench/coding/retention.js 3f9afb8 > /tmp/correction-comparison.json
 The mock writes real source files and exercises the same HTTP/tool/grading path.
 Mock outcomes verify the harness; they establish no real-model usefulness. Live
 model validation is pending until model capacity becomes available.
+
+## Reading the summary
+
+After the run report, `run.js` prints a pass-rate summary, and the same data is
+stored under `summary` in the JSON (including the `--out` file). For all runs and
+for each task it lists, per arm: runs, passes, incompletes (any outcome other than
+a completed pass or fail: turn/time/output limit, overflow, timeout or harness
+error) and the pass rate, passes / runs, with a Wilson 95% score interval. Each
+group ends with a verdict line. It says `inconclusive` unless the two arms'
+intervals do not overlap; only then does it name the higher arm. With a few
+repeats per task the intervals are wide, so per-task verdicts are usually
+inconclusive; increase `--repeats` before reading anything into a difference.
+Mock outcomes are fixed by construction: at the default pressure settings the
+mock's direct arm overflows the configured window on every run, so the mock
+summary can show a non-overlapping difference. That checks the arithmetic and the
+harness only and establishes nothing about real models.
 
 ## Future real runs
 

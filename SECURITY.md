@@ -23,6 +23,7 @@ header. This file lists exactly what it does with that.
   only you can read (for example the config file, mode `0600`).
 - **Talks to exactly one upstream**: `upstream.origin`. The client's request path is appended, but the host never
   comes from the request.
+  - Kitzur never stores or rotates more than the one client key it forwards.
   - Optionally it also calls the gateway's tokenize endpoint (`tokenizer.endpoint`) on that same origin.
   - There is no other network traffic: no telemetry, no update checks, no downloads.
   - `HTTP(S)_PROXY` variables are not honoured.
@@ -78,6 +79,9 @@ Plans and per-message token counts are kept in bounded in-memory caches (`store.
 
 - There are no runtime dependencies. The offline bundle (`scripts/pack-offline.sh`) contains only `dist/src`,
   `presets`, `deploy` and the docs, with a `SHA256SUMS` manifest.
+- `npm run sbom` builds the package and prints a CycloneDX 1.5 SBOM: the package with its version, license and
+  purl, no dependencies, and one entry per published file with its SHA-256. The output is reproducible (no
+  timestamp unless `SOURCE_DATE_EPOCH` is set); regenerate it with `npm run sbom -- --out sbom.json`.
 - The tokenizer file (`tokenizer.json`) is data, read with `JSON.parse`. It is never executed.
 
 ## Reporting

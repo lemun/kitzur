@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildApp, buildEngine, createLogger, setupCounter, type AppModules } from '../../src/app.js';
@@ -38,7 +38,7 @@ test('setupCounter: estimate without a tokenizer, exact with one, estimate with 
   }
 });
 
-test('buildApp: the engine gets a local counter; the tokenize endpoint only reaches the proxy ()', async () => {
+test('buildApp: the engine gets a local counter; the tokenize endpoint only reaches the proxy', async () => {
   const seen: Record<string, unknown> = {};
   const engine = { process: () => { throw new Error('unused'); }, learned: () => ({}) as LearnedEntry, setLearned: () => undefined } as Engine;
   const modules: AppModules = {
@@ -81,7 +81,7 @@ test('buildApp: the engine gets a local counter; the tokenize endpoint only reac
   assert.equal(pd.engine, engine);
   assert.equal(pd.counter, ed.counter);
   assert.equal(pd.remote?.style, 'vllm', 'the tokenize client is a calibration source for the proxy');
-  assert.deepEqual(seen['state'], ['/tmp/kitzur-app-state', (ed.counter as unknown as { id: string }).id], 'learned entries are keyed to the counter id ()');
+  assert.deepEqual(seen['state'], ['/tmp/kitzur-app-state', (ed.counter as unknown as { id: string }).id], 'learned entries are keyed to the counter id');
   assert.equal(seen['stats'], '/tmp/x.jsonl');
   assert.deepEqual(seen['storeCaps'], [4096, 64 * 1024 * 1024]);
   pd.log('warn', 'hello');
@@ -111,6 +111,23 @@ test('buildEngine: the real engine modules load and process a request', async ()
   const r = setup.engine.process({ model: 'm', messages: [{ role: 'system', content: 's' }, { role: 'user', content: 'hi' }] }, { attempt: 1 });
   assert.equal(r.action, 'passthrough');
   assert.equal(r.changed, false);
+});
+
+test('buildEngine: a damaged persisted plan file is logged as a warning and the engine starts without it', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-app-'));
+  try {
+    const name = `plans-${new Date().toISOString().slice(0, 10)}.jsonl`;
+    mkdirSync(join(dir, 'plans'));
+    writeFileSync(join(dir, 'plans', name), '{"key":"a","plan":{"vers');
+    const logs: string[] = [];
+    const setup = await buildEngine(cfgOf(`stateDir=${dir}`, 'store.persist=true'), { log: createLogger('warn', (s) => void logs.push(s)) });
+    assert.equal(setup.store.get('a'), undefined);
+    await setup.store.flush?.();
+    assert.deepEqual(logs.filter((l) => l.includes('plan store')), [`kitzur: warn: plan store: skipped 1 damaged record(s) in ${name}; the file is left in place\n`]);
+    assert.equal(readFileSync(join(dir, 'plans', name), 'utf8'), '{"key":"a","plan":{"vers');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('stateDirOf: config, XDG_STATE_HOME (absolute only), ~/.local/state', () => {

@@ -8,7 +8,7 @@ import { CUE_WORDS, ENGLISH_STOP_WORDS, HEBREW_STOP_WORDS } from './stopwords.js
 import { splitSentences, type Sentence } from './text.js';
 
 /**
- * DESIGN §6.1 explicit ID (`USER-RULE-Q7`, `VP-OLD-K7Q2M`; not `E2E`, `S3`, `HTTP2`) between word boundaries in
+ * Explicit ID (`USER-RULE-Q7`, `VP-OLD-K7Q2M`; not `E2E`, `S3`, `HTTP2`) between word boundaries in
  * Python's Unicode sense (the review's probe used `\\b`), so a Hebrew prefix such as `ל-USER-VIEW-R4` still yields
  * the ID. Compile with the 'u' flag.
  */
@@ -214,7 +214,7 @@ function globalCues(re: RegExp): RegExp {
 }
 
 /**
- * True when sentence `s` cues a correction (DESIGN §6.1) under the rules' cue pattern, with three exclusions that
+ * True when sentence `s` cues a correction under the rules' cue pattern, with three exclusions that
  * keep the rule erring towards missing ('s intent: a false supersession deletes a priority-1 rule):
  *   - a question never cues ("Why did you use staging-4 instead of staging-3?" asks, it does not correct);
  *   - a cue word inside quotation marks does not count (`The linter prints "use getByRole instead" …` reports
@@ -380,7 +380,7 @@ interface Candidate {
 }
 
 /**
- * Runs the §6.1 rule over the user texts in order (head messages first). Each cued sentence of message j (see
+ * Runs the supersession rule over the user texts in order (head messages first). Each cued sentence of message j (see
  * `cues`: questions and quoted cue words do not cue) considers the non-superseded sentences of strictly earlier
  * messages:
  *   1. an additive sentence supersedes nothing;

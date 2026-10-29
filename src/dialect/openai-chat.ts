@@ -1,4 +1,4 @@
-// OpenAI Chat Completions dialect (DESIGN.md "Dialect serialization", §3, §5.7, §9, ).
+// OpenAI Chat Completions dialect.
 //
 //  - parse: JSON.parse keeps the client's key order; every integer outside Number.isSafeInteger is
 //    flagged (such a body is never rewritten). The check visits exactly the number values a JSON.parse
@@ -8,7 +8,7 @@
 //    client's original bytes by the caller, never re-serialized.
 //  - usage/finish tap for JSON bodies and SSE chunks.
 //  - client-facing error bodies in the OpenAI shape, including the one in-stream overflow shape that
-//    OpenCode and Kilo recognise (). Numbers in generated text use formatK (§5.7).
+//    OpenCode and Kilo recognise. Numbers in generated text use formatK.
 import type { ChatMessage, ChatRequest, Usage } from '../types.js';
 import { canonicalJSON } from '../tokenize/canonical.js';
 import type { Dialect, ParseResult, ResponseTap } from './dialect.js';
@@ -29,7 +29,7 @@ export function isChatCompletionsPath(method: string, pathname: string): boolean
 // ---------------------------------------------------------------- parse / serialize
 
 /** true when any number in the parsed value is an integer outside Number.isSafeInteger, or non-finite (1e400 parses
- *  to Infinity and would re-serialize as null) (). */
+ *  to Infinity and would re-serialize as null). */
 export function hasUnsafeInteger(v: unknown): boolean {
   const stack: unknown[] = [v];
   while (stack.length) {
@@ -63,7 +63,7 @@ export function parseChatRequest(raw: Buffer): ParseResult {
   return { ok: true, value: { req: value as unknown as ChatRequest, raw, unsafeInteger } };
 }
 
-/** A changed request is serialized with JSON.stringify, keeping key order (). */
+/** A changed request is serialized with JSON.stringify, keeping key order. */
 export function serializeChatRequest(req: ChatRequest): Buffer {
   return Buffer.from(JSON.stringify(req), 'utf8');
 }
@@ -81,7 +81,7 @@ export type MaxTokensField = 'max_tokens' | 'max_completion_tokens';
 
 const positive = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x) && x > 0;
 
-/** T_req (§3): the max of the defined, positive max_tokens / max_completion_tokens; else the default. */
+/** T_req: the max of the defined, positive max_tokens / max_completion_tokens; else the default. */
 export function requestMaxTokens(req: ChatRequest, defaultMaxTokens: number): number {
   const a = positive(req.max_tokens) ? req.max_tokens : 0;
   const b = positive(req.max_completion_tokens) ? req.max_completion_tokens : 0;
@@ -99,7 +99,7 @@ export function maxTokensFieldsSent(req: ChatRequest): MaxTokensField[] {
 
 /**
  * A copy of `req` whose max-tokens value is `value`: every field the client sent is set and none is
- * added; with neither sent, max_tokens is added (§3 "Forwarded max_tokens"). Key order is kept.
+ * added; with neither sent, max_tokens is added. Key order is kept.
  */
 export function withMaxTokens(req: ChatRequest, value: number, fields?: readonly MaxTokensField[]): ChatRequest {
   let fs = fields && fields.length ? fields : maxTokensFieldsSent(req);
@@ -109,7 +109,7 @@ export function withMaxTokens(req: ChatRequest, value: number, fields?: readonly
   return out;
 }
 
-/** true when the request streams (`stream === true`; include_usage is injected only then, §9). */
+/** true when the request streams (`stream === true`; include_usage is injected only then). */
 export const isStreaming = (req: ChatRequest): boolean => req.stream === true;
 
 /** true when the client itself asked for the stream usage chunk. */
@@ -123,7 +123,7 @@ export function withIncludeUsage(req: ChatRequest): ChatRequest {
 }
 
 /**
- * bytes(x) of §3: bytes(JSON.stringify(messages)) + fixedBytes, fixedBytes = bytes(canonical tools) + 512.
+ * bytes(x), the request size the budget compares: bytes(JSON.stringify(messages)) + fixedBytes, fixedBytes = bytes(canonical tools) + 512.
  * The max_tokens fields are not part of it, so a max_tokens rewrite never makes a request larger.
  */
 export function requestBytes(req: ChatRequest): number {
@@ -133,7 +133,7 @@ export function requestBytes(req: ChatRequest): number {
 
 // ---------------------------------------------------------------- responses: usage, finish, errors
 
-/** error.message ?? error-as-string ?? message ( `on: 'message'`,  (i)). */
+/** error.message ?? error-as-string ?? message (`on: 'message'`). */
 export function extractErrorMessage(json: unknown): string | undefined {
   if (!isObj(json)) return undefined;
   const e = json['error'];
@@ -169,7 +169,7 @@ export interface ChunkInfo {
   finishReason: string | null;
   /** `choices: []` plus a usage object: the extra chunk include_usage produces (stripped when injected) */
   usageOnly: boolean;
-  /** a top-level `error` key: an in-stream error (§9) */
+  /** a top-level `error` key: an in-stream error */
   error: boolean;
 }
 
@@ -210,7 +210,7 @@ export const CLIENT_RETRY_RUNS = /429|500|502|503|504|524/;
 const FORMATK_MAX = 999_999_999_999_000;
 
 /**
- * One-decimal thousands for generated text (§5.7): 26,000 -> "26.0k". When the integer part contains a
+ * One-decimal thousands for generated text: 26,000 -> "26.0k". When the integer part contains a
  * run that OpenCode's retry pattern matches, the largest lower one-decimal value whose integer part
  * does not is printed instead (500,000 -> "499.9k"): the numbers are "about" anyway.
  */
@@ -237,7 +237,7 @@ export function contextLengthExceededBody(message: string): Buffer {
 }
 
 /**
- * The in-stream overflow report for an already committed 200 (): the only shape OpenCode's
+ * The in-stream overflow report for an already committed 200: the only shape OpenCode's
  * parseStreamError and Kilo's frame() recognise (a JSON `{type:"error", error:{code}}` inside
  * error.message), followed by `data: [DONE]`.
  */
@@ -247,7 +247,7 @@ export function inStreamOverflowEvents(message: string): Buffer {
   return Buffer.from(`data: ${outer}\n\ndata: [DONE]\n\n`, 'utf8');
 }
 
-/** §9: upstream unavailable before any response header (HTTP 502). */
+/** Upstream unavailable before any response header (HTTP 502). */
 export function upstreamUnavailableBody(): Buffer {
   return Buffer.from('{"error":{"message":"kitzur: upstream unavailable","type":"api_error","code":"upstream_unavailable"}}', 'utf8');
 }
@@ -263,7 +263,7 @@ export function inStreamErrorEvents(status: number, message: string): Buffer {
 
 // ---------------------------------------------------------------- misc helpers
 
-/** Image parts of a message's content (the §5.4 R4 / §8 413 rule counts their bytes). */
+/** Image parts of a message's content (the oversized-image guard and the 413 byte-limit rule count their bytes). */
 export function imageParts(m: ChatMessage): unknown[] {
   const c = m.content;
   if (!Array.isArray(c)) return [];

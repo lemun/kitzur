@@ -35,6 +35,12 @@ Use the organisation's normal script policy. No administrator rights are needed 
    the environment, never a literal key. Project settings can override global settings. Your admin
    should verify the effective provider routes through Kitzur. No individual benchmark run is required.
 
+For multiple models, put each exact gateway model ID in the OpenCode provider's `models`
+map. Route `small_model` through that Kitzur provider if it should be compacted. For
+example, Qwen may use context 252000/output 32000; GPT-OSS may use context 131071/output
+32000. Qwen has clientPoint 200000 and hard limit 193000; GPT-OSS has
+planMaxTokens 32000 and hard limit 92071.
+
 Use `-Action Stop` to stop accepting requests and drain active requests for up to 30 seconds.
 `-Action Start` starts it again. `-Action Diagnose` writes a safe count-only report in
 `%LOCALAPPDATA%\Kitzur\logs\diagnostics.json`. Share that report and OpenCode UI compaction counts/
@@ -50,3 +56,22 @@ The login launcher runs only while you are logged in; Windows logoff may end req
 To uninstall run `& $kitzur -Action Uninstall`. This stops the proxy and removes the login shortcut.
 Remove Kitzur's provider selection from OpenCode, then delete `%LOCALAPPDATA%\Kitzur` when you no
 longer need its config/state/logs. Node and OpenCode are managed separately.
+
+## Ad-hoc npm / offline installs
+
+Outside the managed bundle, use Node.js 22+ and a config file:
+
+```powershell
+kitzur autostart install --config 'C:\Kitzur config\kitzur.jsonc'
+kitzur autostart status
+kitzur autostart run --config 'C:\Kitzur config\kitzur.jsonc'
+kitzur autostart remove
+```
+
+Install creates a per-user Startup-folder `Kitzur.lnk` targeting `node.exe` directly, with a
+minimised window. It needs no admin rights or execution-policy change. The config path is saved
+as absolute; keep Node, the CLI and config in place. `run` starts `serve` detached and hidden,
+appending output to `<stateDir>\logs\serve-stdio.log`; it exits successfully if Kitzur already
+answers on the configured port and refuses other listeners. Removal deletes the shortcut but does
+not stop a running proxy. If PowerShell/COM is blocked, install prints manual Explorer shortcut
+steps. This is separate from `Register-Startup.ps1`; use one method per user.

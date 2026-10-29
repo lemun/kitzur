@@ -65,3 +65,35 @@ test('CONFIG.md preset table equals computeBudget on the presets', () => {
     assert.deepEqual(cells.slice(2, 10), [fmt(b.window), fmt(b.planMaxTokens), fmt(b.margin), fmt(b.budget), fmt(b.clientPoint), fmt(b.allowance), fmt(b.trigger), fmt(b.target)], p);
   }
 });
+
+test('CONFIG.md worked examples derive their stated compaction and oversize limits', () => {
+  const number = (cell: string): number => Number(cell.replaceAll(',', ''));
+  const nullable = (cell: string): number | null => cell === 'null' ? null : number(cell);
+  const rows = md.split('\n').filter((line) => /^\| [AB] \|/.test(line));
+  assert.equal(rows.length, 2, 'expected the two worked-example cases');
+  for (const row of rows) {
+    const cells = row.split('|').map((cell) => cell.trim());
+    const [name, presetCell, windowCell, planCell, inputCell, outputCell, fixedCell] = cells.slice(1, 8);
+    const preset = presetCell!.replaceAll('`', '') as '32k' | '128k';
+    const cfg = structuredClone(loadConfig({ preset, env: {} }).config);
+    assert.equal(cfg.budget.window, number(windowCell!), `worked example ${name} preset window`);
+    assert.equal(cfg.budget.defaultMaxTokens, number(planCell!), `worked example ${name} preset plan reserve`);
+    cfg.budget.planMaxTokens = number(planCell!);
+    cfg.client.inputLimit = nullable(inputCell!);
+    cfg.client.outputLimit = nullable(outputCell!);
+    const b = computeBudget(cfg, { counterFixedTokens: number(fixedCell!) });
+    const shown = cells.slice(8, 15).map(number);
+    assert.deepEqual(
+      shown,
+      [b.budget, b.clientPoint, b.allowance, b.hard, b.trigger, b.target, b.admitTokens!],
+      `worked example ${name}`,
+    );
+  }
+});
+
+test('models metadata stays outside the default knob table and is documented separately', () => {
+  assert.equal(Object.hasOwn(DEFAULT_CONFIG, 'models'), false);
+  assert.equal(DEFAULT_LEAVES.some((p) => p === 'models' || p.startsWith('models.')), false);
+  assert.ok(md.includes('## Model profiles'));
+  assert.ok(md.includes('tokenizer.template.name'));
+});

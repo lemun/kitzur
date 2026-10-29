@@ -1,4 +1,4 @@
-// Stats JSONL (DESIGN.md "Stats JSONL"; reference implementation; bench/README.md§12).
+// Stats JSONL (reference implementation).
 // One record per client chat request, written after the request completed, in completion order.
 // Sizes and timings only: never message content, query strings or header values, with one exception:
 // client_session, the client's own session id header (x-session-id / x-sim-session, at most 128 chars).
@@ -14,7 +14,8 @@
 //   carry_chars        always 0 (kitzur has no carry)
 //   threshold_tokens   the trigger
 //   ratio_permille     the calibration correction × 1000
-import { createWriteStream, type WriteStream } from 'node:fs';
+import { createWriteStream } from 'node:fs';
+import type { Writable } from 'node:stream';
 import { dirname } from 'node:path';
 import type { AttemptRecord, EngineResult, StatsRecord } from '../types.js';
 import { mkdirs } from '../util.js';
@@ -29,9 +30,9 @@ export interface ProxyStatsRecord extends StatsRecord {
   reason?: string;
   /** forwarded max_tokens value (last attempt) */
   max_tokens?: number;
-  /** a stream ended with no [DONE] and no finish_reason () */
+  /** a stream ended with no [DONE] and no finish_reason */
   upstream_incomplete?: boolean;
-  /** the  resend of the original happened */
+  /** the resend of the original happened */
   original_resent?: boolean;
   /** kitzur injected include_usage and stripped the usage chunk */
   usage_injected?: boolean;
@@ -42,23 +43,31 @@ export interface ProxyStatsRecord extends StatsRecord {
   /** time spent in upstream attempts (all of them) */
   upstream_ms?: number;
   cpu_us?: number;
+  /** selected model profile, captured from the request-pinned runtime */
+  profile?: string;
 }
 
 export class StatsWriter {
-  private stream: WriteStream | null = null;
+  private stream: Writable | null = null;
+  private queue: string[] = [];
+  private pendingBytes = 0;
+  private writing = false;
+  private inFlightBytes = 0;
+  private closeResolve: (() => void) | null = null;
+  private idle: (() => void) | null = null;
   private seqNo = 0;
   written = 0;
+  dropped = 0;
+  writeFailures = 0;
   lastError: string | null = null;
 
-  constructor(readonly path: string | null) {
+  constructor(readonly path: string | null, stream?: Writable | null) {
+    if (stream) { this.attach(stream); return; }
     if (!path) return;
     try {
       mkdirs(dirname(path));
       this.stream = createWriteStream(path, { flags: 'a', mode: 0o600 });
-      this.stream.on('error', (e) => {
-        this.lastError = e.message;
-        this.stream = null;
-      });
+      this.attach(this.stream);
     } catch (e) {
       this.lastError = e instanceof Error ? e.message : String(e);
     }
@@ -70,15 +79,50 @@ export class StatsWriter {
   }
 
   write(rec: ProxyStatsRecord): void {
+    const line = JSON.stringify(rec) + '\n';
+    if (!this.stream) { if (this.path) this.dropped++; return; }
+    const lineBytes = Buffer.byteLength(line);
+    if (this.queue.length + (this.writing ? 1 : 0) >= 1024 || this.pendingBytes + this.inFlightBytes + lineBytes > 4 * 1024 * 1024) { this.dropped++; return; }
     this.written++;
-    this.stream?.write(JSON.stringify(rec) + '\n');
+    this.queue.push(line);
+    this.pendingBytes += lineBytes;
+    this.flush();
+  }
+
+  private attach(stream: Writable): void {
+    this.stream = stream;
+    stream.on('error', (e: Error) => {
+      this.lastError = e.message; this.writeFailures++; this.dropped += this.queue.length + (this.writing ? 1 : 0);
+      this.queue = []; this.pendingBytes = 0; this.inFlightBytes = 0; this.writing = false; this.stream = null; this.idle = null;
+      this.closeResolve?.(); this.closeResolve = null;
+    });
+  }
+
+  /** One line at a time: a line counts against the bounds until the stream has completed it. */
+  private flush(): void {
+    const s = this.stream;
+    if (this.writing || !s) return;
+    if (!this.queue.length) { this.idle?.(); return; }
+    const line = this.queue.shift()!;
+    const bytes = Buffer.byteLength(line);
+    this.pendingBytes -= bytes;
+    this.writing = true; this.inFlightBytes = bytes;
+    try {
+      s.write(line, (err) => {
+        if (err || this.stream !== s) return;
+        this.writing = false; this.inFlightBytes = 0; this.flush();
+      });
+    } catch (e) { this.lastError = e instanceof Error ? e.message : String(e); this.writeFailures++; this.dropped += this.queue.length + 1; this.queue = []; this.pendingBytes = 0; this.inFlightBytes = 0; this.writing = false; this.stream = null; this.idle = null; this.closeResolve?.(); this.closeResolve = null; }
   }
 
   close(): Promise<void> {
     const s = this.stream;
-    this.stream = null;
     if (!s) return Promise.resolve();
-    return new Promise((resolve) => s.end(() => resolve()));
+    return new Promise((resolve) => {
+      this.closeResolve = resolve;
+      this.idle = () => { this.idle = null; this.closeResolve = null; this.stream = null; s.end(() => resolve()); };
+      this.flush();
+    });
   }
 }
 
@@ -117,6 +161,7 @@ export interface StatsInput {
   respPathMs?: number;
   cpuUs?: number;
   upstreamMs?: number;
+  profile?: string;
 }
 
 /** Builds the JSONL record (StatsRecord field order first, then kitzur extras). */
@@ -136,6 +181,7 @@ export function buildStatsRecord(s: StatsInput): ProxyStatsRecord {
     action: s.action,
     ...(s.first?.replan ? { replan: s.first.replan } : {}),
     ...(plan ? { fit: plan.fit } : {}),
+    ...(st?.retention ? { retention: st.retention } : {}),
     messages_in: s.first?.stats.messagesIn ?? 0,
     messages_out: s.forwarded === 'none' ? 0 : s.shadow || s.forwarded === 'original' ? (s.first?.stats.messagesIn ?? 0) : (st?.messagesOut ?? s.first?.stats.messagesIn ?? 0),
     tokens_in: tokensIn,
@@ -161,6 +207,7 @@ export function buildStatsRecord(s: StatsInput): ProxyStatsRecord {
     carry_chars: 0,
     threshold_tokens: st?.budget.trigger ?? 0,
     ratio_permille: Math.round(s.correction * 1000),
+    ...(s.profile ? { profile: s.profile } : {}),
   };
   if (s.clientSession) rec.client_session = s.clientSession;
   if (s.shadow) {

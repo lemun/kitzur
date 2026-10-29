@@ -6,10 +6,10 @@
   <img src="docs/assets/banner-light.png" alt="Kitzur: zero-dependency context compaction proxy for coding agents using local LLMs" width="100%">
 </picture>
 
-### Keep coding in a smaller context window.
+### Keep coding in the context window your local model actually serves.
 
 [![CI](https://github.com/lemun/kitzur/actions/workflows/ci.yml/badge.svg)](https://github.com/lemun/kitzur/actions/workflows/ci.yml)
-[![Node.js ≥20](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)](package.json)
+[![Node.js ≥22](https://img.shields.io/badge/node-%E2%89%A522-brightgreen)](package.json)
 [![Runtime dependencies: 0](https://img.shields.io/badge/runtime%20deps-0-brightgreen)](package.json)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -30,23 +30,11 @@ called to do it.**
   <a href="docs/assets/compaction.mp4">Watch the MP4</a>.</sub>
 </p>
 
-## Why Kitzur
-
-Long coding sessions accumulate file reads, browser snapshots and tool output.
-Small local windows (32k to 128k tokens) fill up fast, and then the server rejects
-the request or the agent loses the thread.
-
-- **Fits the window you actually serve.** Presets for 32k, 64k, 100k and 128k windows.
-- **Deterministic and local.** The same history and settings produce the same
-  request; there is no summarizer model to run, pay for or wait on.
-- **Zero runtime dependencies.** Plain Node.js 22+, one HTTP hop on loopback.
-- **Keeps the working set.** Tool calls stay paired with their results, and recent
-  work is retained verbatim.
-- **Drop-in.** Change the agent's base URL; nothing else about the agent changes.
-- **Observable.** Every response says what Kitzur did, and `/status` shows budgets,
-  counters and recent activity.
-
 ## Quick start
+
+> **Trust and data:** Kitzur forwards prompts and authentication to your configured
+> upstream. Default logs and stats omit message content; optional plans contain
+> summaries. Review [SECURITY.md](SECURITY.md) before sharing state or logs.
 
 Requires **Node.js 22+** and a running OpenAI-compatible Chat Completions server. The
 served model's `tokenizer.json` is recommended for exact counts: without it
@@ -58,7 +46,7 @@ git clone https://github.com/lemun/kitzur.git
 cd kitzur
 npm ci
 npm run build
-node dist/src/cli.js config init --preset 100k --out ~/.config/kitzur/kitzur.jsonc \
+node dist/src/cli.js config init --preset 32k --out ~/.config/kitzur/kitzur.jsonc \
   --upstream http://127.0.0.1:8000 --tokenizer /path/to/tokenizer.json
 ```
 
@@ -120,7 +108,7 @@ An OpenCode provider (`opencode.json`):
         "local-model": {
           "name": "Local model",
           "tool_call": true,
-          "limit": { "context": 100000, "output": 32000 }
+          "limit": { "context": 32000, "output": 4096 }
         }
       }
     }
@@ -184,6 +172,15 @@ the proposed compaction.
 completion order, each with `{action, tokens: {in, out, trigger}, model, ms}`. This
 history is available even without a stats file and resets on restart.
 
+## Compatibility and fit
+
+| HTTP format | Clients | Intended environment |
+|---|---|---|
+| OpenAI Chat Completions only | OpenCode example; any compatible client | Local or intranet model with a known served window |
+
+Anthropic Messages and OpenAI Responses are unsupported. Choose Kitzur when the
+server's actual context limit matters more than broader protocol coverage.
+
 ## How it works
 
 <p align="center">
@@ -201,10 +198,17 @@ history is available even without a stats file and resets on restart.
 | Requests repeat the same history | Preserves forwarded prefixes between compactions under the default policy. |
 | The server counts tokens differently | Calibrates from usage and retries recognized overflows with smaller requests. |
 
-Compaction runs locally and leaves transcript files unchanged. Each summary is
-rebuilt from the original history the agent sends. Retention is bounded by the
-available budget: under pressure, facts and user text can be shortened.
+| Kept | Summarized | Lost / limit |
+|---|---|---|
+| Recent messages verbatim; tool calls paired with results | Older instructions, decisions and open work | Old tool output may be excerpted or omitted; no searchable full-transcript vault. Rebuilds can use only history the client still sends. |
+
+Compaction runs locally and leaves transcript files unchanged. Retention is
+bounded by the available budget; facts and user text can be shortened.
 [How compaction works and where it can lose information](DESIGN.md).
+
+> **Evidence:** The GIF is a scripted demo against a stub server. Replay checks
+> request fit and accounting; coding-task mocks validate the harness. Live-model
+> coding validation is pending. These results do not establish task success rates.
 
 ## Benchmarks
 
@@ -390,15 +394,13 @@ it. Without an input limit, existing context-minus-output behavior is preserved.
 See [CONFIG.md](CONFIG.md) for all budget settings.
 ## Documentation
 
-| Document | What it covers |
-|---|---|
-| [CONFIG.md](CONFIG.md) | Every configuration knob, presets, environment, client setup |
-| [DESIGN.md](DESIGN.md) | Architecture, planning, prefix stability and known limits |
-| [SECURITY.md](SECURITY.md) | Threat model, privacy and vulnerability reporting |
-| [docs/DIAGNOSTICS.md](docs/DIAGNOSTICS.md) | Setup diagnostics and session reports |
-| [bench/README.md](bench/README.md) | Benchmark methodology and reproduction |
-| [deploy/README.md](deploy/README.md) | Packaging, the systemd user service and the macOS launchd agent |
-| [CHANGELOG.md](CHANGELOG.md) | Notable changes per release |
+See the [task-based documentation index](docs/README.md): connect OpenCode,
+choose a served window/tokenizer, deploy offline, diagnose, or understand retention.
+For multiple authorized gateway keys, see [upstream key rotation](docs/UPSTREAM-ROTATION.md).
+
+Kitzur grew from coding agents on short-context local and intranet models, and was
+inspired by [Gobstopper](https://github.com/hraness/gobstopper). See
+[third-party notices](THIRD_PARTY_NOTICES.md) for adapted code and attribution.
 
 ## Contributing
 

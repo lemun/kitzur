@@ -1,5 +1,5 @@
 // Independent oracles for the engine property tests. Nothing here imports src/engine: pairing, head
-// and counts are re-derived so that the engine cannot pass by checking itself (DESIGN §1, ).
+// and counts are re-derived so that the engine cannot pass by checking itself.
 import type { ChatMessage, ChatRequest } from '../../src/types.js';
 import type { Config } from '../../src/config/schema.js';
 import { canonicalJSON, sha256Hex } from '../../src/tokenize/canonical.js';
@@ -71,7 +71,7 @@ const first = (m: ChatMessage): string =>
   typeof m.content === 'string' ? m.content
     : Array.isArray(m.content) ? String((m.content.find((p) => (p as { type?: string }).type === 'text') as { text?: string } | undefined)?.text ?? '') : '';
 
-/** DESIGN §5.1 head end, re-derived. */
+/** Head end, re-derived. */
 export function oracleHeadEnd(msgs: readonly ChatMessage[], client: Config['client']): number {
   let h = msgs.findIndex((m) => m.role === 'assistant');
   if (h < 0) h = msgs.length;

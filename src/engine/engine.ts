@@ -1,13 +1,13 @@
-// LeanEngine: engine.process(req, opts) — pure and synchronous, local counts only (DESIGN.md, §5).
+// LeanEngine: engine.process(req, opts) — pure and synchronous, local counts only (DESIGN.md).
 //
 //   digests → chain → P → fold over boundaries (memo) → assemble the live output → action and forwarded
-//   max_tokens (§3) → §5.7 for a final plan over budget → guard (§5.8) → result
+//   max_tokens → the over-budget handling for a final plan over budget → guard → result
 //
-// Any exception or failed guard falls back per : attempt 1 forwards the original only if counting
-// failed or serverFits(original, T_req); otherwise (and on every retry) the §5.7 400 is returned.
+// Any exception or failed guard falls back: attempt 1 forwards the original only if counting
+// failed or serverFits(original, T_req); otherwise (and on every retry) the context_length_exceeded 400 is returned.
 import type {
   Budget, ChatMessage, ChatRequest, Engine, EngineAction, EngineResult, EngineStats, LearnedEntry, Plan, PlanStore,
-  ProcessOptions, TokenCounter,
+  ProcessOptions, TokenCounter, RetentionDecision, RetentionCounts,
 } from '../types.js';
 import type { Config } from '../config/schema.js';
 import type { ResultKind, Summarizer, ToolRules } from './contracts.js';
@@ -57,7 +57,7 @@ export interface EngineTrace {
   resumedAt: number;
   boundaries: number;
   stepKind: StepKind | null;
-  /** hash(P) of the request (an I6 epoch ends when it changes) */
+  /** hash(P) of the request (a prefix-stability epoch ends when it changes) */
   pHash: string;
 }
 
@@ -82,6 +82,31 @@ function cachesFor(counter: TokenCounter, cap: number): MessageCaches {
 
 const planChangesSomething = (p: Plan): boolean =>
   p.summary !== null || Object.keys(p.rewrites).length > 0 || Object.keys(p.headRewrites).length > 0;
+
+/** Derive live coverage from original coordinates, including messages appended after a memo hit. */
+function retentionFor(plan: Plan, n: number, h: number): RetentionDecision[] {
+  const ledger = structuredClone(plan.summaryAttribution ?? []);
+  const covered = new Set(ledger.filter((a) => a.disposition === 'summarized')
+    .flatMap((a) => a.sources.map((s) => s.messageIndex)));
+  const out: RetentionDecision[] = [];
+  for (let i = 0; i < n; i++) {
+    const rewrite = i < h ? plan.headRewrites[i] : i >= plan.cut ? plan.rewrites[i] : undefined;
+    const inSummary = i >= h && i < plan.cut;
+    out.push({ category: 'message', sources: [{ kind: 'message', messageIndex: i }],
+      disposition: inSummary ? (covered.has(i) || !plan.summaryAttribution ? 'summarized' : 'dropped')
+        : rewrite ? 'excerpted' : 'verbatim',
+      reason: inSummary ? (!plan.summaryAttribution ? 'summary-unattributed'
+        : covered.has(i) ? 'summary-region' : 'no-retained-facts')
+        : rewrite?.kind ?? (i < h ? 'head' : 'recent-tail') });
+  }
+  return [...out, ...ledger];
+}
+
+function retentionCounts(decisions: RetentionDecision[]): RetentionCounts {
+  const counts: RetentionCounts = { verbatim: 0, excerpted: 0, summarized: 0, dropped: 0 };
+  for (const d of decisions) if (d.category === 'message') counts[d.disposition]++;
+  return counts;
+}
 
 /** The engine (types.ts Engine). One instance serves every session; plans are keyed by content. */
 export class LeanEngine implements Engine {
@@ -108,7 +133,7 @@ export class LeanEngine implements Engine {
 
   constructor(o: EngineOptions) {
     if (o.counter.mode === 'remote') {
-      throw new Error("kitzur engine: counter mode 'remote' is a calibration source only; the engine needs 'exact' or 'estimate' (DESIGN §4, )");
+      throw new Error("kitzur engine: counter mode 'remote' is a calibration source only; the engine needs 'exact' or 'estimate'");
     }
     this.config = o.config;
     this.counter = o.counter;
@@ -148,7 +173,7 @@ export class LeanEngine implements Engine {
     const msgs = req.messages;
     this.lastTrace = null;
 
-    // ---- count the original (a failure here is "counting failed", §5.8)
+    // ---- count the original (a failure here is "counting failed")
     let cnt: Counting;
     let digests: string[];
     let countIn: number;
@@ -190,7 +215,7 @@ export class LeanEngine implements Engine {
       };
       const fr = fold(env, this.store, opts?.dryRun === true);
 
-      // replan diagnostics (): why the memo did not resume at the previous boundary
+      // replan diagnostics: why the memo did not resume at the previous boundary
       let replan: EngineResult['replan'];
       if (fr.resumedAt < fr.boundaries.length - 2) {
         let other = false;
@@ -233,7 +258,7 @@ export class LeanEngine implements Engine {
         action = 'clamp';
         overBudgetAllowed = true;
       } else {
-        // §5.7: the final plan is over budget
+        // the final plan is over budget
         const floorT = cfg.budget.maxTokensClamp.floorTokens;
         const lim = serverLimit(bud);
         let aOk: boolean;
@@ -267,8 +292,12 @@ export class LeanEngine implements Engine {
         }
       }
 
-      // a final plan over budget (§5.7) is reported as such; the memo keeps the plan as the fold made it
-      const plan = cOut > bud.budget && action !== 'clamp' && fr.plan.fit !== 'over_budget' ? { ...fr.plan, fit: 'over_budget' as const } : fr.plan;
+      // a final plan over budget is reported as such; the memo keeps the plan as the fold made it
+      const fittedPlan = cOut > bud.budget && action !== 'clamp' && fr.plan.fit !== 'over_budget' ? { ...fr.plan, fit: 'over_budget' as const } : fr.plan;
+      // Return detached diagnostics: callers must not be able to mutate memoized attribution.
+      const plan = { ...fittedPlan, summaryAttribution: fittedPlan.summaryAttribution
+        ? structuredClone(fittedPlan.summaryAttribution) : undefined,
+        retention: retentionFor(fittedPlan, n, h) };
       const maxTokens = mt.kind === 'unchanged' ? null : { value: mt.value, fields: maxTokensFields(req) };
       const msgsChanged = out.length !== n || out.some((m, i) => m !== msgs[i]);
       const stats = this.stats(n, out.length, countIn, cOut, bud, plan, ev, h, fr.steps, fr.resumedAt >= 0 ? 1 : 0, t0);
@@ -286,7 +315,7 @@ export class LeanEngine implements Engine {
         };
       }
 
-      // ---- guard (§5.8)
+      // ---- guard
       const exempt = new Set<number>(Object.keys(plan.headRewrites).map(Number));
       if (plan.summary !== null && cfg.compaction.summaryRole === 'merge-into-first-user') {
         const j = out.findIndex((m) => roleOf(m) === 'user');
@@ -346,6 +375,7 @@ export class LeanEngine implements Engine {
       messagesIn: nIn, messagesOut: nOut, tokensIn: tIn, tokensOut: tOut, budget: bud, compactions: plan.compactions,
       summaryTokens, ledgerTokens: typeof floor === 'number' ? floor : 0, rewrites, boundariesReplayed: steps,
       cacheHits: hits, engineMs: this.now() - t0,
+      retention: retentionCounts(plan.retention ?? []),
     };
   }
 
@@ -359,9 +389,9 @@ export class LeanEngine implements Engine {
   }
 
   /**
-   * : attempt 1 forwards the original when counting failed or serverFits(original, T_req); otherwise,
-   * and on every retry, the §5.7 context_length_exceeded 400 (the proxy substitutes the last upstream
-   * error on retries, §5.8).
+   * The fallback: attempt 1 forwards the original when counting failed or serverFits(original, T_req); otherwise,
+   * and on every retry, the context_length_exceeded 400 (the proxy substitutes the last upstream
+   * error on retries).
    */
   private fallback(
     req: ChatRequest, attempt: number, bud: Budget, countIn: number | null, t0: number, reason: string,

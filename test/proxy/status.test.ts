@@ -5,7 +5,9 @@ import { testConfig } from './harness.js';
 
 test('status retains the last compaction and the latest 64 requests in completion order', () => {
   const tracker = new StatusTracker(testConfig(), 'test', () => 1000);
+  tracker.paths = () => ({ config: '/tmp/kitzur.jsonc', state_dir: '/tmp/state', log_file: '/tmp/kitzur.log' });
   const snapshot = () => tracker.snapshot({ counter: { mode: 'estimate', id: 'test' }, learned: {} });
+  assert.deepEqual(snapshot().paths, { config: '/tmp/kitzur.jsonc', state_dir: '/tmp/state', log_file: '/tmp/kitzur.log' });
   assert.equal(snapshot().last_compaction, null);
   for (let i = 0; i < 66; i++) {
     tracker.recordRequest({ action: i === 0 ? 'compact' : 'passthrough', tokens: { in: 100, out: i === 0 ? 20 : 100, trigger: 80 }, model: `m${i}`, ms: i });
@@ -44,4 +46,10 @@ test('p99 completion usage warns only above allowance and ignores invalid sample
   tracker.completionUsage(101, 100);
   assert.equal(snapshot().completion_tokens_p99, 101);
   assert.match(JSON.stringify(snapshot().warnings), /client.outputAllowanceTokens/);
+});
+
+test('status exposes bounded stats writer drop and failure counters', () => {
+  const tracker = new StatusTracker(testConfig(), 'test');
+  const s = tracker.snapshot({ counter: { mode: 'estimate', id: 'test' }, learned: {}, statsDropped: 3, statsWriteFailures: 2 });
+  assert.deepEqual(s.stats, { path: null, error: null, dropped: 3, write_failures: 2 });
 });

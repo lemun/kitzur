@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://lemun.github.io/kitzur/sitemap-index.xml

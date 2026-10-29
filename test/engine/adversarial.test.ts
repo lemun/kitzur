@@ -50,7 +50,7 @@ test('reasoning.tail = drop on assistants carrying a "__proto__" key: compaction
     actions.push(res.action);
     assert.ok(!res.action.startsWith('guard'), `request ${i}: ${res.action} ${res.reason}`);
     if (res.request) {
-      assert.ok(subset(oracleDefects(res.request.messages), oracleDefects(req.messages)), `I1 request ${i}`);
+      assert.ok(subset(oracleDefects(res.request.messages), oracleDefects(req.messages)), `pairing request ${i}`);
       // the forwarded copies keep the client's key
       for (const m of res.request.messages) if (m.role === 'assistant') assert.ok(Object.keys(m).includes('__proto__'));
     }
