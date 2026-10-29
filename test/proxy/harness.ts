@@ -125,8 +125,10 @@ export function fakeUpstream(responder: Responder): Promise<FakeUpstream> {
     sockets.add(s);
     s.on('close', () => sockets.delete(s));
   });
-  return new Promise((resolve) =>
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
     server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject);
       fu.port = (server.address() as AddressInfo).port;
       fu.origin = `http://127.0.0.1:${fu.port}`;
       fu.close = () =>
@@ -135,8 +137,8 @@ export function fakeUpstream(responder: Responder): Promise<FakeUpstream> {
           server.close(() => r());
         });
       resolve(fu);
-    }),
-  );
+    });
+  });
 }
 
 export function jsonRes(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
