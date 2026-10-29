@@ -29,7 +29,9 @@ test('Windows argument and PowerShell quoting handle spaces, quotes and apostrop
 test('port guard accepts Kitzur and refuses unrelated or hung listeners', async () => {
   for (const kind of ['responsive', 'other', 'hung'] as const) {
     const server = kind === 'hung' ? tcpServer(s => s.resume()) : createServer((req, res) => {
-      assert.equal(req.headers.authorization, 'Bearer secret');
+      // answer what probeInstance needs from a live Kitzur: GET /status, 200, a JSON body naming kitzur
+      if (req.method !== 'GET' || req.url !== '/status' || req.headers.authorization !== 'Bearer secret') { res.writeHead(404); res.end(); return; }
+      res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ name: kind === 'responsive' ? 'kitzur' : 'unrelated' }));
     });
     server.listen(0, '127.0.0.1'); await once(server, 'listening');
@@ -37,7 +39,7 @@ test('port guard accepts Kitzur and refuses unrelated or hung listeners', async 
       const addr = server.address(); assert.ok(addr && typeof addr !== 'string');
       const cfg = loadConfig({ env: {}, object: { listen: { host: '127.0.0.1', port: addr.port, token: 'secret' } } }).config;
       const lines: string[] = [];
-      assert.equal(await runAutostart(cfg, '/unused', '/unused', { timeoutMs: 200, log: s => lines.push(s) }), kind === 'responsive' ? 0 : 1);
+      assert.equal(await runAutostart(cfg, '/unused', '/unused', { timeoutMs: kind === 'hung' ? 200 : 3000, log: s => lines.push(s) }), kind === 'responsive' ? 0 : 1);
       assert.equal(lines.length, 1);
       assert.match(lines[0]!, kind === 'responsive' ? /already running/ : /occupied/);
     } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
