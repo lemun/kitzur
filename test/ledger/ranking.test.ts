@@ -101,6 +101,18 @@ test('flag on: an earlier copy of a repeated call loses its error advantage', ()
   assert.deepEqual(order(ledger(session(steps('npm test')), true), 'toolLog'), ['g:6:0', 'g:4:0', 'g:2:0']);
 });
 
+test('flag on: the earlier of two identical calls in one assistant message is the duplicate', () => {
+  resetIds();
+  const msgs = [
+    sys(),
+    user('Fix the checkout specs.'),
+    ...unit('', [[call('bash', { command: 'npm test' }), 'Error: 3 specs failed'], [call('bash', { command: 'npm test' }), 'Error: 3 specs failed']]),
+  ];
+  const on = ledger(msgs, true);
+  assert.deepEqual(on.items.filter((i) => i.category === 'toolLog').map((i) => i.rank[0]), [1, 0]);
+  assert.deepEqual(order(on, 'toolLog'), ['g:2:1', 'g:2:0']);
+});
+
 test('flag on: same items, same categories, floor first, call/result pairs kept, user ranks untouched', () => {
   const msgs = MIXED();
   const off = ledger(msgs, false);

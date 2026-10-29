@@ -263,11 +263,17 @@ export function buildLedger(input: LedgerInput, cfg: Config, extractor: Extracto
       const c = it.category === 'toolLog' ? callAt.get(it.id) : undefined;
       return c ? `g|${c.facts.name}|${c.facts.keyArgs}` : `${it.category}|${it.line.replace(/#\d+/g, '#')}`;
     };
-    const latest = new Map<string, number>();
-    for (const it of items) if (it.category !== 'user') latest.set(dupKey(it), Math.max(latest.get(dupKey(it)) ?? -1, it.index));
+    // the latest copy by message index, then position inside the message (copies within one assistant message)
+    const at = (it: LedgerItem): number[] => [it.index, ...it.pos];
+    const latest = new Map<string, number[]>();
     for (const it of items) {
       if (it.category === 'user') continue;
-      const dup = it.index < latest.get(dupKey(it))! ? 1 : 0;
+      const prev = latest.get(dupKey(it));
+      if (!prev || cmpArr(at(it), prev) > 0) latest.set(dupKey(it), at(it));
+    }
+    for (const it of items) {
+      if (it.category === 'user') continue;
+      const dup = cmpArr(at(it), latest.get(dupKey(it))!) < 0 ? 1 : 0;
       const err = it.sources.some((s) => s.kind === 'tool-result' && errAt.has(s.messageIndex)) ? 0 : 1;
       // distinct later messages that reference one of the item's paths
       const later = new Set<number>();
