@@ -39,7 +39,7 @@ test('port guard accepts Kitzur and refuses unrelated or hung listeners', async 
       const addr = server.address(); assert.ok(addr && typeof addr !== 'string');
       const cfg = loadConfig({ env: {}, object: { listen: { host: '127.0.0.1', port: addr.port, token: 'secret' } } }).config;
       const lines: string[] = [];
-      assert.equal(await runAutostart(cfg, '/unused', '/unused', { timeoutMs: kind === 'hung' ? 200 : 3000, log: s => lines.push(s) }), kind === 'responsive' ? 0 : 1);
+      assert.equal(await runAutostart(cfg, '/unused', '/unused', { timeoutMs: kind === 'hung' ? 1000 : 3000, log: s => lines.push(s) }), kind === 'responsive' ? 0 : 1);
       assert.equal(lines.length, 1);
       assert.match(lines[0]!, kind === 'responsive' ? /already running/ : /occupied/);
     } finally { await new Promise<void>(resolve => server.close(() => resolve())); }

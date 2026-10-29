@@ -61,11 +61,14 @@ export function manageAutostart(action: 'install' | 'remove' | 'status', configP
     log(`kitzur: see deploy/README.md for the ${process.platform === 'darwin' ? 'launchd' : 'systemd'} service template\n`);
     return 0;
   }
-  const path = join(powershell("[Environment]::GetFolderPath('Startup')"), 'Kitzur.lnk');
+  // Without PowerShell, fall back to the default per-user Startup folder so status/remove and the manual steps still work.
+  let startup: string;
+  try { startup = powershell("[Environment]::GetFolderPath('Startup')"); } catch { startup = ''; }
+  const path = join(startup || join(process.env.APPDATA ?? '', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup'), 'Kitzur.lnk');
   if (action === 'remove') { rmSync(path, { force: true }); log(`removed ${path}\n`); return 0; }
   if (action === 'status') {
     if (!existsSync(path)) { log(`not installed: ${path}\n`); return 0; }
-    log(`installed: ${path}\n${powershell(`$l=(New-Object -ComObject WScript.Shell).CreateShortcut(${psQuote(path)}); $l.TargetPath; $l.Arguments; $l.WindowStyle; $l.WorkingDirectory`)}\n`);
+    log(`installed: ${path}\n${powershell(`$l=(New-Object -ComObject WScript.Shell).CreateShortcut(${psQuote(path)}); 'TargetPath: ' + $l.TargetPath; 'Arguments: ' + $l.Arguments; 'WindowStyle: ' + $l.WindowStyle; 'WorkingDirectory: ' + $l.WorkingDirectory`)}\n`);
     return 0;
   }
   if (!configPath) throw new Error('autostart install requires a config file (--config PATH)');

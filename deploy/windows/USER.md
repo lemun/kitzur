@@ -71,7 +71,7 @@ kitzur autostart remove
 Install creates a per-user Startup-folder `Kitzur.lnk` targeting `node.exe` directly, with a
 minimised window. It needs no admin rights or execution-policy change. The config path is saved
 as absolute; keep Node, the CLI and config in place. `run` starts `serve` detached and hidden,
-appending output to `<stateDir>\\logs\\serve-stdio.log`; it exits successfully if Kitzur already
+appending output to `<stateDir>\logs\serve-stdio.log`; it exits successfully if Kitzur already
 answers on the configured port and refuses other listeners. Removal deletes the shortcut but does
 not stop a running proxy. If PowerShell/COM is blocked, install prints manual Explorer shortcut
 steps. This is separate from `Register-Startup.ps1`; use one method per user.

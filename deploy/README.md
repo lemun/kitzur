@@ -132,7 +132,7 @@ or `http://127.0.0.1:8270/llm/v1`. Declare the served limits truthfully (OpenCod
 
 ## Ad-hoc Windows login startup
 
-Outside the managed bundle, `kitzur autostart install --config "C:\\path\\kitzur.jsonc"` creates a
+Outside the managed bundle, `kitzur autostart install --config "C:\path\kitzur.jsonc"` creates a
 per-user Startup shortcut. Use `autostart status`, `autostart run --config PATH` and `autostart remove`
 to inspect, start now or disable it. On macOS/Linux, these commands point to the launchd/systemd
 templates above. See [the Windows guide](windows/USER.md#ad-hoc-npm--offline-installs).
