@@ -34,9 +34,12 @@ Request token reduction uses records with at least one valid recorded attempt an
 
 `usage.prompt_tokens` and `usage.completion_tokens` are from the final response usage fields when present; they do not cover every retry and may be absent. Prompt and completion usage each have separate coverage counts. Timing values are summed for records that contain each timing field, and each total has a corresponding coverage count.
 
+Stats records may include `retention`, a content-free count of engine message outcomes: `verbatim`, `excerpted`, `summarized`, and `dropped`. These counts come from the engine's typed retention diagnostics and do not include ledger items separately. Retention digests identify stable facts but cannot recover the original message content. `kitzur replay --explain` emits the typed per-item outcome and reason alongside the usual size output; it contains source coordinates and categories, never message text.
+
 ```sh
 kitzur report stats.jsonl
 kitzur report stats.jsonl --json
+kitzur replay captured.json --explain --no-fresh
 ```
 
 Reports read bytes incrementally with a 1 MiB limit per JSONL record (excluding LF;

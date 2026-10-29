@@ -619,7 +619,11 @@ test('upstream unavailable before headers: 502 upstream_unavailable', async () =
 
 test('stats JSONL: one record per chat request, gobstopper-compatible fields plus ours, never content', async () => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, okCompletion(20)));
-  const engine = new FakeEngine((req, o) => result(req, { ...req, messages: req.messages.slice(-1) }, true, { tokensIn: 50, tokensOut: 10, budget: { trigger: 61_000, budget: 67_000 } }));
+  const engine = new FakeEngine((req, o) => {
+    const r = result(req, { ...req, messages: req.messages.slice(-1) }, true, { tokensIn: 50, tokensOut: 10, budget: { trigger: 61_000, budget: 67_000 } });
+    r.stats.retention = { verbatim: 1, excerpted: 0, summarized: 0, dropped: 0 };
+    return r;
+  });
   await withProxy(up, engine, async (f) => {
     await request(f.port, { body: chatBody('SECRET-CONTENT-1', { messages: [{ role: 'user', content: 'SECRET-CONTENT-2' }] }), headers: { 'x-session-id': 'ses_abc', authorization: 'Bearer SECRET-TOKEN' } });
     await request(f.port, { method: 'GET', path: '/v1/models' });
@@ -637,6 +641,7 @@ test('stats JSONL: one record per chat request, gobstopper-compatible fields plu
     assert.equal(r.attempts[0]!.kind, 'ok');
     assert.ok(r.attempts[0]!.bytes > 0 && r.attempts[0]!.raw > 0);
     assert.equal(r.path, '/v1/chat/completions');
+    assert.deepEqual(r.retention, { verbatim: 1, excerpted: 0, summarized: 0, dropped: 0 });
     const text = readFileSync(f.statsPath, 'utf8');
     assert.ok(!/SECRET/.test(text), 'no content, no header values');
   });

@@ -424,7 +424,8 @@ function fakeModules(opts: { flaky?: boolean; listenError?: Error; onClose?: (ms
           const msgs = req.messages.length > 2 ? req.messages.filter((_, i) => i < 2 || i % 2 === 0) : req.messages;
           const out = { ...req, messages: opts.flaky && n > 1 ? msgs.slice(0, 1) : msgs };
           return {
-            action: live ? 'reuse' : 'passthrough', request: out, changed: msgs.length !== req.messages.length, maxTokens: null, plan: null, sessionKey: 's',
+            action: live ? 'reuse' : 'passthrough', request: out, changed: msgs.length !== req.messages.length, maxTokens: null,
+            plan: { retention: [{ category: 'message', sources: [{ kind: 'message', messageIndex: 0 }], disposition: 'verbatim', reason: 'head' }] } as EngineResult['plan'], sessionKey: 's',
             stats: {
               messagesIn: req.messages.length, messagesOut: out.messages.length, tokensIn: req.messages.length * 10, tokensOut: out.messages.length * 10,
               budget: { budget: 67_000, trigger: 61_000 } as EngineResult['stats']['budget'], compactions: 0, summaryTokens: 0, ledgerTokens: 0, rewrites: 0,
@@ -480,8 +481,13 @@ test('replay: sizes only, live vs fresh determinism, exit codes', () =>
     assert.equal(j.mismatches, 12);
     assert.equal(j.requests[3]!.messagesIn, 8);
     const diagnosed = await run(['replay', join(reqs, '3_step2.json'), '--no-fresh', '--json'], { cwd: dir, modules: fakeModules() });
-    const diagnosticRow = (JSON.parse(diagnosed.out) as { requests: Array<{ retentionCounts?: Record<string, number> }> }).requests[0]!;
+    const diagnosticRow = (JSON.parse(diagnosed.out) as { requests: Array<{ retention?: unknown; retentionCounts?: Record<string, number> }> }).requests[0]!;
+    assert.equal(diagnosticRow.retention, undefined, 'item explanations are opt-in');
     assert.deepEqual(diagnosticRow.retentionCounts, { verbatim: 1, excerpted: 0, summarized: 0, dropped: 0 });
+    const explained = await run(['replay', join(reqs, '3_step2.json'), '--no-fresh', '--json', '--explain'], { cwd: dir, modules: fakeModules() });
+    const explanationRow = (JSON.parse(explained.out) as { requests: Array<{ retention?: Array<{ disposition: string; reason: string }> }> }).requests[0]!;
+    assert.deepEqual(explanationRow.retention?.[0], { category: 'message', sources: [{ kind: 'message', messageIndex: 0 }], disposition: 'verbatim', reason: 'head' });
+    assert.ok(!explained.out.includes('GOAL-SECRET'), 'explanations never include message content');
     const skip = await run(['replay', join(reqs, '3_step2.json'), '--no-fresh'], { cwd: dir, modules: fakeModules() });
     assert.equal(skip.code, 0);
     assert.ok(!skip.out.includes('determinism'));
