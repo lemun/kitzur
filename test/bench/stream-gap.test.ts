@@ -32,6 +32,10 @@ test('interval overlap counts positive overlap but excludes separated and touchi
     { start: 15, end: 25 },
   ]), 2);
   assert.equal(countOverlappingIntervals(query, [
+    { start: 0, end: 9 },
+    { start: 21, end: 30 },
+  ]), 0);
+  assert.equal(countOverlappingIntervals(query, [
     { start: 0, end: 10 },
     { start: 20, end: 30 },
   ]), 0);
