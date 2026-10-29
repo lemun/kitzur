@@ -40,6 +40,8 @@ export default defineConfig({
       logo: { src: '../docs/assets/logo.svg', alt: 'Kitzur' },
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/lemun/kitzur' }],
       customCss: ['./src/styles/kitzur.css'],
+      // src/pages/404.astro links back into the docs instead.
+      disable404Route: true,
       head: [
         { tag: 'meta', attrs: { property: 'og:image', content: ogImage } },
         { tag: 'meta', attrs: { property: 'og:image:width', content: '1280' } },
