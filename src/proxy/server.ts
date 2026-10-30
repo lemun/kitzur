@@ -41,6 +41,8 @@ import { buildStatsRecord, type StatsWriter } from './stats.js';
 import { StatusTracker, type RecentRequest, type StatusExtras } from './status.js';
 import { applyAcceptedRatio, EndpointCalibrator, judgeSample, type CounterKind } from './calibration.js';
 import { budgetModeOf, serverLimits, budgetQuantities } from './budget.js';
+import { RawCapture } from './capture.js';
+import type { UpstreamRequest } from './upstream.js';
 import { packageInfo } from '../config/paths.js';
 import type { ModelRuntimeMap } from './model-runtime.js';
 
@@ -123,6 +125,9 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   if (deps.counter.mode === 'remote') throw new Error('the proxy needs a local counter (exact or estimate); remote is a calibration source only');
   const counterMode: CounterKind = deps.counter.mode === 'exact' ? 'exact' : 'estimate';
   const upstream = deps.upstream ?? new Upstream(cfg.upstream);
+  const capture = new RawCapture(cfg.debug.capture, cfg.upstream.headers);
+  const requestUpstream = (req: UpstreamRequest): Promise<UpstreamResponse> =>
+    capture.request(() => upstream.request(req), req);
   const origin = upstream.origin.origin + upstream.origin.pathname.replace(/\/+$/, '');
   const classifier = new ErrorClassifier(cfg.errors);
   const status = new StatusTracker(cfg, packageInfo().version,() => now().getTime());
@@ -188,6 +193,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       modelTokenizers: deps.modelRuntimes?.tokenizerStatus(),
       profiles: profileStatus(deps.modelRuntimes),
     }),
+    debug: { capture: capture.snapshot() },
     concurrency_rejected: concurrencyRejected,
     ...deps.watchdog?.snapshot(),
   });
@@ -394,7 +400,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     });
     let up: UpstreamResponse;
     try {
-      up = await upstream.request({ method: req.method ?? 'GET', path: req.url ?? '/', headers: forwardRequestHeaders(req.rawHeaders, cfg.upstream.headers), body, signal: ac.signal });
+      up = await requestUpstream({ method: req.method ?? 'GET', path: req.url ?? '/', headers: forwardRequestHeaders(req.rawHeaders, cfg.upstream.headers), body, signal: ac.signal });
     } catch {
       if (!res.headersSent && !ac.signal.aborted) {
         status.upstreamUnavailable++;
@@ -584,7 +590,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       let up: UpstreamResponse;
       try {
         deps.watchdog?.phase(requestId, 'upstream');
-        up = await upstream.request({
+        up = await requestUpstream({
           method: 'POST', path: req.url ?? pathname, headers, body: a.body, signal: ac.signal,
           onWritten: () => {
             if (reqPathMs === undefined) reqPathMs = performance.now() - tBody;
@@ -990,6 +996,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         server.listen(cfg.listen.port, cfg.listen.host, () => {
           server.off('error', reject);
           const a = server.address() as AddressInfo;
+          if (cfg.debug.capture.path !== null) log('warn', `raw response capture ${JSON.stringify(capture.snapshot())}`);
           resolve({ port: a.port, host: cfg.listen.host });
         });
       });
@@ -1012,6 +1019,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       for (const s of sockets) s.destroy();
       await deps.state.close();
       await deps.stats.close();
+      capture.close();
       upstream.close();
       deps.remote?.close();
     },

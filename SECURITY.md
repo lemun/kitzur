@@ -40,7 +40,7 @@ header. This file lists exactly what it does with that.
 
 ## What is stored on disk
 
-All of it lives under `stateDir`, which defaults to `$XDG_STATE_HOME/kitzur` or `~/.local/state/kitzur`.
+Except for explicitly configured output paths, it lives under `stateDir`, which defaults to `$XDG_STATE_HOME/kitzur` or `~/.local/state/kitzur`.
 
 | File | Content | Contains user content? | Default |
 |---|---|---|---|
@@ -48,6 +48,7 @@ All of it lives under `stateDir`, which defaults to `$XDG_STATE_HOME/kitzur` or 
 | `plans/plans-<day>.jsonl` | Compaction plans: plan keys, cut indices and **summary text** | **Yes**: summaries quote user instructions, assistant notes, file paths and URLs | **off** (`store.persist: false`); the `plans/` directory is created owner-only (`0700`) |
 | `tokenizer-<sha>.lctk` | Compiled tokenizer cache | No | on when a tokenizer is configured |
 | `stats.path` (JSONL) | One record per request: sizes, token counts, actions, statuses, timings, a session hash, and optional `client_session` (`x-session-id` / `x-sim-session`, stored verbatim, at most 128 characters) | **Client session IDs**, but no message content | off unless set |
+| `debug.capture.path` | Bounded raw response JSONL: status, redacted response headers, request shape, timestamped base64 chunks and end reason | **Yes**: raw model output and upstream error bodies may echo prompts or secrets | **off** (`null`); new file only, mode `0600`, automatic request/byte budget cutoff |
 | `ledger.mirrorPath` | The rendered facts section | **Yes** | off (not implemented in v1: setting it writes nothing and warns at startup) |
 
 Avoid putting secrets or message content in client session IDs when enabling stats.
@@ -86,3 +87,21 @@ Plans and per-message token counts are kept in bounded in-memory caches (`store.
 ## Reporting
 
 Report vulnerabilities privately through [GitHub security advisories](https://github.com/lemun/kitzur/security/advisories/new) when private reporting is enabled. Otherwise, open an issue requesting a private contact without including exploit details, credentials or captured prompts.
+
+## Opt-in raw capture
+
+`debug.capture.path` deliberately writes model output to disk, including reasoning,
+tool-call arguments and error bodies that may echo request text or credentials.
+Only response headers are redacted: authorization, proxy-authorization, cookie,
+set-cookie, x-api-key and every configured upstream header key. Body bytes are
+preserved exactly, with no content redaction. Never share captures without review.
+Request records contain counts and known numeric/boolean/null generation options
+only; no request text, string parameters, tool definitions or request headers are
+serialized, and there is no option to include a request body.
+
+Capture defaults to five upstream attempts (maximum 50) and 10 MiB total, then
+turns off automatically. An in-flight capture may finish after its request budget
+has stopped admitting new attempts; the byte cap stops all captures immediately.
+Use a private directory and a new filename: existing files and symlinks are
+refused. Capture files are not rotated or deleted automatically; delete them when
+the investigation is complete. Startup and `/status` report activation and errors.

@@ -596,6 +596,30 @@ usage exceeds the allowance, another warning suggests increasing
 Completion percentiles cover the latest 2048 observed usage samples and reset
 on restart.
 
+### Bounded raw response capture
+
+| Key | Default | Meaning | If wrong | Probe field |
+|---|---|---|---|---|
+| `debug.capture.path` | `null` | Opt-in JSONL capture to a new file, created with mode `0600`. Existing files and symlinks are refused; relative paths use the process working directory. | Writes model output to disk; choose a private directory. File failures disable capture and appear in status. | – |
+| `debug.capture.requests` | `5` | Capture the next 1–50 upstream request attempts, including retries; startup discovery probes are excluded. Automatically stops admitting captures after this budget. | Too large: more output retained. | – |
+| `debug.capture.maxBytes` | `10485760` | Total file cap including JSONL/base64 overhead, minimum 1024 bytes. Stops all capture with an end marker when the next whole record would exceed the cap. | Too small: capture ends before useful frames. | – |
+
+Set `debug.capture.path=/private/new-capture.jsonl` via `--set` or
+`KITZUR_SET`. Each restart needs a new path. `/status` and startup logs show
+capture state; budget exhaustion never interrupts responses.
+
+JSONL records carry UTC `ts`, `type` and attempt `id`, with request shape, upstream
+status/headers, byte-exact raw chunks in `base64` before parsing, or end reason
+(`end`, `closed`, `aborted`, `upstream_error`, `maxBytes`). Concatenate chunks per
+ID to recover the response; records exceeding the cap are omitted.
+
+Shape contains message/tool counts and known numeric, boolean or null generation
+parameters (`chat_template_kwargs.enable_thinking`, `preserve_thinking`,
+`thinking_budget`). It excludes text, model/tool names, definitions, headers and
+arbitrary/string values; no body switch exists. Response headers
+`authorization`, `proxy-authorization`, `cookie`, `set-cookie`, `x-api-key` and
+every configured `upstream.headers` key are redacted case-insensitively; bodies
+remain raw.
 ## Model profiles
 
 `models` is optional loader metadata, like `preset`, outside `DEFAULT_CONFIG` and the
