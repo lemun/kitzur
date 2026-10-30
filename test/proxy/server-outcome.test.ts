@@ -4,7 +4,7 @@ import http from 'node:http';
 import { passthroughEngine } from './fake-engine.js';
 import { chatBody, chunk, DONE, fakeUpstream, request, startProxy, waitRecords } from './harness.js';
 
-for (const legacy of [false, true]) test(`mid-stream error (${legacy ? 'legacy' : 'modern'}) is diagnosed and byte-exact`, async () => {
+for (const legacy of [false, true]) test(`mid-stream error (${legacy ? 'legacy' : 'modern'}) is diagnosed and byte-exact`, async (t) => {
   const message = 'boom ' + 'x'.repeat(250);
   const error = legacy ? { object: 'error', message, content: 'PRIVATE' } : { error: { message, content: 'PRIVATE' } };
   const bytes = 'data: {"choices":[{"delta":{"role":"assistant"}}]}\r\n\r\n' + `data: ${JSON.stringify(error)}\n\n` + DONE;
@@ -13,7 +13,7 @@ for (const legacy of [false, true]) test(`mid-stream error (${legacy ? 'legacy' 
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     res.end(bytes);
   });
-  const f = await startProxy(up, passthroughEngine(), { log: (level, msg) => logs.push(`${level} ${msg}`) });
+  const f = await startProxy(t, up, passthroughEngine(), { log: (level, msg) => logs.push(`${level} ${msg}`) });
   try {
     const r = await request(f.port, { body: chatBody('hi', { stream: true }) });
     assert.equal(r.text(), bytes);
@@ -26,13 +26,13 @@ for (const legacy of [false, true]) test(`mid-stream error (${legacy ? 'legacy' 
   } finally { await f.close(); await up.close(); }
 });
 
-test('stream ending without a completion marker warns and logs incomplete', async () => {
+test('stream ending without a completion marker warns and logs incomplete', async (t) => {
   const logs: string[] = [];
   const up = await fakeUpstream((_h, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     res.end(chunk('hello'));
   });
-  const f = await startProxy(up, passthroughEngine(), { log: (level, msg) => logs.push(`${level} ${msg}`) });
+  const f = await startProxy(t, up, passthroughEngine(), { log: (level, msg) => logs.push(`${level} ${msg}`) });
   try {
     await request(f.port, { body: chatBody('hi', { stream: true }) });
     await waitRecords(f, 1);
@@ -41,7 +41,7 @@ test('stream ending without a completion marker warns and logs incomplete', asyn
   } finally { await f.close(); await up.close(); }
 });
 
-for (const failOpen of [false, true]) test(`client abort warns with counts (passthrough=${failOpen})`, { timeout: 10_000 }, async () => {
+for (const failOpen of [false, true]) test(`client abort warns with counts (passthrough=${failOpen})`, { timeout: 10_000 }, async (t) => {
   const logs: string[] = [];
   let closed!: () => void;
   const upstreamClosed = new Promise<void>(resolve => { closed = resolve; });
@@ -50,7 +50,7 @@ for (const failOpen of [false, true]) test(`client abort warns with counts (pass
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     res.write(chunk('hello'));
   });
-  const f = await startProxy(up, passthroughEngine(), { log: (level, msg) => logs.push(`${level} ${msg}`) });
+  const f = await startProxy(t, up, passthroughEngine(), { log: (level, msg) => logs.push(`${level} ${msg}`) });
   try {
     await new Promise<void>((resolve, reject) => {
       const req = http.request({ host: '127.0.0.1', port: f.port, method: 'POST', path: '/v1/chat/completions', headers: { 'content-type': 'application/json' } }, res => {

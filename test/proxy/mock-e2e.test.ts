@@ -31,7 +31,7 @@ function tokenizerPath(): string | null {
 const TOK = tokenizerPath();
 const LIMIT = 60_000; // the mock's real window; kitzur is configured for 100k
 
-test('Python mock styles through the proxy: vllm / llamacpp / tgi422 recover by learning the window; gateway502 is never resent larger', { skip: TOK ? false : 'dev tokenizer absent (scripts/fetch-tokenizer.sh)' }, async () => {
+test('Python mock styles through the proxy: vllm / llamacpp / tgi422 recover by learning the window; gateway502 is never resent larger', { skip: TOK ? false : 'dev tokenizer absent (scripts/fetch-tokenizer.sh)' }, async (t) => {
   const tok = loadTokenizerCached(TOK!, null, { stateDir: join(tmpdir(), 'kitzur-test-tokenizer-cache') });
   const cfgOver = { tokenizer: { template: { name: 'sim' as const } } };
   const cfg = testConfig(cfgOver);
@@ -51,7 +51,7 @@ test('Python mock styles through the proxy: vllm / llamacpp / tgi422 recover by 
   for (const style of ['vllm', 'llamacpp', 'tgi422', 'gateway502']) {
     const mock = new MockServer({ counter: prompt, limit: LIMIT, errorStyle: style, outDir: null });
     await mock.start(0);
-    const f = await startProxy(mock.url, shrinkingEngine(cfg, counter), { counter, config: cfgOver });
+    const f = await startProxy(t, mock.url, shrinkingEngine(cfg, counter), { counter, config: cfgOver });
     try {
       const r = await request(f.port, { body: body(), headers: { 'x-sim-step': '3' } });
       const recs = mock.records;

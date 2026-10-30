@@ -7,7 +7,7 @@ import { DONE, bodyTokens, charCounter, chunk, fakeUpstream, request, sseRes, st
 const SSE_OVERFLOW = (prompt: number, window: number): string =>
   `data: ${JSON.stringify({ error: { object: 'error', message: `The input (${prompt} tokens) is longer than the model's context length (${window} tokens).`, type: 'BadRequestError', param: null, code: 400 } })}\n\n`;
 
-test('a retried request counts one retry for its model; a request without a retry leaves its model at 0', async () => {
+test('a retried request counts one retry for its model; a request without a retry leaves its model at 0', async (t) => {
   const budget = { window: 4000, defaultMaxTokens: 500, planMaxTokens: 500 };
   const cfg = testConfig({ budget });
   const counter = charCounter();
@@ -16,7 +16,7 @@ test('a retried request counts one retry for its model; a request without a retr
     if (p > 2000) await sseRes(res, [SSE_OVERFLOW(p, 2500), DONE]);
     else await sseRes(res, [chunk('ok'), chunk('', 'stop'), DONE]);
   });
-  const f = await startProxy(up, shrinkingEngine(cfg, counter), { counter, config: { budget } });
+  const f = await startProxy(t, up, shrinkingEngine(cfg, counter), { counter, config: { budget } });
   try {
     const history: ChatRequest['messages'] = [{ role: 'system', content: 's' }, { role: 'user', content: 'goal' }];
     for (let i = 0; i < 8; i++) history.push({ role: 'assistant', content: 'a'.repeat(1000) }, { role: 'user', content: 'u'.repeat(1000) });

@@ -5,7 +5,7 @@ export const USAGE = `usage: kitzur <command> [options]
   autostart install|remove|status|run [--config FILE]  per-user Windows login startup
   serve                         run the proxy (logs the bound address to a file)
   replay <file|dir>...          run captured request bodies through the engine offline; sizes only,
-                                plus a live-vs-fresh determinism check
+                                plus a live-vs-fresh determinism check; --explain shows content-free retention outcomes
   redact <file|dir>... [--out DIR|-]  copy request bodies with every text replaced by same-length filler
                                 (default: <name>.redacted.json next to the input)
   count <request.json>          exact token count of a request (per message, no content)

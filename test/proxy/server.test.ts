@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
@@ -13,8 +13,8 @@ import {
   testConfig, usageChunk, waitRecords, type FakeUpstream, type ProxyFixture,
 } from './harness.js';
 
-async function withProxy(up: FakeUpstream, engine: FakeEngine, fn: (f: ProxyFixture) => Promise<void>, opts: Parameters<typeof startProxy>[2] = {}): Promise<void> {
-  const f = await startProxy(up, engine, opts);
+async function withProxy(t: TestContext, up: FakeUpstream, engine: FakeEngine, fn: (f: ProxyFixture) => Promise<void>, opts: Parameters<typeof startProxy>[3] = {}): Promise<void> {
+  const f = await startProxy(t, up, engine, opts);
   try {
     await fn(f);
   } finally {
@@ -25,11 +25,11 @@ async function withProxy(up: FakeUpstream, engine: FakeEngine, fn: (f: ProxyFixt
 
 // ---------------------------------------------------------------- relay byte-exactness
 
-test('JSON: an unchanged request goes upstream as the original bytes; the response is relayed byte-exactly', async () => {
+test('JSON: an unchanged request goes upstream as the original bytes; the response is relayed byte-exactly', async (t) => {
   const weird = '{ "model" : "m1",\n  "messages": [ {"role":"user", "content":"h\\u00e9llo \\/ ✓"} ], "max_tokens": 5 }';
   const respBody = '{"id":"x",  "choices":[{"message":{"content":"\\u00e9"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3}}  ';
   const up = await fakeUpstream((_h, res) => jsonRes(res, 201, respBody, { 'x-up': 'yes', 'keep-alive': 'timeout=5' }));
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     const r = await request(f.port, { body: weird, headers: { authorization: 'Bearer secret', 'x-sim-step': '4' } });
     assert.equal(r.status, 201);
     assert.equal(r.text(), respBody);
@@ -44,20 +44,20 @@ test('JSON: an unchanged request goes upstream as the original bytes; the respon
   });
 });
 
-test('a changed request is serialized with JSON.stringify, key order kept', async () => {
+test('a changed request is serialized with JSON.stringify, key order kept', async (t) => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, okCompletion()));
   const engine = new FakeEngine((req) => result(req, { ...req, messages: req.messages.slice(-1) }, true));
-  await withProxy(up, engine, async (f) => {
+  await withProxy(t, up, engine, async (f) => {
     const body = '{"zz":1,"model":"m1","messages":[{"role":"system","content":"s"},{"role":"user","content":"u","b":2,"a":1}],"aa":2}';
     await request(f.port, { body });
     assert.equal(up.hits[0]!.body.toString(), '{"zz":1,"model":"m1","messages":[{"role":"user","content":"u","b":2,"a":1}],"aa":2}');
   });
 });
 
-test('SSE: relayed byte-exactly across arbitrary chunking (CRLF, comments, events)', async () => {
+test('SSE: relayed byte-exactly across arbitrary chunking (CRLF, comments, events)', async (t) => {
   const pieces = [': hello\r\n\r\n', 'data: {"choices":[{"delta":{"role":"assistant","content":"hé', 'llo"},"finish_reason":null}]}\r\n', '\r\n', 'event: x\ndata: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n', ': keep-alive\n\n', 'data: [DONE]\n\n'];
   const up = await fakeUpstream(async (_h, res) => sseRes(res, pieces, { delayMs: 5, headers: { 'x-accel-buffering': 'no' } }));
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     const r = await request(f.port, { body: chatBody('hi', { stream: true }) });
     assert.equal(r.status, 200);
     assert.equal(r.text(), pieces.join(''));
@@ -69,7 +69,7 @@ test('SSE: relayed byte-exactly across arbitrary chunking (CRLF, comments, event
 
 // ---------------------------------------------------------------- first-event hold
 
-test('hold: the client status line waits for the first data event; comments are flushed before it', async () => {
+test('hold: the client status line waits for the first data event; comments are flushed before it', async (t) => {
   const up = await fakeUpstream(async (_h, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     res.flushHeaders();
@@ -79,14 +79,14 @@ test('hold: the client status line waits for the first data event; comments are 
     res.write(chunk('a'));
     res.end(chunk('', 'stop') + DONE);
   });
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     const r = await request(f.port, { body: chatBody('hi', { stream: true }) });
     assert.ok(r.headerMs >= 280, `headers after the first event (${r.headerMs.toFixed(0)} ms)`);
     assert.ok(r.text().startsWith(': ping\n\n' + chunk('a')));
   });
 });
 
-test('hold: the timer starts at the upstream headers and commits after firstEventTimeoutMs', async () => {
+test('hold: the timer starts at the upstream headers and commits after firstEventTimeoutMs', async (t) => {
   let headersAt = 0;
   const up = await fakeUpstream(async (_h, res) => {
     await sleep(200); // late headers: the client just waits (no invented status)
@@ -96,7 +96,7 @@ test('hold: the timer starts at the upstream headers and commits after firstEven
     await sleep(700);
     res.end(chunk('a', 'stop') + DONE);
   });
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     const t0 = performance.now();
     const pending = new Promise<number>((resolve, reject) => {
       const req = http.request({ host: '127.0.0.1', port: f.port, method: 'POST', path: '/v1/chat/completions', headers: { 'content-type': 'application/json' } });
@@ -113,12 +113,12 @@ test('hold: the timer starts at the upstream headers and commits after firstEven
   }, { config: { stream: { firstEventTimeoutMs: 200 } } });
 });
 
-test('late upstream error status: the client gets the real HTTP status, not an invented 200', async () => {
+test('late upstream error status: the client gets the real HTTP status, not an invented 200', async (t) => {
   const up = await fakeUpstream(async (_h, res) => {
     await sleep(250);
     jsonRes(res, 429, { error: { message: 'Rate limit exceeded', type: 'rate_limit_error', code: '429' } });
   });
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     const r = await request(f.port, { body: chatBody('x', { stream: true }) });
     assert.equal(r.status, 429);
     assert.equal(up.hits.length, 1, 'excluded: returned unchanged, no retry');
@@ -131,7 +131,7 @@ test('late upstream error status: the client gets the real HTTP status, not an i
 const SSE_OVERFLOW = (prompt: number, window: number): string =>
   `data: ${JSON.stringify({ error: { object: 'error', message: `The input (${prompt} tokens) is longer than the model's context length (${window} tokens).`, type: 'BadRequestError', param: null, code: 400 } })}\n\n`;
 
-test('a first-event in-stream overflow is recovered: the client sees only the retry, on a 200', async () => {
+test('a first-event in-stream overflow is recovered: the client sees only the retry, on a 200', async (t) => {
   const cfg = testConfig({ budget: { window: 4000, defaultMaxTokens: 500, planMaxTokens: 500 } });
   const counter = charCounter();
   const up = await fakeUpstream(async (hit, res) => {
@@ -141,7 +141,7 @@ test('a first-event in-stream overflow is recovered: the client sees only the re
   });
   const history: ChatRequest['messages'] = [{ role: 'system', content: 's' }, { role: 'user', content: 'goal' }];
   for (let i = 0; i < 8; i++) history.push({ role: 'assistant', content: 'a'.repeat(1000) }, { role: 'user', content: 'u'.repeat(1000) });
-  await withProxy(up, shrinkingEngine(cfg, counter), async (f) => {
+  await withProxy(t, up, shrinkingEngine(cfg, counter), async (f) => {
     const r = await request(f.port, { body: { model: 'm1', messages: history, max_tokens: 500, stream: true } });
     assert.equal(r.status, 200);
     assert.equal(r.text(), chunk('ok') + chunk('', 'stop') + DONE, 'only the retry: nothing of the failed attempt (its held comment included)');
@@ -153,10 +153,10 @@ test('a first-event in-stream overflow is recovered: the client sees only the re
   }, { counter, config: { budget: { window: 4000, defaultMaxTokens: 500, planMaxTokens: 500 } } });
 });
 
-test('an unterminated first-event error at the end of the body is still caught (not an empty 200)', async () => {
+test('an unterminated first-event error at the end of the body is still caught (not an empty 200)', async (t) => {
   const errEv = `data: ${JSON.stringify({ error: { message: 'Internal failure', type: 'InternalServerError', code: 500 } })}`;
   const up = await fakeUpstream(async (_h, res) => sseRes(res, [errEv]));
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     const r = await request(f.port, { body: chatBody('x', { stream: true }) });
     assert.equal(r.status, 200);
     assert.equal(r.text(), errEv, 'relayed unchanged');
@@ -165,10 +165,10 @@ test('an unterminated first-event error at the end of the body is still caught (
   });
 });
 
-test('an unrecoverable in-stream error that is not an overflow is relayed unchanged', async () => {
+test('an unrecoverable in-stream error that is not an overflow is relayed unchanged', async (t) => {
   const errEv = `data: ${JSON.stringify({ error: { message: 'Internal failure', type: 'InternalServerError', code: 500 } })}\n\n`;
   const up = await fakeUpstream(async (_h, res) => sseRes(res, [': c\n\n', errEv, DONE]));
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     const r = await request(f.port, { body: chatBody('x', { stream: true }) });
     assert.equal(r.status, 200);
     assert.equal(r.text(), ': c\n\n' + errEv + DONE, 'byte-identical to what the upstream sent');
@@ -176,7 +176,7 @@ test('an unrecoverable in-stream error that is not an overflow is relayed unchan
   });
 });
 
-test('after a committed 200, a failed overflow recovery is reported in the  shape both clients recognise', async () => {
+test('after a committed 200, a failed overflow recovery is reported in the  shape both clients recognise', async (t) => {
   const up = await fakeUpstream(async (hit, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     res.flushHeaders();
@@ -184,7 +184,7 @@ test('after a committed 200, a failed overflow recovery is reported in the  shap
     res.end(SSE_OVERFLOW(bodyTokens(hit.json), 60) + DONE);
   });
   // the engine cannot shrink anything: recovery fails after learning
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     const r = await request(f.port, { body: chatBody('x', { stream: true }) });
     assert.equal(r.status, 200);
     const events = r.text().split('\n\n').filter(Boolean);
@@ -197,7 +197,7 @@ test('after a committed 200, a failed overflow recovery is reported in the  shap
 
 // ---------------------------------------------------------------- include_usage
 
-test('include_usage: injected only for stream:true, the usage chunk is stripped, the tap still sees it', async () => {
+test('include_usage: injected only for stream:true, the usage chunk is stripped, the tap still sees it', async (t) => {
   const up = await fakeUpstream(async (hit, res) => {
     if (hit.json.stream) {
       const pieces = [chunk('a'), chunk('', 'stop')];
@@ -205,7 +205,7 @@ test('include_usage: injected only for stream:true, the usage chunk is stripped,
       await sseRes(res, [...pieces, DONE]);
     } else jsonRes(res, 200, okCompletion(99));
   });
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     const r1 = await request(f.port, { body: chatBody('x', { stream: true }) });
     assert.equal(up.hits[0]!.json.stream_options.include_usage, true, 'injected');
     assert.ok(!r1.text().includes('"choices":[]'), 'stripped');
@@ -221,12 +221,12 @@ test('include_usage: injected only for stream:true, the usage chunk is stripped,
   }, { config: { stream: { injectIncludeUsage: true } } });
 });
 
-test(': a stream_options rejection of an injected include_usage is retried once without it, and remembered', async () => {
+test(': a stream_options rejection of an injected include_usage is retried once without it, and remembered', async (t) => {
   const up = await fakeUpstream(async (hit, res) => {
     if (hit.json.stream_options) return jsonRes(res, 400, { error: { message: 'Stream options can only be defined when `stream=True`.', type: 'BadRequestError', param: 'stream_options', code: 400 } });
     await sseRes(res, [chunk('a', 'stop'), DONE]);
   });
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     const raw = JSON.stringify(chatBody('x', { stream: true }));
     const r = await request(f.port, { body: raw });
     assert.equal(r.status, 200);
@@ -243,7 +243,7 @@ test(': a stream_options rejection of an injected include_usage is retried once 
 
 // ---------------------------------------------------------------- abort
 
-test('client disconnect aborts the upstream within 50 ms (mid-stream and before headers)', async () => {
+test('client disconnect aborts the upstream within 50 ms (mid-stream and before headers)', async (t) => {
   const up = await fakeUpstream(async (hit, res) => {
     if (hit.json.messages[1].content === 'before') return; // never answers
     res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -254,7 +254,7 @@ test('client disconnect aborts the upstream within 50 ms (mid-stream and before 
       if (!res.destroyed) res.write(': k\n\n');
     }
   });
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     for (const mode of ['mid', 'before']) {
       const n0 = up.hits.length;
       const t = await new Promise<number>((resolve, reject) => {
@@ -289,7 +289,7 @@ test('client disconnect aborts the upstream within 50 ms (mid-stream and before 
 
 // ---------------------------------------------------------------- the ladder end to end
 
-test('ladder: vLLM overflow teaches the window (in memory before the retry); the retry is strictly smaller; the next request plans with it', async () => {
+test('ladder: vLLM overflow teaches the window (in memory before the retry); the retry is strictly smaller; the next request plans with it', async (t) => {
   const counter = charCounter();
   const cfgOver = { budget: { window: 10_000, defaultMaxTokens: 1000, planMaxTokens: 1000 } };
   const cfg = testConfig(cfgOver);
@@ -308,7 +308,7 @@ test('ladder: vLLM overflow teaches the window (in memory before the retry); the
   const msgs: ChatRequest['messages'] = [{ role: 'system', content: 's' }, { role: 'user', content: 'goal' }];
   for (let i = 0; i < 12; i++) msgs.push({ role: 'assistant', content: 'a'.repeat(2000) }, { role: 'user', content: 'u'.repeat(800) });
   const engine = shrinkingEngine(cfg, counter);
-  await withProxy(up, engine, async (f) => {
+  await withProxy(t, up, engine, async (f) => {
     stateDir = f.stateDir;
     const raw = JSON.stringify({ model: 'm1', messages: msgs, max_tokens: 1000 });
     const r = await request(f.port, { body: raw });
@@ -332,7 +332,7 @@ test('ladder: vLLM overflow teaches the window (in memory before the retry); the
   }, { counter, config: cfgOver });
 });
 
-test('ladder: at most maxRetries + 1 upstream calls; a failed overflow recovery is translated (TGI 422)', async () => {
+test('ladder: at most maxRetries + 1 upstream calls; a failed overflow recovery is translated (TGI 422)', async (t) => {
   const counter = charCounter();
   const up = await fakeUpstream((hit, res) => {
     const p = bodyTokens(hit.json);
@@ -340,7 +340,7 @@ test('ladder: at most maxRetries + 1 upstream calls; a failed overflow recovery 
   });
   // an engine that shrinks by one message per call, always strictly smaller
   const engine = new FakeEngine((req, o) => (o.attempt === 1 ? result(req, req, false) : result(req, { ...req, messages: req.messages.slice(0, Math.max(1, req.messages.length - o.attempt)) }, true)));
-  await withProxy(up, engine, async (f) => {
+  await withProxy(t, up, engine, async (f) => {
     const body = chatBody('x', { messages: Array.from({ length: 12 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: `m${i} `.repeat(50) })) });
     const r = await request(f.port, { body });
     assert.equal(up.hits.length, 3, 'maxRetries 2 -> 3 upstream calls');
@@ -353,14 +353,14 @@ test('ladder: at most maxRetries + 1 upstream calls; a failed overflow recovery 
   }, { counter });
 });
 
-test('ladder: max_tokens_too_large keeps the prompt and lowers max_tokens', async () => {
+test('ladder: max_tokens_too_large keeps the prompt and lowers max_tokens', async (t) => {
   const up = await fakeUpstream((hit, res) => {
     const M = hit.json.max_tokens;
     if (M > 9000) return jsonRes(res, 400, { error: { message: `max_tokens=${M} cannot be greater than max_model_len=9000. Please request fewer output tokens.`, type: 'BadRequestError', code: 400 } });
     if (bodyTokens(hit.json) + M > 9000) return jsonRes(res, 400, { error: { message: 'unexpected', code: 400 } });
     jsonRes(res, 200, okCompletion());
   });
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     const r = await request(f.port, { body: chatBody('x', { max_tokens: 12_000 }) });
     assert.equal(r.status, 200);
     assert.equal(up.hits.length, 2);
@@ -371,7 +371,7 @@ test('ladder: max_tokens_too_large keeps the prompt and lowers max_tokens', asyn
   }, { config: { budget: { window: 10_000, defaultMaxTokens: 1000, planMaxTokens: 1000, maxTokensClamp: { enabled: false, floorTokens: 100 } } } });
 });
 
-test('ladder: gateway 502 near the budget gets one tightened retry; far below it is returned unchanged', async () => {
+test('ladder: gateway 502 near the budget gets one tightened retry; far below it is returned unchanged', async (t) => {
   const counter = charCounter();
   const cfgOver = { budget: { window: 10_000, defaultMaxTokens: 1000, planMaxTokens: 1000 } };
   const cfg = testConfig(cfgOver);
@@ -381,7 +381,7 @@ test('ladder: gateway 502 near the budget gets one tightened retry; far below it
     jsonRes(res, 200, okCompletion());
   });
   const engine = shrinkingEngine(cfg, counter);
-  await withProxy(up, engine, async (f) => {
+  await withProxy(t, up, engine, async (f) => {
     // hard = min(budget, clientPoint - allowance) = min(8488, 9000 - 500) = 8488; near = 0.9 * hard = 7639
     const near: ChatRequest['messages'] = [{ role: 'system', content: 's' }, { role: 'user', content: 'g' }];
     for (let i = 0; i < 9; i++) near.push({ role: 'assistant', content: 'a'.repeat(3500) }, { role: 'user', content: 'u' });
@@ -405,7 +405,7 @@ test('ladder: gateway 502 near the budget gets one tightened retry; far below it
   }, { counter, config: cfgOver });
 });
 
-test('ladder: a 413 teaches maxBodyBytes and the retry is smaller in bytes; mandatory images alone -> 413 unchanged', async () => {
+test('ladder: a 413 teaches maxBodyBytes and the retry is smaller in bytes; mandatory images alone -> 413 unchanged', async (t) => {
   const counter = charCounter();
   const cfgOver = { budget: { window: 100_000 } };
   const cfg = testConfig(cfgOver);
@@ -415,7 +415,7 @@ test('ladder: a 413 teaches maxBodyBytes and the retry is smaller in bytes; mand
     jsonRes(res, 200, okCompletion());
   });
   const engine = shrinkingEngine(cfg, counter);
-  await withProxy(up, engine, async (f) => {
+  await withProxy(t, up, engine, async (f) => {
     const msgs: ChatRequest['messages'] = [{ role: 'system', content: 's' }, { role: 'user', content: 'g' }];
     for (let i = 0; i < 10; i++) msgs.push({ role: 'assistant', content: 'a'.repeat(4000) }, { role: 'user', content: 'u' });
     const body = { model: 'm1', messages: msgs, max_tokens: 1000 };
@@ -433,7 +433,7 @@ test('ladder: a 413 teaches maxBodyBytes and the retry is smaller in bytes; mand
     if (hit.body.length > 40_000) return jsonRes(res, 413, '<html><title>413 Request Entity Too Large</title></html>', { 'content-type': 'text/html' });
     jsonRes(res, 200, okCompletion());
   });
-  await withProxy(up2, passthroughEngine(), async (f) => {
+  await withProxy(t, up2, passthroughEngine(), async (f) => {
     const img = { type: 'image_url', image_url: { url: 'data:image/png;base64,' + 'A'.repeat(60_000) } };
     const withImg = [{ role: 'user', content: 'g' }, { role: 'assistant', content: 'look' }, { role: 'user', content: [{ type: 'text', text: 'see' }, img] }];
     const r2 = await request(f.port, { body: { model: 'm1', messages: withImg, max_tokens: 1000 } });
@@ -444,13 +444,13 @@ test('ladder: a 413 teaches maxBodyBytes and the retry is smaller in bytes; mand
   });
 });
 
-test(': an unmatched 400 on a rewritten request resends the original once if it fits; else a translated 400', async () => {
+test(': an unmatched 400 on a rewritten request resends the original once if it fits; else a translated 400', async (t) => {
   const up = await fakeUpstream((hit, res) => {
     if (hit.json.messages.length === 1) return jsonRes(res, 400, 'E_UPSTREAM_7: request refused', { 'content-type': 'text/plain' });
     jsonRes(res, 200, okCompletion());
   });
   const rewrite = new FakeEngine((req) => result(req, { ...req, messages: req.messages.slice(-1) }, true));
-  await withProxy(up, rewrite, async (f) => {
+  await withProxy(t, up, rewrite, async (f) => {
     const raw = JSON.stringify(chatBody('fits'));
     const r = await request(f.port, { body: raw });
     assert.equal(r.status, 200);
@@ -470,7 +470,7 @@ test(': an unmatched 400 on a rewritten request resends the original once if it 
   }, { config: { budget: { window: 10_000, defaultMaxTokens: 1000 } } });
   // an unmatched error on an unchanged request reaches the client unchanged, in one attempt
   const up2 = await fakeUpstream((_h, res) => jsonRes(res, 400, 'E_UPSTREAM_7: request refused', { 'content-type': 'text/plain' }));
-  await withProxy(up2, passthroughEngine(), async (f) => {
+  await withProxy(t, up2, passthroughEngine(), async (f) => {
     const r = await request(f.port, { body: chatBody('x') });
     assert.deepEqual([r.status, r.text(), up2.hits.length], [400, 'E_UPSTREAM_7: request refused', 1]);
   });
@@ -478,12 +478,12 @@ test(': an unmatched 400 on a rewritten request resends the original once if it 
 
 // ---------------------------------------------------------------- guard outcomes, faults, unsafe integers, shadow
 
-test('guard_reject and impossible return the engine error without an upstream call; guard_fallback forwards the original', async () => {
+test('guard_reject and impossible return the engine error without an upstream call; guard_fallback forwards the original', async (t) => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, okCompletion()));
   const errBody = { error: { message: 'kitzur: the system prompt and tool definitions alone need about 26.0k tokens', type: 'invalid_request_error', param: null, code: 'kitzur_fixed_prompt_too_large' } };
   let action: 'impossible' | 'guard_reject' | 'guard_fallback' = 'impossible';
   const engine = new FakeEngine((req) => result(req, action === 'guard_fallback' ? req : null, false, { action, error: action === 'guard_fallback' ? undefined : { status: 400, body: errBody }, ...(action === 'impossible' ? {} : { guard: 'guard:pairing' }) }));
-  await withProxy(up, engine, async (f) => {
+  await withProxy(t, up, engine, async (f) => {
     for (action of ['impossible', 'guard_reject'] as const) {
       const r = await request(f.port, { body: chatBody('x') });
       assert.equal(r.status, 400);
@@ -503,9 +503,9 @@ test('guard_reject and impossible return the engine error without an upstream ca
   });
 });
 
-test('engine exceptions: the original only when it fits', async () => {
+test('engine exceptions: the original only when it fits', async (t) => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, okCompletion()));
-  await withProxy(up, new FakeEngine(() => { throw new Error('injected failure'); }), async (f) => {
+  await withProxy(t, up, new FakeEngine(() => { throw new Error('injected failure'); }), async (f) => {
     const small = JSON.stringify(chatBody('small'));
     assert.equal((await request(f.port, { body: small })).status, 200);
     assert.equal(up.hits[0]!.body.toString(), small);
@@ -518,10 +518,10 @@ test('engine exceptions: the original only when it fits', async () => {
   }, { config: { budget: { window: 10_000, defaultMaxTokens: 1000 } } });
 });
 
-test('an unsafe-integer body is never rewritten', async () => {
+test('an unsafe-integer body is never rewritten', async (t) => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, okCompletion()));
   const engine = new FakeEngine((req) => result(req, { ...req, messages: req.messages.slice(-1) }, true));
-  await withProxy(up, engine, async (f) => {
+  await withProxy(t, up, engine, async (f) => {
     const raw = '{"model":"m1","seed":12345678901234567890,"messages":[{"role":"system","content":"s"},{"role":"user","content":"u"}]}';
     await request(f.port, { body: raw });
     assert.equal(up.hits[0]!.body.toString(), raw);
@@ -531,13 +531,13 @@ test('an unsafe-integer body is never rewritten', async () => {
   });
 });
 
-test('shadow mode: the engine runs, the upstream sees the original bytes, errors are relayed unchanged', async () => {
+test('shadow mode: the engine runs, the upstream sees the original bytes, errors are relayed unchanged', async (t) => {
   const up = await fakeUpstream((hit, res) => {
     if (hit.n === 2) return jsonRes(res, 400, { object: 'error', message: "This model's maximum context length is 9000 tokens. However, you requested 12000 tokens (11000 in the messages, 1000 in the completion).", code: 400 });
     jsonRes(res, 200, okCompletion(20));
   });
   const engine = new FakeEngine((req) => result(req, { ...req, messages: req.messages.slice(-1) }, true, { tokensOut: 3, tokensIn: 9 }));
-  await withProxy(up, engine, async (f) => {
+  await withProxy(t, up, engine, async (f) => {
     const raw = '{"model":"m1",\n "messages":[{"role":"system","content":"s"},{"role":"user","content":"u"}], "stream":false}';
     const r = await request(f.port, { body: raw });
     assert.equal(r.status, 200);
@@ -556,9 +556,9 @@ test('shadow mode: the engine runs, the upstream sees the original bytes, errors
 
 // ---------------------------------------------------------------- host check, routes, status
 
-test('host check blocks DNS rebinding; allowed names, missing Host and "*" pass', async () => {
+test('host check blocks DNS rebinding; allowed names, missing Host and "*" pass', async (t) => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, { data: [] }));
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     const evil = await request(f.port, { method: 'GET', path: '/v1/models', headers: { host: 'evil.example:1234' } });
     assert.equal(evil.status, 403);
     assert.equal(evil.json().error.type, 'permission_error');
@@ -570,14 +570,14 @@ test('host check blocks DNS rebinding; allowed names, missing Host and "*" pass'
     assert.equal(up.hits.length, 2, 'rejected requests never reach the upstream');
   });
   const up2 = await fakeUpstream((_h, res) => jsonRes(res, 200, {}));
-  await withProxy(up2, passthroughEngine(), async (f) => {
+  await withProxy(t, up2, passthroughEngine(), async (f) => {
     assert.equal((await request(f.port, { method: 'GET', path: '/x', headers: { host: 'evil.example' } })).status, 200);
   }, { config: { listen: { allowedHosts: ['*'] } } });
 });
 
-test('everything else is a streamed pass-through to the same upstream; /status never is', async () => {
+test('everything else is a streamed pass-through to the same upstream; /status never is', async (t) => {
   const up = await fakeUpstream((hit, res) => jsonRes(res, 200, { path: hit.url, method: hit.method, body: hit.body.toString() }));
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     const m = await request(f.port, { method: 'GET', path: '/v1/models?x=1' });
     assert.deepEqual(m.json(), { path: '/v1/models?x=1', method: 'GET', body: '' });
     const e = await request(f.port, { method: 'POST', path: '/v1/embeddings', body: '{"input":"a"}' });
@@ -591,9 +591,9 @@ test('everything else is a streamed pass-through to the same upstream; /status n
   });
 });
 
-test('unparseable chat bodies fail open: forwarded unchanged, recorded', async () => {
+test('unparseable chat bodies fail open: forwarded unchanged, recorded', async (t) => {
   const up = await fakeUpstream((hit, res) => jsonRes(res, 400, { error: { message: 'bad json' } }));
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     const r = await request(f.port, { body: '{"messages": [' });
     assert.equal(r.status, 400);
     assert.equal(up.hits[0]!.body.toString(), '{"messages": [');
@@ -602,11 +602,11 @@ test('unparseable chat bodies fail open: forwarded unchanged, recorded', async (
   });
 });
 
-test('upstream unavailable before headers: 502 upstream_unavailable', async () => {
+test('upstream unavailable before headers: 502 upstream_unavailable', async (t) => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, {}));
   const port = up.port;
   await up.close();
-  const f = await startProxy(`http://127.0.0.1:${port}`, passthroughEngine());
+  const f = await startProxy(t, `http://127.0.0.1:${port}`, passthroughEngine());
   try {
     const r = await request(f.port, { body: chatBody('x') });
     assert.equal(r.status, 502);
@@ -618,10 +618,14 @@ test('upstream unavailable before headers: 502 upstream_unavailable', async () =
 
 // ---------------------------------------------------------------- stats, calibration, drain
 
-test('stats JSONL: one record per chat request, gobstopper-compatible fields plus ours, never content', async () => {
+test('stats JSONL: one record per chat request, gobstopper-compatible fields plus ours, never content', async (t) => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, okCompletion(20)));
-  const engine = new FakeEngine((req, o) => result(req, { ...req, messages: req.messages.slice(-1) }, true, { tokensIn: 50, tokensOut: 10, budget: { trigger: 61_000, budget: 67_000 } }));
-  await withProxy(up, engine, async (f) => {
+  const engine = new FakeEngine((req, o) => {
+    const r = result(req, { ...req, messages: req.messages.slice(-1) }, true, { tokensIn: 50, tokensOut: 10, budget: { trigger: 61_000, budget: 67_000 } });
+    r.stats.retention = { verbatim: 1, excerpted: 0, summarized: 0, dropped: 0 };
+    return r;
+  });
+  await withProxy(t, up, engine, async (f) => {
     await request(f.port, { body: chatBody('SECRET-CONTENT-1', { messages: [{ role: 'user', content: 'SECRET-CONTENT-2' }] }), headers: { 'x-session-id': 'ses_abc', authorization: 'Bearer SECRET-TOKEN' } });
     await request(f.port, { method: 'GET', path: '/v1/models' });
     await request(f.port, { body: chatBody('SECRET-CONTENT-3') });
@@ -638,17 +642,18 @@ test('stats JSONL: one record per chat request, gobstopper-compatible fields plu
     assert.equal(r.attempts[0]!.kind, 'ok');
     assert.ok(r.attempts[0]!.bytes > 0 && r.attempts[0]!.raw > 0);
     assert.equal(r.path, '/v1/chat/completions');
+    assert.deepEqual(r.retention, { verbatim: 1, excerpted: 0, summarized: 0, dropped: 0 });
     const text = readFileSync(f.statsPath, 'utf8');
     assert.ok(!/SECRET/.test(text), 'no content, no header values');
   });
 });
 
-test('calibration from usage: accepted samples move the correction, checkpointed asynchronously and used by the next request', async () => {
+test('calibration from usage: accepted samples move the correction, checkpointed asynchronously and used by the next request', async (t) => {
   const counter = charCounter('estimate');
   // the server counts 1.3x our estimate
   const up = await fakeUpstream((hit, res) => jsonRes(res, 200, okCompletion(Math.round(bodyTokens(hit.json) * 1.3))));
   const engine = passthroughEngine();
-  await withProxy(up, engine, async (f) => {
+  await withProxy(t, up, engine, async (f) => {
     const body = { model: 'm1', messages: [{ role: 'user', content: 'x'.repeat(40_000) }], max_tokens: 100 };
     for (let i = 0; i < 3; i++) await request(f.port, { body });
     await waitRecords(f, 3);
@@ -674,7 +679,7 @@ test('calibration from usage: accepted samples move the correction, checkpointed
   }, { counter, config: { calibration: { minSamples: 3, minCountedTokens: 1000 } } });
 });
 
-test('calibration from the tokenize endpoint when no usage comes back (a calibration source only)', async () => {
+test('calibration from the tokenize endpoint when no usage comes back (a calibration source only)', async (t) => {
   const counter = charCounter('estimate');
   const up = await fakeUpstream((_h, res) => sseRes(res, [chunk('a', 'stop'), DONE]));
   let calls = 0;
@@ -687,7 +692,7 @@ test('calibration from the tokenize endpoint when no usage comes back (a calibra
   const profile = createProfile('chatml');
   // a counter whose raw count equals chars/4 of the chatml render (so the ratio is exactly 1.2)
   const c2 = Object.assign(counter, { profile, countRequest: (r: ChatRequest) => Math.round(renderPrompt(profile, r).length / 4) });
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     const body = { model: 'm1', messages: [{ role: 'user', content: 'y'.repeat(40_000) }], stream: true };
     for (let i = 0; i < 3; i++) {
       await request(f.port, { body });
@@ -701,9 +706,9 @@ test('calibration from the tokenize endpoint when no usage comes back (a calibra
   }, { counter: c2, remote, config: { calibration: { minSamples: 3, minCountedTokens: 1000 } } });
 });
 
-test('graceful close drains an in-flight stream, then flushes state and stats', async () => {
+test('graceful close drains an in-flight stream, then flushes state and stats', async (t) => {
   const up = await fakeUpstream(async (_h, res) => sseRes(res, [chunk('a'), chunk('b'), chunk('', 'stop'), DONE], { delayMs: 100 }));
-  const f = await startProxy(up, passthroughEngine());
+  const f = await startProxy(t, up, passthroughEngine());
   try {
     const p = request(f.port, { body: chatBody('x', { stream: true }) });
     await sleep(120);
@@ -721,7 +726,7 @@ test('graceful close drains an in-flight stream, then flushes state and stats', 
 
 // ---------------------------------------------------------------- more streaming edge cases
 
-test('after headers, an upstream failure destroys the client response with no terminating chunk; incomplete streams are recorded', async () => {
+test('after headers, an upstream failure destroys the client response with no terminating chunk; incomplete streams are recorded', async (t) => {
   const up = await fakeUpstream(async (hit, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     res.write(chunk('a'));
@@ -729,7 +734,7 @@ test('after headers, an upstream failure destroys the client response with no te
     if (hit.json.messages[1].content === 'die') res.socket?.destroy(); // upstream crash mid-stream
     else res.end(chunk('b')); // ends without [DONE] and without finish_reason
   });
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     const died = await new Promise<{ error: boolean; body: string }>((resolve) => {
       const req = http.request({ host: '127.0.0.1', port: f.port, method: 'POST', path: '/v1/chat/completions', headers: { 'content-type': 'application/json' } });
       let body = '';
@@ -752,7 +757,7 @@ test('after headers, an upstream failure destroys the client response with no te
   });
 });
 
-test("llama.cpp's old `error:` frame is caught as a first-event error and recovered", async () => {
+test("llama.cpp's old `error:` frame is caught as a first-event error and recovered", async (t) => {
   const counter = charCounter();
   const cfgOver = { budget: { window: 4000, defaultMaxTokens: 500, planMaxTokens: 500 } };
   const cfg = testConfig(cfgOver);
@@ -762,7 +767,7 @@ test("llama.cpp's old `error:` frame is caught as a first-event error and recove
   });
   const history: ChatRequest['messages'] = [{ role: 'system', content: 's' }, { role: 'user', content: 'goal' }];
   for (let i = 0; i < 8; i++) history.push({ role: 'assistant', content: 'a'.repeat(800) }, { role: 'user', content: 'u' });
-  await withProxy(up, shrinkingEngine(cfg, counter), async (f) => {
+  await withProxy(t, up, shrinkingEngine(cfg, counter), async (f) => {
     const r = await request(f.port, { body: { model: 'm1', messages: history, max_tokens: 500, stream: true } });
     assert.equal(r.status, 200);
     assert.equal(r.text(), chunk('ok', 'stop') + DONE);
@@ -775,7 +780,7 @@ test("llama.cpp's old `error:` frame is caught as a first-event error and recove
   }, { counter, config: cfgOver });
 });
 
-test('hold disabled: headers are committed at once; errors.inStream=false relays a first-event error unchanged', async () => {
+test('hold disabled: headers are committed at once; errors.inStream=false relays a first-event error unchanged', async (t) => {
   const errEv = SSE_OVERFLOW(9000, 8000);
   const up = await fakeUpstream(async (_h, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -783,7 +788,7 @@ test('hold disabled: headers are committed at once; errors.inStream=false relays
     await sleep(200);
     res.end(errEv + DONE);
   });
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     const r = await request(f.port, { body: chatBody('x', { stream: true }) });
     assert.ok(r.headerMs < 150, `committed at the upstream headers (${r.headerMs.toFixed(0)} ms)`);
     assert.equal(r.text(), errEv + DONE);
@@ -791,16 +796,16 @@ test('hold disabled: headers are committed at once; errors.inStream=false relays
   }, { config: { stream: { holdFirstEvent: false }, errors: { inStream: false } } });
 });
 
-test('probe() records the upstream check in /status', async () => {
+test('probe() records the upstream check in /status', async (t) => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, { data: [] }));
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     assert.deepEqual(await f.proxy.probe(), { ok: true, status: 200 });
     const s = await request(f.port, { method: 'GET', path: '/status' });
     assert.equal(s.json().upstream.probe.ok, true);
   });
 });
 
-test('chat diagnostics: JSON and SSE headers, content-free logs, last compaction and a bounded history', async () => {
+test('chat diagnostics: JSON and SSE headers, content-free logs, last compaction and a bounded history', async (t) => {
   const logs: string[] = [];
   const up = await fakeUpstream((hit, res) => {
     if (JSON.parse(hit.body.toString()).stream) sseRes(res, [chunk('ok', 'stop'), DONE]);
@@ -809,7 +814,7 @@ test('chat diagnostics: JSON and SSE headers, content-free logs, last compaction
   const engine = new FakeEngine((req) => result(req, { ...req, messages: req.messages.slice(-1) }, true, {
     tokensIn: 50, tokensOut: 10, budget: { trigger: 61_000, budget: 67_000, target: 40_000 },
   }));
-  await withProxy(up, engine, async (f) => {
+  await withProxy(t, up, engine, async (f) => {
     for (let i = 0; i < 66; i++) {
       const r = await request(f.port, { body: chatBody('PRIVATE-PROMPT', { model: `m${i}`, stream: i === 0 }) });
       assert.equal(r.headers['x-kitzur-action'], 'compact');
@@ -829,9 +834,9 @@ test('chat diagnostics: JSON and SSE headers, content-free logs, last compaction
   }, { log: (level, msg) => logs.push(`${level} ${msg}`) });
 });
 
-test('chat diagnostics: passthrough, refusal and unparseable requests', async () => {
+test('chat diagnostics: passthrough, refusal and unparseable requests', async (t) => {
   const up = await fakeUpstream((_hit, res) => jsonRes(res, 200, okCompletion()));
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     const r = await request(f.port, { body: chatBody('hi') });
     assert.equal(r.headers['x-kitzur-action'], 'passthrough');
     assert.match(String(r.headers['x-kitzur-tokens']), /^\d+\/\d+\/\d+$/);
@@ -841,7 +846,7 @@ test('chat diagnostics: passthrough, refusal and unparseable requests', async ()
   });
   const up2 = await fakeUpstream((_hit, res) => jsonRes(res, 200, okCompletion()));
   const engine = new FakeEngine((req) => result(req, null, false, { action: 'impossible', error: { status: 400, body: '{}' } }));
-  await withProxy(up2, engine, async (f) => {
+  await withProxy(t, up2, engine, async (f) => {
     const r = await request(f.port, { body: chatBody('hi') });
     assert.equal(r.status, 400);
     assert.equal(r.headers['x-kitzur-action'], 'refuse');
@@ -849,17 +854,17 @@ test('chat diagnostics: passthrough, refusal and unparseable requests', async ()
   });
 });
 
-test('chat diagnostics: local x-kitzur-* headers win over upstream ones on error relays and fail-open passthroughs', async () => {
+test('chat diagnostics: local x-kitzur-* headers win over upstream ones on error relays and fail-open passthroughs', async (t) => {
   const spoof = { 'X-Kitzur-Action': 'spoofed', 'X-Kitzur-Tokens': 'spoofed' };
   const up = await fakeUpstream((_hit, res) => jsonRes(res, 400, { error: { message: 'bad request' } }, spoof));
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     const r = await request(f.port, { body: chatBody('hi') });
     assert.equal(r.status, 400);
     assert.equal(r.headers['x-kitzur-action'], 'passthrough');
     assert.match(String(r.headers['x-kitzur-tokens']), /^\d+\/\d+\/\d+$/);
   });
   const up2 = await fakeUpstream((_hit, res) => jsonRes(res, 200, okCompletion(), spoof));
-  await withProxy(up2, passthroughEngine(), async (f) => {
+  await withProxy(t, up2, passthroughEngine(), async (f) => {
     const r = await request(f.port, { body: '{' });
     assert.equal(r.status, 200);
     assert.equal(r.headers['x-kitzur-action'], 'passthrough');
@@ -867,12 +872,12 @@ test('chat diagnostics: local x-kitzur-* headers win over upstream ones on error
   });
 });
 
-test('the proxy leaves environment fault injection to the engine', async () => {
+test('the proxy leaves environment fault injection to the engine', async (t) => {
   const previous = process.env['KITZUR_TEST_FAULTS'];
   process.env['KITZUR_TEST_FAULTS'] = 'engine-throw:1:42';
   try {
     const up = await fakeUpstream((_h, res) => jsonRes(res, 200, okCompletion()));
-    await withProxy(up, passthroughEngine(), async (f) => {
+    await withProxy(t, up, passthroughEngine(), async (f) => {
       await request(f.port, { body: chatBody('small') });
       const records = await waitRecords(f, 1);
       assert.notEqual(records[0]!.action, 'guard_fallback');
@@ -883,10 +888,10 @@ test('the proxy leaves environment fault injection to the engine', async () => {
   }
 });
 
-test('auto window: window_auto_fallback warns once per new model and remembers at most 100 model ids', async () => {
+test('auto window: window_auto_fallback warns once per new model and remembers at most 100 model ids', async (t) => {
   const log: string[] = [];
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, okCompletion()));
-  await withProxy(up, passthroughEngine(), async (f) => {
+  await withProxy(t, up, passthroughEngine(), async (f) => {
     enableAutoWindow(f.cfg, f.cfg.budget.window);
     const warned = () => log.filter((s) => s.startsWith('No context window discovered for model')).length;
     const send = async (model: string) => assert.equal((await request(f.port, { body: { model, messages: [{ role: 'user', content: 'hi' }], max_tokens: 10 } })).status, 200);
