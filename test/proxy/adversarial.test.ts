@@ -1,7 +1,7 @@
 // Adversarial tests written by the regression verifier: they try to break the proxy's invariants with
 // inputs earlier tests did not cover (unsafe integers on retries, shadow transparency, slow
 // upstream headers vs the keep-alive idle timer, number formatting at every boundary, ...).
-import { test } from 'node:test';
+import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { FakeEngine, result } from './fake-engine.js';
 import {
@@ -12,8 +12,8 @@ import { Upstream, readBody } from '../../src/proxy/upstream.js';
 import { CLIENT_RETRY_RUNS, contextLengthExceededBody, formatK, inStreamOverflowEvents } from '../../src/dialect/openai-chat.js';
 import { overflowMessage, refuseMessage } from '../../src/proxy/recovery.js';
 
-async function withProxy(up: FakeUpstream, engine: FakeEngine, fn: (f: ProxyFixture) => Promise<void>, opts: Parameters<typeof startProxy>[2] = {}): Promise<void> {
-  const f = await startProxy(up, engine, opts);
+async function withProxy(t: TestContext, up: FakeUpstream, engine: FakeEngine, fn: (f: ProxyFixture) => Promise<void>, opts: Parameters<typeof startProxy>[3] = {}): Promise<void> {
+  const f = await startProxy(t, up, engine, opts);
   try {
     await fn(f);
   } finally {
@@ -31,10 +31,10 @@ const VLLM_OVERFLOW = {
 
 // ---------------------------------------------------------------- : unsafe integers are never re-serialized
 
-test(': an unsafe-integer body is not rewritten on a retry after an upstream overflow', async () => {
+test(': an unsafe-integer body is not rewritten on a retry after an upstream overflow', async (t) => {
   const up = await fakeUpstream((hit, res) => (hit.n === 1 ? jsonRes(res, 400, VLLM_OVERFLOW) : jsonRes(res, 200, okCompletion())));
   const engine = new FakeEngine((req) => result(req, { ...req, messages: req.messages.slice(-1) }, true));
-  await withProxy(up, engine, async (f) => {
+  await withProxy(t, up, engine, async (f) => {
     const raw = '{"model":"m1","seed":12345678901234567890,"messages":[{"role":"system","content":"s"},{"role":"user","content":"u"}],"max_tokens":1000}';
     const r = await request(f.port, { body: raw });
     for (const h of up.hits) assert.equal(h.body.toString(), raw, `upstream hit ${h.n} carries a re-serialized body`);
@@ -43,10 +43,10 @@ test(': an unsafe-integer body is not rewritten on a retry after an upstream ove
   });
 });
 
-test(': include_usage is not injected into an unsafe-integer body (that would re-serialize it)', async () => {
+test(': include_usage is not injected into an unsafe-integer body (that would re-serialize it)', async (t) => {
   const up = await fakeUpstream((_h, res) => sseRes(res, [chunk('hi', 'stop'), DONE]));
   const engine = new FakeEngine((req) => result(req, req, false));
-  await withProxy(up, engine, async (f) => {
+  await withProxy(t, up, engine, async (f) => {
     const raw = '{"model":"m1","seed":12345678901234567890,"stream":true,"messages":[{"role":"system","content":"s"},{"role":"user","content":"u"}]}';
     const r = await request(f.port, { body: raw });
     assert.equal(r.status, 200);
@@ -54,10 +54,10 @@ test(': include_usage is not injected into an unsafe-integer body (that would re
   }, { config: { stream: { injectIncludeUsage: true } } });
 });
 
-test('shadow mode forwards the original bytes even for an unsafe-integer body that does not fit', async () => {
+test('shadow mode forwards the original bytes even for an unsafe-integer body that does not fit', async (t) => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, okCompletion()));
   const engine = new FakeEngine((req) => result(req, req, false));
-  await withProxy(up, engine, async (f) => {
+  await withProxy(t, up, engine, async (f) => {
     const raw = `{"model":"m1","seed":12345678901234567890,"messages":[{"role":"user","content":"${'x'.repeat(60_000)}"}],"max_tokens":1000}`;
     const r = await request(f.port, { body: raw });
     assert.equal(up.hits.length, 1, 'shadow mode never refuses by itself');
@@ -125,10 +125,10 @@ test('generated overflow bodies never match the retry pattern, for any numbers',
 
 // ---------------------------------------------------------------- batch 2: framing and routing probes
 
-test('absolute-form request targets are refused: a client-chosen authority never reaches the upstream', async () => {
+test('absolute-form request targets are refused: a client-chosen authority never reaches the upstream', async (t) => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, { data: [] }));
   const engine = new FakeEngine((req) => result(req, req, false));
-  await withProxy(up, engine, async (f) => {
+  await withProxy(t, up, engine, async (f) => {
     for (const line of ['GET http://evil.example/v1/models HTTP/1.1', 'POST http://evil.example/v1/chat/completions HTTP/1.1']) {
       const out = await rawRequest(f.port, `${line}\r\nHost: 127.0.0.1\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}`);
       assert.match(out.split('\r\n')[0]!, /^HTTP\/1\.1 400 /);
@@ -140,7 +140,7 @@ test('absolute-form request targets are refused: a client-chosen authority never
   });
 });
 
-test('a first-event error on a stream the upstream never ends is recovered within the 2 s tail bound', async () => {
+test('a first-event error on a stream the upstream never ends is recovered within the 2 s tail bound', async (t) => {
   const up = await fakeUpstream(async (hit, res) => {
     if (hit.n === 1) {
       res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -150,7 +150,7 @@ test('a first-event error on a stream the upstream never ends is recovered withi
     await sseRes(res, [chunk('ok', 'stop'), DONE]);
   });
   const engine = new FakeEngine((req, o) => (o.attempt === 1 ? result(req, req, false) : result(req, { ...req, messages: req.messages.slice(0, 1) }, true)));
-  await withProxy(up, engine, async (f) => {
+  await withProxy(t, up, engine, async (f) => {
     const t0 = performance.now();
     const r = await request(f.port, { body: { model: 'm1', messages: [{ role: 'system', content: 's' }, { role: 'user', content: 'x'.repeat(4000) }], max_tokens: 100, stream: true } });
     const ms = performance.now() - t0;
@@ -161,7 +161,7 @@ test('a first-event error on a stream the upstream never ends is recovered withi
   });
 });
 
-test('hold timeout, then a first-event overflow, then a successful retry: one status line, comments, retry events', async () => {
+test('hold timeout, then a first-event overflow, then a successful retry: one status line, comments, retry events', async (t) => {
   const up = await fakeUpstream(async (hit, res) => {
     if (hit.n === 1) {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'x-attempt': '1' });
@@ -174,7 +174,7 @@ test('hold timeout, then a first-event overflow, then a successful retry: one st
     await sseRes(res, [': p2\n\n', chunk('ok', 'stop'), DONE], { headers: { 'x-attempt': '2' } });
   });
   const engine = new FakeEngine((req, o) => (o.attempt === 1 ? result(req, req, false) : result(req, { ...req, messages: req.messages.slice(0, 1) }, true)));
-  await withProxy(up, engine, async (f) => {
+  await withProxy(t, up, engine, async (f) => {
     const r = await request(f.port, { body: { model: 'm1', messages: [{ role: 'system', content: 's' }, { role: 'user', content: 'x'.repeat(4000) }], max_tokens: 100, stream: true } });
     assert.equal(r.status, 200);
     assert.equal(r.headers['x-attempt'], '1');
@@ -184,12 +184,12 @@ test('hold timeout, then a first-event overflow, then a successful retry: one st
 
 // ---------------------------------------------------------------- learning at the last attempt
 
-test('the last attempt\'s rejection still teaches: with maxRetries 0 a validated window is learned (and persisted)', async () => {
+test('the last attempt\'s rejection still teaches: with maxRetries 0 a validated window is learned (and persisted)', async (t) => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 400, {
     error: { message: "This model's maximum context length is 60000 tokens. However, your request has 400 input tokens. Please reduce the length of the input messages.", code: 400 },
   }));
   const engine = new FakeEngine((req) => result(req, req, false));
-  await withProxy(up, engine, async (f) => {
+  await withProxy(t, up, engine, async (f) => {
     const body = { model: 'm1', messages: [{ role: 'system', content: 's' }, { role: 'user', content: 'x'.repeat(1560) }], max_tokens: 100 };
     const r = await request(f.port, { body });
     assert.equal(r.status, 400);
@@ -204,7 +204,7 @@ test('the last attempt\'s rejection still teaches: with maxRetries 0 a validated
   }, { config: { errors: { maxRetries: 0 } } });
 });
 
-test(' at the ladder level: every error kind on an unsafe-integer body sends exactly one (original) request', async () => {
+test(' at the ladder level: every error kind on an unsafe-integer body sends exactly one (original) request', async (t) => {
   const bodies: Array<[number, unknown]> = [
     [400, VLLM_OVERFLOW],
     [400, { error: { message: 'max_tokens=40000 cannot be greater than max_model_len=90000.', code: 400 } }],
@@ -215,7 +215,7 @@ test(' at the ladder level: every error kind on an unsafe-integer body sends exa
   for (const [status, b] of bodies) {
     const up = await fakeUpstream((hit, res) => (hit.n === 1 ? jsonRes(res, status, b) : jsonRes(res, 200, okCompletion())));
     const engine = new FakeEngine((req) => result(req, { ...req, messages: req.messages.slice(-1) }, true));
-    await withProxy(up, engine, async (f) => {
+    await withProxy(t, up, engine, async (f) => {
       const raw = `{"model":"m1","seed":-98765432109876543210,"messages":[{"role":"system","content":"s"},{"role":"user","content":"${'u'.repeat(20_000)}"}],"max_tokens":1000,"stream":true}`;
       await request(f.port, { body: raw });
       assert.equal(up.hits.length, 1, `status ${status}: retried`);
@@ -358,7 +358,7 @@ test('vLLM fuzz fixture fits initially but its required head exceeds the learned
   assert.equal(engine.process(req, { attempt: 2, learned: learned.entry }).action, 'impossible');
 });
 
-test('HTTP fuzz: client-visible invariants of the ladder over random server styles, stream timings and configs', async () => {
+test('HTTP fuzz: client-visible invariants of the ladder over random server styles, stream timings and configs', async (t) => {
   const { shrinkingEngine } = await import('./fake-engine.js');
   const { bodyTokens, charCounter, usageChunk } = await import('./harness.js');
   const { ErrorClassifier } = await import('../../src/proxy/errors.js');
@@ -433,7 +433,7 @@ test('HTTP fuzz: client-visible invariants of the ladder over random server styl
     const body = { model: 'm1', messages: hist, max_tokens: 500, stream, ...(clientUsage ? { stream_options: { include_usage: true } } : {}) };
     const raw = JSON.stringify(body);
     const engine = shrinkingEngine(cfg, counter);
-    const f = await startProxy(up, engine, { counter, config: cfgOver });
+    const f = await startProxy(t, up, engine, { counter, config: cfgOver });
     try {
       const r = await request(f.port, { body: raw });
       const tag = `trial ${trial} style ${style} retries ${maxRetries} hold ${hold} inject ${inject} clientUsage ${clientUsage} stream ${stream} hits ${up.hits.length} status ${r.status}`;

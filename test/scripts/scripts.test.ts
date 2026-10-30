@@ -16,6 +16,19 @@ test('run-tests.mjs ends with a passed/failed/skipped totals line', () => {
   assert.match(res.stdout.trimEnd().split('\n').at(-1) ?? '', /^tests: 1 passed, 1 failed, 1 skipped$/);
 });
 
+test('run-tests.mjs fails a run that leaves a tagged kitzur-proxy-test-* dir behind, and removes it', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-run-tests-'));
+  writeFileSync(join(dir, 'a.test.js'), "const { test } = require('node:test');\nconst { mkdtempSync } = require('node:fs');\n"
+    + "const { join } = require('node:path');\nconst { tmpdir } = require('node:os');\n"
+    + "test('leaks', () => { mkdtempSync(join(tmpdir(), `kitzur-proxy-test-${process.env.KITZUR_TEST_RUN}-`)); });\n");
+  const { NODE_TEST_CONTEXT: _, ...env } = process.env;
+  const res = spawnSync(process.execPath, [join(ROOT, 'scripts', 'run-tests.mjs'), dir, '--test-reporter=dot'], { encoding: 'utf8', env });
+  assert.equal(res.status, 1);
+  const left = /\(removed\): (\S+)/.exec(res.stderr)?.[1];
+  assert.ok(left, res.stderr);
+  assert.equal(readdirSync(tmpdir()).includes(left), false);
+});
+
 test('fetch-tokenizer.sh explains a failed download and never leaves a partial file', { skip: process.platform === 'win32' }, () => {
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-fetch-'));
   mkdirSync(join(dir, 'scripts'));

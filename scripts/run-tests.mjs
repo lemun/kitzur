@@ -25,11 +25,16 @@ const dests = flags.some((a) => a.startsWith('--test-reporter-destination')) ? [
   : [...reporters.filter((a) => !flags.includes(a)), ...reporters.map(() => '--test-reporter-destination=stdout')];
 const tap = join(mkdtempSync(join(tmpdir(), 'kitzur-tests-')), 'run.tap');
 const own = ['--test-reporter=tap', `--test-reporter-destination=${tap}`];
-const res = spawnSync(process.execPath, ['--test', ...flags, ...dests, ...own, ...files], { stdio: 'inherit' });
+// Proxy fixtures tag their temp dirs with this run id; any left behind after the run fail it.
+const run = `r${process.pid}x${Date.now().toString(36)}`;
+const res = spawnSync(process.execPath, ['--test', ...flags, ...dests, ...own, ...files], { stdio: 'inherit', env: { ...process.env, KITZUR_TEST_RUN: run } });
+const leaked = readdirSync(tmpdir()).filter((n) => n.startsWith(`kitzur-proxy-test-${run}-`));
+for (const n of leaked) rmSync(join(tmpdir(), n), { recursive: true, force: true });
+if (leaked.length) console.error(`tests left ${leaked.length} kitzur-proxy-test-* dir(s) in ${tmpdir()} (removed): ${leaked.join(' ')}`);
 try {
   const summary = readFileSync(tap, 'utf8');
   const count = (k) => summary.match(new RegExp(`^# ${k} (\\d+)$`, 'm'))?.[1] ?? '?';
   console.log(`\ntests: ${count('pass')} passed, ${count('fail')} failed, ${count('skipped')} skipped`);
 } catch {}
 rmSync(join(tap, '..'), { recursive: true, force: true });
-process.exit(res.status ?? 1);
+process.exit(leaked.length ? 1 : res.status ?? 1);

@@ -4,9 +4,9 @@ import { fakeUpstream, startProxy, request, chatBody, jsonRes } from './harness.
 import { FakeEngine, result } from './fake-engine.js';
 
 for (const mode of ['chat', 'shadow', 'passthrough'] as const) {
-  test(`${mode}: oversized error keeps a bounded upstream prefix and truncation marker`, async () => {
+  test(`${mode}: oversized error keeps a bounded upstream prefix and truncation marker`, async (t) => {
     const up = await fakeUpstream((_hit, res) => jsonRes(res, 503, { error: 'x'.repeat(2 * 1024 * 1024) }));
-    const f = await startProxy(up, new FakeEngine((req) => result(req, req, false)), { config: { shadow: mode === 'shadow' } });
+    const f = await startProxy(t, up, new FakeEngine((req) => result(req, req, false)), { config: { shadow: mode === 'shadow' } });
     try {
       const r = await request(f.port, { path: mode === 'passthrough' ? '/other' : '/v1/chat/completions', body: chatBody() });
       assert.equal(r.status, 503);
@@ -71,10 +71,10 @@ test('reader: client abort during read resolves and cleans up', async () => {
 });
 
 for (const mode of ['chat', 'shadow', 'passthrough'] as const) {
-  test(`${mode}: normal 4xx/5xx bodies relay unchanged`, async () => {
+  test(`${mode}: normal 4xx/5xx bodies relay unchanged`, async (t) => {
     const body = '{"error":{"message":"denied"}}';
     const up = await fakeUpstream((_hit, res) => jsonRes(res, 403, body));
-    const f = await startProxy(up, new FakeEngine((req) => result(req, req, false)), { config: { shadow: mode === 'shadow' } });
+    const f = await startProxy(t, up, new FakeEngine((req) => result(req, req, false)), { config: { shadow: mode === 'shadow' } });
     try {
       for (const status of [403, 503]) {
         up.responder = (_hit, res) => jsonRes(res, status, body);
@@ -85,7 +85,7 @@ for (const mode of ['chat', 'shadow', 'passthrough'] as const) {
     } finally { await f.close(); await up.close(); }
   });
 
-  test(`${mode}: slow-drip error preserves status, returns generic JSON and warns`, async () => {
+  test(`${mode}: slow-drip error preserves status, returns generic JSON and warns`, async (t) => {
     const logs: string[] = [];
     const up = await fakeUpstream((_hit, res) => {
       res.writeHead(503, { 'content-type': 'application/json' });
@@ -93,7 +93,7 @@ for (const mode of ['chat', 'shadow', 'passthrough'] as const) {
       const timer = setInterval(() => res.write(' '), 20);
       res.once('close', () => clearInterval(timer));
     });
-    const f = await startProxy(up, new FakeEngine((req) => result(req, req, false)), {
+    const f = await startProxy(t, up, new FakeEngine((req) => result(req, req, false)), {
       config: { shadow: mode === 'shadow', upstream: { idleTimeoutMs: 1000 } },
       log: (level, message) => { if (level === 'warn') logs.push(message); },
     });

@@ -4,9 +4,10 @@ import http from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
 import net from 'node:net';
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { TestContext } from 'node:test';
 import { DEFAULT_CONFIG, type Config } from '../../src/config/schema.js';
 import type { ChatRequest, Measure, TokenCounter } from '../../src/types.js';
 import { createProxyServer, type ProxyServer } from '../../src/proxy/server.js';
@@ -194,8 +195,12 @@ export interface FixtureOptions {
   stateDir?: string;
 }
 
-export async function startProxy(up: FakeUpstream | string, engine: FakeEngine, o: FixtureOptions = {}): Promise<ProxyFixture> {
-  const stateDir = o.stateDir ?? mkdtempSync(join(tmpdir(), 'kitzur-proxy-test-'));
+/** Starts a proxy on a fresh temp state dir (unless `o.stateDir`) that `t` removes when the test ends. */
+export async function startProxy(t: Pick<TestContext, 'after'>, up: FakeUpstream | string, engine: FakeEngine, o: FixtureOptions = {}): Promise<ProxyFixture> {
+  // KITZUR_TEST_RUN (set by scripts/run-tests.mjs) tags the dir so the runner can find leftovers of its own run.
+  const run = process.env.KITZUR_TEST_RUN;
+  const stateDir = o.stateDir ?? mkdtempSync(join(tmpdir(), `kitzur-proxy-test-${run ? `${run}-` : ''}`));
+  if (!o.stateDir) t.after(() => rmSync(stateDir, { recursive: true, force: true }));
   const statsPath = join(stateDir, 'stats.jsonl');
   const origin = typeof up === 'string' ? up : up.origin;
   const cfg = testConfig(merge<DeepPartial<Config>>({ upstream: { origin }, stateDir, stats: { path: statsPath } }, o.config));
