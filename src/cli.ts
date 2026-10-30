@@ -24,6 +24,7 @@ import { cmdConfig } from './cli/commands/config.js';
 import { cmdState } from './cli/commands/state.js';
 import { cmdBench } from './cli/commands/bench.js';
 import { cmdRedact } from './cli/commands/redact.js';
+import { cmdAutostart } from './cli/commands/autostart.js';
 
 // ---------------------------------------------------------------- main
 
@@ -51,6 +52,8 @@ export async function main(argv: readonly string[], io: CliIO = defaultIO()): Pr
         return 0;
       case 'serve':
         return await cmdServe(rest, io);
+      case 'autostart':
+        return await cmdAutostart(rest, io);
       case 'replay':
         return await cmdReplay(rest, io);
       case 'count':

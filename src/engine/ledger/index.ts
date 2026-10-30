@@ -109,6 +109,9 @@ const CLOSED = new Set(['completed', 'complete', 'done', 'cancelled', 'canceled'
 const VALUE_MAX_CHARS = 300;
 /** A path / URL / title from a tool call or result on one bounded summary line. */
 const shown = (s: string): string => oneLine(capHeadTail(s, VALUE_MAX_CHARS));
+/** A tool result reads as an error (a "0 failed" style tally does not count). */
+const isErrorText = (s: string): boolean =>
+  /\b(?:error|errors|exception|traceback|fatal|failed|failure|failures)\b/i.test(s.replace(/\b0 (?:errors?|failed|failures?)\b/gi, ''));
 
 /**
  * Builds the ledger items of [hEnd, cut) evaluated over H[0..b) (b = messages.length). `facts` supplies the
@@ -238,7 +241,49 @@ export function buildLedger(input: LedgerInput, cfg: Config, extractor: Extracto
     push({ id: `g:${c.at}:${f.ord}`, sources: [callSource(c), ...(c.resultIndex === undefined ? [] : [resultSource({ at: c.resultIndex, ref: c })])], category: 'toolLog', section: 'log', index: c.at, rank: [-c.at, f.ord], pos: [c.at, f.ord], line: `- #${c.at} ${oneLine(f.name) || '(unnamed)'}${args} → ${res}` });
   }
 
-  if (!on) return { items };
+  // ------------------------------------------------------------ within-category ranking signals (ledger.ranking)
+  // Off: ranks stay as assigned above. On: every non-user item's rank is prefixed with, in order,
+  //   [duplicate (an earlier copy of a later identical item: 1), error result (0 = yes), -later references, -index]
+  // so a category keeps its errors, its most referenced and its newest items longest. Categories (and with them the
+  // floor) and items (a call and its result are one tool-log item) are unchanged; only the order inside a category moves.
+  const finish = (): Ledger => {
+    if (!cfg.ledger.ranking) return { items };
+    const errAt = new Set<number>();
+    for (const r of results) if (isErrorText(r.f.condensed) || (r.f.tally !== null && isErrorText(r.f.tally))) errAt.add(r.at);
+    // a reference: a call naming the path in its args, or a result mentioning it (at its call's message)
+    const refs = new PathIndex<{ path: string; at: number }>();
+    for (const c of calls) for (const fa of c.facts.files) refs.add(fa.path, { path: fa.path, at: c.at });
+    for (const r of results) for (const p of r.f.paths) refs.add(p, { path: p, at: resultAt(r) });
+    const callAt = new Map(calls.map((c) => [`g:${c.at}:${c.facts.ord}`, c]));
+    const keysOf = (it: LedgerItem): string[] => {
+      if (it.category === 'toolLog') return callAt.get(it.id)?.facts.files.map((f) => f.path) ?? [];
+      return it.id.startsWith('f:') || it.id.startsWith('p:') ? [it.id.slice(2)] : [];
+    };
+    const dupKey = (it: LedgerItem): string => {
+      const c = it.category === 'toolLog' ? callAt.get(it.id) : undefined;
+      return c ? `g|${c.facts.name}|${c.facts.keyArgs}` : `${it.category}|${it.line.replace(/#\d+/g, '#')}`;
+    };
+    // the latest copy by message index, then position inside the message (copies within one assistant message)
+    const at = (it: LedgerItem): number[] => [it.index, ...it.pos];
+    const latest = new Map<string, number[]>();
+    for (const it of items) {
+      if (it.category === 'user') continue;
+      const prev = latest.get(dupKey(it));
+      if (!prev || cmpArr(at(it), prev) > 0) latest.set(dupKey(it), at(it));
+    }
+    for (const it of items) {
+      if (it.category === 'user') continue;
+      const dup = cmpArr(at(it), latest.get(dupKey(it))!) < 0 ? 1 : 0;
+      const err = it.sources.some((s) => s.kind === 'tool-result' && errAt.has(s.messageIndex)) ? 0 : 1;
+      // distinct later messages that reference one of the item's paths
+      const later = new Set<number>();
+      for (const p of keysOf(it)) for (const r of refs.near(p)) if (r.at > it.index && samePath(r.path, p)) later.add(r.at);
+      it.rank = [dup, err, -later.size, -it.index, ...it.rank];
+    }
+    return { items };
+  };
+
+  if (!on) return finish();
 
   // ------------------------------------------------------------ todo state (latest todo-tool call wins)
   let todoCall: CallRef | null = null;
@@ -427,5 +472,5 @@ export function buildLedger(input: LedgerInput, cfg: Config, extractor: Extracto
     push({ id: 'test-last', sources: [resultSource(lastTest.r)], category: 'rest', section: 'test', index: lastTest.at, rank: [0, -lastTest.at, 1, 0], pos: [lastTest.at], line: `- #${lastTest.at} ${what} → ${lastTest.r.f.tally ?? '(no tally line)'}` });
   }
 
-  return { items };
+  return finish();
 }

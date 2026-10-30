@@ -2,6 +2,7 @@
 
 export const USAGE = `usage: kitzur <command> [options]
 
+  autostart install|remove|status|run [--config FILE]  per-user Windows login startup
   serve                         run the proxy (logs the bound address to a file)
   replay <file|dir>...          run captured request bodies through the engine offline; sizes only,
                                 plus a live-vs-fresh determinism check; --explain shows content-free retention outcomes
@@ -35,7 +36,7 @@ Precedence: defaults < preset < config file < KITZUR_* env < command line. Every
 `;
 
 /** Commands that answer --help / -h with their usage (bench forwards help flags to the suite only after `--`). */
-export const HELP_COMMANDS = new Set(['serve', 'replay', 'count', 'status', 'doctor', 'tls-probe', 'report', 'config', 'state', 'bench', 'redact', 'version']);
+export const HELP_COMMANDS = new Set(['autostart', 'serve', 'replay', 'count', 'status', 'doctor', 'tls-probe', 'report', 'config', 'state', 'bench', 'redact', 'version']);
 
 /** Commands that read no config, so their usage leaves out the config options. */
 export const NO_CONFIG_COMMANDS = new Set(['report', 'bench', 'redact', 'version']);

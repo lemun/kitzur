@@ -109,7 +109,10 @@ and incomplete streams. Learned state is persisted before requests use it.
 ## State, scope and limitations
 
 Plan persistence is optional and contains user content. Default disk state holds
-learned limits and tokenizer caches. The listener checks Host headers and forwards
+learned limits and tokenizer caches. Truncated, unreadable or newer-version plan
+records are skipped, counted and logged as a warning, never reused, and the damaged
+file stays in place.
+The listener checks Host headers and forwards
 to one configured upstream. See [SECURITY.md](SECURITY.md).
 
 This release supports Chat Completions, not Responses or Anthropic Messages.

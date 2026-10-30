@@ -71,7 +71,7 @@ export interface AppModules {
   createSummarizer(config: Config, counter: Counter): Summarizer;
   createToolRules(config: Config): ToolRules;
   /** the memo store (with the file persistence when store.persist) */
-  createStore(config: Config, stateDir: string): PlanStore | Promise<PlanStore>;
+  createStore(config: Config, stateDir: string, log?: Logger): PlanStore | Promise<PlanStore>;
   createState(config: Config, stateDir: string, counterId: string): StateStore;
   createStats(config: Config): StatsWriter;
   createProxyServer(config: Config, deps: ProxyDeps): ProxyServer;
@@ -103,7 +103,7 @@ export async function loadModules(need: { proxy: boolean }): Promise<AppModules>
   const createToolRules = await importExport<AppModules['createToolRules']>('./engine/rules/index.js', 'createToolRules');
   type StoreCtor = new (o: { maxPlans: number; maxBytes: number; persistence?: unknown }) => PlanStore;
   const MemoryPlanStore = await importExport<StoreCtor>('./engine/store.js', 'MemoryPlanStore');
-  const createStore = async (config: Config, stateDir: string): Promise<PlanStore> => {
+  const createStore = async (config: Config, stateDir: string, log?: Logger): Promise<PlanStore> => {
     let persistence: unknown = null;
     if (config.store.persist) {
       const dir = join(stateDir, 'plans');
@@ -115,7 +115,9 @@ export async function loadModules(need: { proxy: boolean }): Promise<AppModules>
       } catch {
         /* persistence is best effort (store-file.ts ignores I/O errors too) */
       }
-      persistence = (await importExport<(o: { dir: string; maxBytes: number; retentionDays: number }) => unknown>('./engine/store-file.js', 'createFilePersistence'))({ dir, maxBytes: config.store.maxBytes, retentionDays: config.store.retentionDays });
+      type FilePersistenceCtor = (o: { dir: string; maxBytes: number; retentionDays: number; warn?: (msg: string) => void }) => unknown;
+      const warn = log ? (msg: string) => log.warn(msg) : undefined;
+      persistence = (await importExport<FilePersistenceCtor>('./engine/store-file.js', 'createFilePersistence'))({ dir, maxBytes: config.store.maxBytes, retentionDays: config.store.retentionDays, warn });
     }
     return new MemoryPlanStore({ maxPlans: config.store.maxPlans, maxBytes: config.store.maxBytes, persistence });
   };
@@ -216,7 +218,7 @@ export async function buildEngine(
   const modules = opts.modules ?? (await loadModules({ proxy: false }));
   const stateDir = stateDirOf(config, opts.env);
   const cs = opts.counter ?? setupCounter(config, { stateDir, log: opts.log });
-  const store = await modules.createStore(config, stateDir);
+  const store = await modules.createStore(config, stateDir, opts.log);
   const summarizer = modules.createSummarizer(config, cs.counter);
   const rules = modules.createToolRules(config);
   const engine = modules.createEngine(config, { counter: cs.counter, summarizer, rules, store, tokenizerSha256: cs.tokenizer?.sha256 ?? null });
