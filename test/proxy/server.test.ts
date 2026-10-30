@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { readFileSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ChatRequest } from '../../src/types.js';
 import { readLearnedState, learnedKey } from '../../src/proxy/state.js';
@@ -701,9 +701,10 @@ test('calibration from the tokenize endpoint when no usage comes back (a calibra
   }, { counter: c2, remote, config: { calibration: { minSamples: 3, minCountedTokens: 1000 } } });
 });
 
-test('graceful close drains an in-flight stream, then flushes state and stats', async () => {
+test('graceful close drains an in-flight stream, then flushes state and stats', async (t) => {
   const up = await fakeUpstream(async (_h, res) => sseRes(res, [chunk('a'), chunk('b'), chunk('', 'stop'), DONE], { delayMs: 100 }));
   const f = await startProxy(up, passthroughEngine());
+  t.after(() => rmSync(f.stateDir, { recursive: true, force: true }));
   try {
     const p = request(f.port, { body: chatBody('x', { stream: true }) });
     await sleep(120);
