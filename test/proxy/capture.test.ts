@@ -11,7 +11,7 @@ function records(path: string): any[] {
   return readFileSync(path, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
 }
 
-test('capture preserves response bytes before parsing, redacts headers, records shape only and expires', async () => {
+test('capture preserves response bytes before parsing, redacts headers, records shape only and expires', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-capture-'));
   const path = join(dir, 'raw.jsonl');
   const pieces = [Buffer.from(': comment\r\n\r\n'), Buffer.from(chunk('héllo')), Buffer.from(DONE), Buffer.from([0xff, 0xc3])];
@@ -22,7 +22,7 @@ test('capture preserves response bytes before parsing, redacts headers, records 
     res.end();
   });
   const logs: string[] = [];
-  const f = await startProxy(up, passthroughEngine(), { config: {
+  const f = await startProxy(t, up, passthroughEngine(), { config: {
     upstream: { headers: { 'X-Private': 'CUSTOM_SECRET' } },
     debug: { capture: { path, requests: 1 } },
   }, log: (_level, msg) => logs.push(msg) });
@@ -53,12 +53,12 @@ test('capture preserves response bytes before parsing, redacts headers, records 
   } finally { await f.close(); await up.close(); rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('maxBytes includes metadata and base64 overhead, ends capture without affecting relay', async () => {
+test('maxBytes includes metadata and base64 overhead, ends capture without affecting relay', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-capture-'));
   const path = join(dir, 'raw.jsonl');
   const payload = chunk('x'.repeat(5000)) + DONE;
   const up = await fakeUpstream(async (_hit, res) => sseRes(res, [payload]));
-  const f = await startProxy(up, passthroughEngine(), { config: { debug: { capture: { path, maxBytes: 1024 } } } });
+  const f = await startProxy(t, up, passthroughEngine(), { config: { debug: { capture: { path, maxBytes: 1024 } } } });
   try {
     assert.equal((await request(f.port, { body: { messages: [], stream: true } })).text(), payload);
     assert.ok(statSync(path).size <= 1024);
