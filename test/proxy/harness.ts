@@ -7,6 +7,7 @@ import net from 'node:net';
 import { mkdtempSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { TestContext } from 'node:test';
 import { DEFAULT_CONFIG, type Config } from '../../src/config/schema.js';
 import type { ChatRequest, Measure, TokenCounter } from '../../src/types.js';
 import { createProxyServer, type ProxyServer } from '../../src/proxy/server.js';
@@ -194,16 +195,12 @@ export interface FixtureOptions {
   stateDir?: string;
 }
 
-// A request still in flight when close() returns can schedule a late learned.json write that
-// recreates the dir, so every dir startProxy made is removed again when the test process exits.
-const ownDirs = new Set<string>();
-process.once('exit', () => { for (const d of ownDirs) rmSync(d, { recursive: true, force: true }); });
-
-export async function startProxy(up: FakeUpstream | string, engine: FakeEngine, o: FixtureOptions = {}): Promise<ProxyFixture> {
+/** Starts a proxy on a fresh temp state dir (unless `o.stateDir`) that `t` removes when the test ends. */
+export async function startProxy(t: Pick<TestContext, 'after'>, up: FakeUpstream | string, engine: FakeEngine, o: FixtureOptions = {}): Promise<ProxyFixture> {
   // KITZUR_TEST_RUN (set by scripts/run-tests.mjs) tags the dir so the runner can find leftovers of its own run.
   const run = process.env.KITZUR_TEST_RUN;
   const stateDir = o.stateDir ?? mkdtempSync(join(tmpdir(), `kitzur-proxy-test-${run ? `${run}-` : ''}`));
-  if (!o.stateDir) ownDirs.add(stateDir);
+  if (!o.stateDir) t.after(() => rmSync(stateDir, { recursive: true, force: true }));
   const statsPath = join(stateDir, 'stats.jsonl');
   const origin = typeof up === 'string' ? up : up.origin;
   const cfg = testConfig(merge<DeepPartial<Config>>({ upstream: { origin }, stateDir, stats: { path: statsPath } }, o.config));
@@ -215,11 +212,7 @@ export async function startProxy(up: FakeUpstream | string, engine: FakeEngine, 
   return {
     proxy, port, url: `http://127.0.0.1:${port}`, cfg, engine, state, stats, stateDir, statsPath, counter,
     records: () => (existsSync(statsPath) ? readFileSync(statsPath, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as ProxyStatsRecord) : []),
-    close: async () => {
-      // proxy.close also closes state and stats, so nothing writes into the dir after it is removed.
-      await proxy.close(2000);
-      if (!o.stateDir) rmSync(stateDir, { recursive: true, force: true });
-    },
+    close: () => proxy.close(2000),
   };
 }
 

@@ -1,7 +1,7 @@
 // Adversarial HTTP tests (second adversary pass on the component): hostile or broken upstreams and
 // clients that the fuzz, the benchmark matrix and the first adversarial batch did not reach. Each test
 // pins a defect that was reproduced against the real proxy and then fixed.
-import { test } from 'node:test';
+import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import net from 'node:net';
 import http from 'node:http';
@@ -25,8 +25,8 @@ import { DEFAULT_CONFIG } from '../../src/config/schema.js';
 import { validateConfig } from '../../src/config/validate.js';
 import { refuseMessage } from '../../src/proxy/recovery.js';
 
-async function withProxy(up: FakeUpstream, engine: FakeEngine, fn: (f: ProxyFixture) => Promise<void>, opts: Parameters<typeof startProxy>[2] = {}): Promise<void> {
-  const f = await startProxy(up, engine, opts);
+async function withProxy(t: TestContext, up: FakeUpstream, engine: FakeEngine, fn: (f: ProxyFixture) => Promise<void>, opts: Parameters<typeof startProxy>[3] = {}): Promise<void> {
+  const f = await startProxy(t, up, engine, opts);
   try {
     await fn(f);
   } finally {
@@ -64,7 +64,7 @@ async function rawUpstream(reply: string): Promise<{ origin: string; close(): Pr
 
 // ---------------------------------------------------------------- upstream protocol
 
-test('an upstream 101 Switching Protocols fails the attempt at once (it used to hang past timeoutMs, forever)', { timeout: 30_000 }, async () => {
+test('an upstream 101 Switching Protocols fails the attempt at once (it used to hang past timeoutMs, forever)', { timeout: 30_000 }, async (t) => {
   const up = await rawUpstream('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\nxx');
   const u = new Upstream({ origin: up.origin, timeoutMs: 60_000, idleTimeoutMs: 60_000, keepAliveIdleMs: 4000, headers: {}, caFile: null, insecureTls: false, maxBodyBytes: null });
   try {
@@ -77,7 +77,7 @@ test('an upstream 101 Switching Protocols fails the attempt at once (it used to 
   }
   // through the proxy: a 502 before any header, and nothing left in flight
   const up2 = await rawUpstream('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n');
-  const f = await startProxy(up2.origin, passthrough());
+  const f = await startProxy(t, up2.origin, passthrough());
   try {
     const r = await request(f.port, { body: chatBody('hi', { stream: true }) });
     assert.equal(r.status, 502);
@@ -117,11 +117,11 @@ test('SSE parser is linear in the line length: a 32 MiB single-line event in 64 
 const ODD_ERR = 'data: {"error":{"message":"weird thing","code":500}}\n\n';
 
 for (const shadow of [false, true]) {
-  test(`an unrecoverable first-event error is relayed unchanged even when the stream runs past the 2 s / 1 MiB tail bound${shadow ? ' (shadow mode)' : ''}`, async () => {
+  test(`an unrecoverable first-event error is relayed unchanged even when the stream runs past the 2 s / 1 MiB tail bound${shadow ? ' (shadow mode)' : ''}`, async (t) => {
     const big = [ODD_ERR, ...Array.from({ length: 40 }, (_, i) => chunk('z'.repeat(60_000) + i)), chunk('e', 'stop'), DONE];
     const slow = [ODD_ERR, chunk('a'), chunk('b'), chunk('c'), chunk('d', 'stop'), DONE];
     const up = await fakeUpstream((hit, res) => (hit.json.messages[1].content === 'big' ? sseRes(res, big) : sseRes(res, slow, { delayMs: 700 })));
-    await withProxy(up, passthrough(), async (f) => {
+    await withProxy(t, up, passthrough(), async (f) => {
       const r1 = await request(f.port, { body: chatBody('big', { stream: true }) });
       assert.equal(r1.status, 200);
       assert.equal(r1.body.length, Buffer.byteLength(big.join('')));
@@ -135,13 +135,13 @@ for (const shadow of [false, true]) {
   });
 }
 
-test('a recoverable first-event overflow on a stream that keeps going past the tail bound: the parked rest is dropped, only the retry reaches the client', async () => {
+test('a recoverable first-event overflow on a stream that keeps going past the tail bound: the parked rest is dropped, only the retry reaches the client', async (t) => {
   const OVER = 'data: {"error":{"message":"This model\'s maximum context length is 90000 tokens. However, you requested 1000 output tokens and your prompt contains 95000 input tokens.","code":400}}\n\n';
   const up = await fakeUpstream((hit, res) =>
     hit.n === 1 ? sseRes(res, [OVER, ...Array.from({ length: 40 }, () => chunk('LEAK'.repeat(15_000)))], { end: false }) : sseRes(res, [chunk('retry', 'stop'), DONE]),
   );
   const engine = new FakeEngine((req, o) => (o.attempt === 1 ? result(req, req, false) : result(req, { ...req, messages: req.messages.slice(-1) }, true)));
-  await withProxy(up, engine, async (f) => {
+  await withProxy(t, up, engine, async (f) => {
     const r = await request(f.port, { body: chatBody('x'.repeat(4000), { stream: true }) });
     assert.equal(r.status, 200);
     assert.equal(r.text(), chunk('retry', 'stop') + DONE);
@@ -156,12 +156,12 @@ test('a recoverable first-event overflow on a stream that keeps going past the t
 
 const deepObject = (n: number): string => '{"a":'.repeat(n) + '1' + '}'.repeat(n);
 
-test('fail open: a pathologically deep tools schema (bytes() overflows the stack) forwards the original instead of a 500', async () => {
+test('fail open: a pathologically deep tools schema (bytes() overflows the stack) forwards the original instead of a 500', async (t) => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, { choices: [] }));
   const engine = new FakeEngine(() => {
     throw new RangeError('Maximum call stack size exceeded');
   });
-  await withProxy(up, engine, async (f) => {
+  await withProxy(t, up, engine, async (f) => {
     const raw = `{"model":"m1","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"f","parameters":${deepObject(20_000)}}}]}`;
     const r = await request(f.port, { body: raw });
     assert.equal(r.status, 200, r.text());
@@ -170,14 +170,14 @@ test('fail open: a pathologically deep tools schema (bytes() overflows the stack
   });
 });
 
-test('fail open: a ladder failure before any upstream call forwards the original bytes (fail open), recorded as reason internal', async () => {
+test('fail open: a ladder failure before any upstream call forwards the original bytes (fail open), recorded as reason internal', async (t) => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, { choices: [] }));
   const engine = new FakeEngine((req) => {
     const r = result(req, req, true);
     Object.defineProperty(r, 'request', { get: () => { throw new TypeError('broken engine result'); } });
     return r;
   });
-  await withProxy(up, engine, async (f) => {
+  await withProxy(t, up, engine, async (f) => {
     const raw = '{"model":"m1", "messages":[{"role":"user","content":"hi"}]}';
     const r = await request(f.port, { body: raw });
     assert.equal(r.status, 200);
@@ -209,9 +209,9 @@ const usageRejections: Record<string, (res: import('node:http').ServerResponse) 
 };
 
 for (const [name, reject] of Object.entries(usageRejections)) {
-  test(`: an injected include_usage rejected as "${name}" is retried once without it, and remembered`, async () => {
+  test(`: an injected include_usage rejected as "${name}" is retried once without it, and remembered`, async (t) => {
     const up = await fakeUpstream((hit, res) => (hit.json.stream_options ? reject(res) : sseRes(res, [chunk('ok', 'stop'), DONE])));
-    await withProxy(up, passthrough(), async (f) => {
+    await withProxy(t, up, passthrough(), async (f) => {
       const body = chatBody('hi', { stream: true });
       const r = await request(f.port, { body });
       assert.equal(r.status, 200, r.text());
@@ -226,11 +226,11 @@ for (const [name, reject] of Object.entries(usageRejections)) {
   });
 }
 
-test(': a 429 or an unrelated 400 on an injected request is not mistaken for an include_usage rejection', async () => {
+test(': a 429 or an unrelated 400 on an injected request is not mistaken for an include_usage rejection', async (t) => {
   const up = await fakeUpstream((hit, res) =>
     hit.json.messages[1].content === 'rl' ? jsonRes(res, 429, { error: { message: 'rate limit (stream_options ignored)' } }) : jsonRes(res, 400, { error: { message: 'bad role' } }),
   );
-  await withProxy(up, passthrough(), async (f) => {
+  await withProxy(t, up, passthrough(), async (f) => {
     assert.equal((await request(f.port, { body: chatBody('rl', { stream: true }) })).status, 429);
     assert.equal((await request(f.port, { body: chatBody('x', { stream: true }) })).status, 400);
     assert.equal(up.hits.length, 2);
@@ -247,9 +247,9 @@ test('host check: only a port may follow the name (userinfo-like and junk suffix
   for (const h of ['localhost:8270', '[::1]:8270', '127.0.0.1', '::1']) assert.equal(hostAllowed(h, allowed), true, h);
 });
 
-test('browser cross-origin requests: Origin, cross-site Sec-Fetch-Site and OPTIONS get 403 before any upstream call; text/plain chat gets 415', { timeout: 30_000 }, async () => {
+test('browser cross-origin requests: Origin, cross-site Sec-Fetch-Site and OPTIONS get 403 before any upstream call; text/plain chat gets 415', { timeout: 30_000 }, async (t) => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, { choices: [] }));
-  await withProxy(up, passthrough(), async (f) => {
+  await withProxy(t, up, passthrough(), async (f) => {
     const evil = { origin: 'https://evil.example' };
     assert.equal((await request(f.port, { headers: { ...evil, 'content-type': 'text/plain' }, body: chatBody('hi') })).status, 403);
     assert.equal((await request(f.port, { headers: evil, body: chatBody('hi') })).status, 403);
@@ -271,9 +271,9 @@ test('browser cross-origin requests: Origin, cross-site Sec-Fetch-Site and OPTIO
   });
 });
 
-test('browser cross-origin requests: an origin in listen.allowedOrigins is served', { timeout: 30_000 }, async () => {
+test('browser cross-origin requests: an origin in listen.allowedOrigins is served', { timeout: 30_000 }, async (t) => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, { choices: [] }));
-  await withProxy(up, passthrough(), async (f) => {
+  await withProxy(t, up, passthrough(), async (f) => {
     const ok = { origin: 'http://localhost:3000', 'sec-fetch-site': 'same-site' };
     assert.equal((await request(f.port, { headers: ok, body: chatBody('hi') })).status, 200);
     assert.equal((await request(f.port, { headers: { origin: 'http://localhost:3001' }, body: chatBody('hi') })).status, 403);
@@ -281,7 +281,7 @@ test('browser cross-origin requests: an origin in listen.allowedOrigins is serve
   }, { config: { listen: { allowedOrigins: ['http://localhost:3000'] } } });
 });
 
-test('first-event hold: a server streaming only comments ends the hold after HOLD_MAX bytes (bounded memory), bytes unchanged', { timeout: 30_000 }, async () => {
+test('first-event hold: a server streaming only comments ends the hold after HOLD_MAX bytes (bounded memory), bytes unchanged', { timeout: 30_000 }, async (t) => {
   const comments = Array.from({ length: 40 }, (_, i) => `: ${'p'.repeat(60_000)} ${i}\n\n`);
   const up = await fakeUpstream(async (_h, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -289,7 +289,7 @@ test('first-event hold: a server streaming only comments ends the hold after HOL
     await new Promise((r) => setTimeout(r, 1500));
     res.end(chunk('late', 'stop') + DONE);
   });
-  await withProxy(up, passthrough(), async (f) => {
+  await withProxy(t, up, passthrough(), async (f) => {
     const r = await request(f.port, { body: chatBody('hi', { stream: true }) });
     assert.equal(r.status, 200);
     assert.ok(r.headerMs < 1200, `headers after ${r.headerMs} ms: the hold ended at HOLD_MAX, not at the first event`);
@@ -297,7 +297,7 @@ test('first-event hold: a server streaming only comments ends the hold after HOL
   }, { config: { stream: { firstEventTimeoutMs: 15_000 } } });
 });
 
-test('a burst of small events larger than 64 KiB in one relay step never stalls the stream (corked writes lost their drain)', { timeout: 30_000 }, async () => {
+test('a burst of small events larger than 64 KiB in one relay step never stalls the stream (corked writes lost their drain)', { timeout: 30_000 }, async (t) => {
   const burst = Array.from({ length: 5000 }, (_, i) => chunk(`token${i}${' '.repeat(100)}`)).join('');
   const up = await fakeUpstream(async (_h, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -307,7 +307,7 @@ test('a burst of small events larger than 64 KiB in one relay step never stalls 
     await new Promise((r) => setTimeout(r, 30));
     res.end(chunk('', 'stop') + DONE);
   });
-  await withProxy(up, passthrough(), async (f) => {
+  await withProxy(t, up, passthrough(), async (f) => {
     const t0 = performance.now();
     const r = await request(f.port, { body: chatBody('hi', { stream: true }) });
     assert.ok(performance.now() - t0 < 5000);
@@ -365,9 +365,9 @@ async function unfinishedUpload(port: number, wire: string): Promise<string> {
   });
 }
 
-test('request limits reject oversized declared and chunked uploads before end', async () => {
+test('request limits reject oversized declared and chunked uploads before end', async (t) => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, {}));
-  await withProxy(up, passthrough(), async (f) => {
+  await withProxy(t, up, passthrough(), async (f) => {
     Object.assign(f.cfg.listen, { maxRequestBytes: 8 });
     for (const body of [
       'Content-Length: 9\r\n\r\n',
@@ -381,9 +381,9 @@ test('request limits reject oversized declared and chunked uploads before end', 
   });
 });
 
-test('concurrency admission returns 503 with Retry-After and releases aborted uploads', { timeout: 5000 }, async () => {
+test('concurrency admission returns 503 with Retry-After and releases aborted uploads', { timeout: 5000 }, async (t) => {
   const up = await fakeUpstream((_h, res) => jsonRes(res, 200, {}));
-  await withProxy(up, passthrough(), async (f) => {
+  await withProxy(t, up, passthrough(), async (f) => {
     Object.assign(f.cfg.listen, { maxConcurrentRequests: 1 });
     const socket = net.connect(f.port, '127.0.0.1');
     const released = new Promise<void>((resolve) => f.proxy.server.once('request', (req) => req.once('close', () => setImmediate(resolve))));
