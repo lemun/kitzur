@@ -7,7 +7,7 @@ import { CONFIG_OPTS, loadFromArgs, parseArgs } from '../args.js';
 import { collectRequests } from '../requests.js';
 
 export async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
-  const p = parseArgs(argv, { ...CONFIG_OPTS, json: { type: 'boolean' }, 'no-fresh': { type: 'boolean' } });
+  const p = parseArgs(argv, { ...CONFIG_OPTS, json: { type: 'boolean' }, explain: { type: 'boolean' }, 'no-fresh': { type: 'boolean' } });
   if (!p.positionals.length) throw new UsageError('replay needs a file or directory of captured request bodies');
   const l = loadFromArgs(p, io);
   const cfg = l.config;
@@ -35,7 +35,7 @@ export async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
       const r = live.engine.process(req, { attempt: 1 });
       row = {
         i: i + 1, file: label, action: r.action, replan: r.replan ?? null, fit: r.plan?.fit ?? null, compactions: r.plan?.compactions ?? 0,
-        ...(r.plan?.retention ? { retention: r.plan.retention } : {}),
+        ...(p.values['explain'] && r.plan?.retention ? { retention: r.plan.retention } : {}),
         ...(r.stats.retention ? { retentionCounts: r.stats.retention } : {}),
         messagesIn: r.stats.messagesIn, messagesOut: r.stats.messagesOut, tokensIn: r.stats.tokensIn, tokensOut: r.stats.tokensOut,
         budget: r.stats.budget.budget, trigger: r.stats.budget.trigger, maxTokens: r.maxTokens?.value ?? null, engineMs: Math.round(r.stats.engineMs * 10) / 10,
@@ -68,6 +68,9 @@ export async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
           `${String(r['budget']).padStart(7)} ${String(r['trigger']).padStart(7)} ${String(r['fit'] ?? '-').padEnd(11)} ${String(r['compactions']).padStart(3)} ` +
           `${String(r['maxTokens'] ?? '-').padStart(7)}  ${det}\n`,
       );
+      if (p.values['explain'] && Array.isArray(r['retention'])) {
+        io.stdout(`      retention: ${JSON.stringify(r['retention'])}\n`);
+      }
     }
     const actions: Record<string, number> = {};
     for (const r of rows) if (r['action']) actions[String(r['action'])] = (actions[String(r['action'])] ?? 0) + 1;
