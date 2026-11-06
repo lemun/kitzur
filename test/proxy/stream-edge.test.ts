@@ -16,9 +16,9 @@ const logOutcome = (logs: string[], outcome: string) => logs.some(line => line.i
 
 const streams = [
   {
-    name: 'keep-alive comments before first data',
-    script: async (_h: unknown, res: http.ServerResponse) => sseRes(res, [': ping\n\n', chunk('hello'), DONE], { delayMs: 15 }),
-    expected: ': ping\n\n' + chunk('hello') + DONE, outcome: 'ok',
+    name: 'recurring keep-alive comments before first data',
+    script: async (_h: unknown, res: http.ServerResponse) => sseRes(res, [': ping\n\n', ': ping\n\n', ': ping\n\n', chunk('hello'), DONE], { delayMs: 100 }),
+    expected: ': ping\n\n'.repeat(3) + chunk('hello') + DONE, outcome: 'ok',
   },
   {
     name: 'no-space data field and CRLF [DONE]',
@@ -26,9 +26,9 @@ const streams = [
     expected: 'data: {"choices":[{"delta":{"content":"hi"},"finish_reason":null}]}\r\n\r\ndata:[DONE]\r\n\r\n', outcome: 'ok',
   },
   {
-    name: 'error event after [DONE]',
-    script: (_h: unknown, res: http.ServerResponse) => { const body = chunk('hello') + DONE + 'data: {"error":{"message":"late"}}\n\n'; res.writeHead(200, { 'content-type': 'text/event-stream' }); res.end(body); },
-    expected: chunk('hello') + DONE + 'data: {"error":{"message":"late"}}\n\n', outcome: 'upstream_error',
+    name: 'error event after several chunks and [DONE]',
+    script: (_h: unknown, res: http.ServerResponse) => { const body = chunk('one') + chunk('two') + chunk('three') + DONE + 'data: {"error":{"message":"late"}}\n\n'; res.writeHead(200, { 'content-type': 'text/event-stream' }); res.end(body); },
+    expected: chunk('one') + chunk('two') + chunk('three') + DONE + 'data: {"error":{"message":"late"}}\n\n', outcome: 'upstream_error',
   },
   {
     name: 'finish reason followed by clean socket close without DONE',
@@ -124,6 +124,7 @@ test('stream edge: upstream header stall times out', async t => {
   try {
     const r = await request(f.port, { body: chatBody('hello', { stream: true }) });
     assert.equal(r.status, 502);
+    assert.deepEqual(r.body, Buffer.from('{"error":{"message":"kitzur: upstream unavailable","type":"api_error","code":"upstream_unavailable"}}'));
     await eventually(() => logOutcome(logs, 'upstream_error'), 'upstream timeout outcome');
   } finally { await f.close(); await up.close(); }
 });
