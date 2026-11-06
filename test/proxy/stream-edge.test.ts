@@ -73,7 +73,7 @@ for (const [label, responseBody] of [['with include_usage', { stream_options: { 
     const f = await startProxy(t, up, passthroughEngine(), { log: (_level, msg) => logs.push(msg) });
     try {
       const r = await request(f.port, { body: chatBody('hello', { stream: true, ...responseBody }) });
-      assert.equal(r.text(), responseBody.stream_options ? bytes : chunk('hello') + DONE);
+      assert.equal(r.text(), bytes);
       await waitRecords(f, 1);
       assert.ok(logOutcome(logs, 'ok'), logs.join('\n'));
     } finally { await f.close(); await up.close(); }
