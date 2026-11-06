@@ -141,6 +141,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   if (deps.state.lastError) status.warn('state', deps.state.lastError);
 
   let discoveredWindows: Record<string, number> = {};
+  let lazyProbe: Promise<void> | null = null;
+  let startupProbeStatus: number | undefined;
   // models already warned about with window_auto_fallback: warn once per model, not per request
   const fallbackWarned = new Set<string>();
   let inflight = 0;
@@ -229,6 +231,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         if (req.rawHeaders[i]!.toLowerCase() === 'authorization') req.rawHeaders.splice(i, 2);
       }
     }
+    const clientAuthorization = cfg.listen.token === null ? req.headers.authorization : undefined;
     const length = req.headers['content-length'];
     if (length !== undefined && BigInt(length) > BigInt(cfg.listen.maxRequestBytes)) {
       rejectUpload(req, res, 413, 'request body too large', 'request_too_large');
@@ -246,6 +249,9 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     if (req.method === 'GET' && (pathname === '/status' || pathname === '/kitzur/status')) {
       sendJson(res, 200, JSON.stringify(snapshot(), null, 1));
       return;
+    }
+    if ((startupProbeStatus === 401 || startupProbeStatus === 403) && !Object.keys(cfg.upstream.headers).some((name) => name.toLowerCase() === 'authorization') && lazyProbe === null && typeof clientAuthorization === 'string' && clientAuthorization.trim() !== '') {
+      lazyProbe = upstream.probe('/v1/models', { authorization: clientAuthorization }, false).then(applyProbe);
     }
     if (isChatCompletionsPath(req.method ?? '', pathname) && !isJsonContentType(req.headers['content-type'])) {
       sendJson(res, 415, errorBody('kitzur: chat requests must have Content-Type application/json', 'invalid_request_error', 'unsupported_media_type'));
@@ -952,6 +958,43 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     snapshot,
     async probe() {
       const p = await upstream.probe();
+      startupProbeStatus = p.status;
+      applyProbe(p);
+      return p;
+    },
+    listen() {
+      return new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(cfg.listen.port, cfg.listen.host, () => {
+          server.off('error', reject);
+          const a = server.address() as AddressInfo;
+          if (cfg.debug.capture.path !== null) log('warn', `raw response capture ${JSON.stringify(capture.snapshot())}`);
+          resolve({ port: a.port, host: cfg.listen.host });
+        });
+      });
+    },
+    async close(drainMs = 10_000) {
+      if (closing) return;
+      closing = true;
+      server.close();
+      server.closeIdleConnections();
+      if (inflight > 0) {
+        await new Promise<void>((resolve) => {
+          const t = setTimeout(resolve, drainMs);
+          t.unref();
+          idleWaiters.push(() => { clearTimeout(t); resolve(); });
+        });
+      }
+      for (const s of sockets) s.destroy();
+      await deps.state.close();
+      await deps.stats.close();
+      capture.close();
+      upstream.close();
+      deps.remote?.close();
+    },
+  };
+
+  function applyProbe(p: ProbeResult): void {
       discoveredWindows = p.discovered_window ?? {};
       deps.modelRuntimes?.setDiscoveredLimits(p.discovered_limits ?? {});
       if (deps.modelRuntimes) deps.modelRuntimes.setDiscoveredWindows(discoveredWindows);
@@ -988,42 +1031,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       status.setProbe({ ...p, at: now().toISOString() });
       if (p.status === 401 || p.status === 403) status.warn('upstream_probe', 'Metadata needs a key to read /v1/models.');
       else if (!p.ok) status.warn('upstream_probe', p.tlsError ? `TLS verification failed: ${p.tlsError}` : `upstream probe failed: ${p.error ?? p.status}`);
-      return p;
-    },
-    listen() {
-      return new Promise((resolve, reject) => {
-        server.once('error', reject);
-        server.listen(cfg.listen.port, cfg.listen.host, () => {
-          server.off('error', reject);
-          const a = server.address() as AddressInfo;
-          if (cfg.debug.capture.path !== null) log('warn', `raw response capture ${JSON.stringify(capture.snapshot())}`);
-          resolve({ port: a.port, host: cfg.listen.host });
-        });
-      });
-    },
-    async close(drainMs = 10_000) {
-      if (closing) return;
-      closing = true;
-      server.close();
-      server.closeIdleConnections();
-      if (inflight > 0) {
-        await new Promise<void>((resolve) => {
-          const t = setTimeout(resolve, drainMs);
-          t.unref();
-          idleWaiters.push(() => {
-            clearTimeout(t);
-            resolve();
-          });
-        });
-      }
-      for (const s of sockets) s.destroy();
-      await deps.state.close();
-      await deps.stats.close();
-      capture.close();
-      upstream.close();
-      deps.remote?.close();
-    },
-  };
+  }
 }
 
 function profileStatus(runtimes: ProxyDeps['modelRuntimes']): StatusExtras['profiles'] | undefined {

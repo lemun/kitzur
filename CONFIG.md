@@ -552,6 +552,7 @@ At startup Kitzur reads `/v1/models` for `data[].max_model_len` (vLLM),
 For servers without `max_model_len`, it also tries `/props`; a positive
 `default_generation_settings.n_ctx` (or top-level `n_ctx`) overrides training
 metadata for a single served model. Unknown shapes and unavailable endpoints are ignored.
+If startup discovery returns 401 or 403 and no upstream Authorization header is configured, the first eligible request triggers one non-blocking `/v1/models` retry using its client key.
 
 `/status` exposes a `discovered_window` map keyed by model ID. A difference from
 the configured window produces a log warning and a status warning. Numeric
