@@ -26,7 +26,7 @@ function checkAttribution(seed: number, plan: NonNullable<ReturnType<ReturnType<
     assert.ok(['summarized', 'dropped'].includes(a.disposition), `seed ${seed}: invalid disposition ${a.disposition}`);
     assert.ok(reasons.includes(a.reason), `seed ${seed}: invalid reason ${a.reason}`);
     for (const index of a.supersededBy) {
-      assert.ok(index !== a.sources[0]!.messageIndex, `seed ${seed}: item supersedes itself at ${index}`);
+      assert.ok(a.sources.every((source) => index > source.messageIndex), `seed ${seed}: superseder ${index} is not later than every source`);
       assert.ok(index < plan.n, `seed ${seed}: superseder ${index} is outside the planned history`);
     }
     const c = counts[a.category] ??= { kept: 0, dropped: 0 };
@@ -46,12 +46,12 @@ function run(cfg: ReturnType<typeof testConfig>, request: ChatRequest, counter?:
 test(`retention properties across seeded chains (${N}, seed ${BASE_SEED})`, () => {
   for (let i = 0; i < N; i++) {
     const chain = genChain(BASE_SEED + i, { exact: false });
-    const request = chain.requests.at(-1)!;
-    const { counter, result } = run(chain.cfg, request);
     const seed = chain.seed;
+    for (const request of chain.requests) {
+    const { counter, result } = run(chain.cfg, request);
     if (!result.plan?.summaryAttribution || !result.request) continue;
     checkAttribution(seed, result.plan);
-    if (i % 10 === 0) {
+    {
       const summaryInput = { messages: request.messages.slice(0, result.plan.n), digests: [], hEnd: result.plan.hEnd, cut: result.plan.cut, compaction: result.plan.compactions };
       const summarizer = createSummarizerExt(chain.cfg, counter);
       const rungs = String(result.plan.meta?.['rungs'] ?? '');
@@ -75,17 +75,15 @@ test(`retention properties across seeded chains (${N}, seed ${BASE_SEED})`, () =
       assert.ok(measured <= result.stats.budget.budget || measured <= result.stats.budget.trigger,
         `seed ${seed}: compacted request ${measured} exceeds budget ${result.stats.budget.budget} and trigger ${result.stats.budget.trigger}`);
     }
-    if (chain.cfg.compaction.summaryRole !== 'merge-into-first-user') {
-      const lastUser = [...request.messages].reverse().find((m) => m.role === 'user');
-      const lastUserIndex = lastUser ? request.messages.lastIndexOf(lastUser) : -1;
-      if (lastUser && typeof lastUser.content === 'string' && lastUserIndex >= result.plan.cut) {
-        assert.ok(result.request.messages.some((m) => canonicalJSON(m) === canonicalJSON(lastUser)), `seed ${seed}: latest tail user message missing or changed`);
-      }
+    const lastUser = [...request.messages].reverse().find((m) => m.role === 'user');
+    if (lastUser && typeof lastUser.content === 'string') {
+      assert.ok(result.request.messages.some((m) => canonicalJSON(m) === canonicalJSON(lastUser)), `seed ${seed}: latest user message missing or changed`);
     }
 
-    if (i % 10 === 0) {
-      const fresh = run(chain.cfg, request, counter).result;
+    {
+      const fresh = run(chain.cfg, request).result;
       assert.equal(canonicalJSON(result.plan.summaryAttribution), canonicalJSON(fresh.plan?.summaryAttribution), `seed ${seed}: attribution is nondeterministic`);
+    }
     }
   }
 });
@@ -103,7 +101,7 @@ test('ranking and irrelevant request formatting preserve retention outcomes', ()
     const verbatim = (r: typeof a) => r.plan?.retention?.filter((d) => d.category === 'message' && d.disposition === 'verbatim')
       .flatMap((d) => d.sources.filter((s) => s.kind === 'message').map((s) => s.kind === 'message' ? s.messageIndex : -1)) ?? [];
     assert.equal(canonicalJSON(verbatim(a)), canonicalJSON(verbatim(b)), `seed ${seed}: ranking changed verbatim tail`);
-    assert.equal(canonicalJSON(a.plan?.retention?.filter((d) => d.category !== 'message')), canonicalJSON(c.plan?.retention?.filter((d) => d.category !== 'message')), `seed ${seed}: default differs from ranking off`);
+    assert.equal(canonicalJSON(a.request), canonicalJSON(c.request), `seed ${seed}: ranking off output differs from default`);
 
     const toolAt = request.messages.findIndex((m) => m.role === 'tool' && typeof m.content === 'string');
     if (toolAt >= 0) {
@@ -120,9 +118,9 @@ test('ranking and irrelevant request formatting preserve retention outcomes', ()
 
 test('retention regressions: empty context, huge message, tool-only history, duplicate instructions, Hebrew and emoji', () => {
   const cases: Array<{ name: string; messages: ChatMessage[] }> = [
-    { name: 'empty context', messages: [{ role: 'user', content: '' }, { role: 'assistant', content: 'x '.repeat(3000) }] },
+    { name: 'empty history', messages: [] },
     { name: 'single huge message', messages: [{ role: 'user', content: 'large '.repeat(12_000) }, { role: 'assistant', content: 'done' }] },
-    { name: 'tool-only history', messages: [{ role: 'user', content: 'Inspect this.' }, { role: 'assistant', content: null, tool_calls: [{ id: 'c', type: 'function', function: { name: 'read', arguments: '{}' } }] }, { role: 'tool', tool_call_id: 'c', content: 'output '.repeat(3000) }, { role: 'assistant', content: 'done' }] },
+    { name: 'tool-only history', messages: [{ role: 'tool', tool_call_id: 'c', content: 'output '.repeat(3000) }] },
     { name: 'duplicate user instructions', messages: [{ role: 'user', content: 'Use the blue route.' }, { role: 'assistant', content: 'thinking '.repeat(500) }, { role: 'user', content: 'Use the blue route.' }, { role: 'assistant', content: 'done' }] },
     { name: 'Hebrew and emoji', messages: [{ role: 'user', content: 'שמור על ההנחיה הזאת 😀🚀' }, { role: 'assistant', content: 'תשובה '.repeat(1200) }, { role: 'user', content: 'עדיין לשמור 😀' }, { role: 'assistant', content: 'done' }] },
     { name: 'ordinary tool result', messages: [{ role: 'user', content: 'Read files.' }, { role: 'assistant', content: null, tool_calls: [{ id: 'd', type: 'function', function: { name: 'read', arguments: '{}' } }] }, { role: 'tool', tool_call_id: 'd', content: 'result '.repeat(900) }, { role: 'assistant', content: 'done' }] },
@@ -134,6 +132,14 @@ test('retention regressions: empty context, huge message, tool-only history, dup
     const { result } = run(cfg, { model: 'm', messages, max_tokens: 128 });
     if (result.plan?.summaryAttribution) checkAttribution(seed, result.plan);
     assert.ok(result, `seed ${seed} (${name}): engine returned no result`);
+    if (name === 'ordinary tool result') {
+      const spaced = structuredClone({ model: 'm', messages, max_tokens: 128 } as ChatRequest);
+      const tool = spaced.messages.find((m) => m.role === 'tool');
+      if (tool && typeof tool.content === 'string') tool.content += '  \n';
+      const baseline = run(cfg, { model: 'm', messages, max_tokens: 128 }).result;
+      const whitespace = run(cfg, spaced).result;
+      assert.equal(canonicalJSON(baseline.plan?.retention), canonicalJSON(whitespace.plan?.retention), `seed ${seed}: regression tool whitespace changed dispositions`);
+    }
   }
 });
 
