@@ -5,9 +5,14 @@ import type { EngineResult } from '../../types.js';
 import { UsageError, type CliIO } from '../io.js';
 import { CONFIG_OPTS, loadFromArgs, parseArgs } from '../args.js';
 import { collectRequests } from '../requests.js';
+import { renderRetention } from '../explain.js';
+import type { RetentionAttribution } from '../../engine/contracts.js';
 
 export async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
-  const p = parseArgs(argv, { ...CONFIG_OPTS, json: { type: 'boolean' }, explain: { type: 'boolean' }, 'no-fresh': { type: 'boolean' } });
+  const p = parseArgs(argv, { ...CONFIG_OPTS, json: { type: 'boolean' }, explain: { type: 'boolean' }, 'explain-limit': { type: 'string' }, 'no-fresh': { type: 'boolean' } });
+  const explainLimitArg = p.values['explain-limit'] as string | undefined;
+  const explainLimit = explainLimitArg === undefined ? 20 : Number(explainLimitArg);
+  if (!Number.isInteger(explainLimit) || explainLimit < 0 || (explainLimitArg !== undefined && explainLimitArg.trim() === '')) throw new UsageError('--explain-limit must be a non-negative integer');
   if (!p.positionals.length) throw new UsageError('replay needs a file or directory of captured request bodies');
   const l = loadFromArgs(p, io);
   const cfg = l.config;
@@ -69,7 +74,7 @@ export async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
           `${String(r['maxTokens'] ?? '-').padStart(7)}  ${det}\n`,
       );
       if (p.values['explain'] && Array.isArray(r['retention'])) {
-        io.stdout(`      retention: ${JSON.stringify(r['retention'])}\n`);
+        io.stdout(`${renderRetention(r['retention'] as RetentionAttribution[], { limit: explainLimit }).split('\n').map((line) => `      ${line}`).join('\n')}\n`);
       }
     }
     const actions: Record<string, number> = {};
