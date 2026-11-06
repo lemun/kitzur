@@ -177,8 +177,7 @@ test('flag off renders the exact same summary as today for a long mixed session'
   const input = { messages: msgs, digests: digests(msgs), hEnd: 1, cut: msgs.length, compaction: 1 };
   const opts = { budgetTokens: 100_000, allowFloorEviction: true, userShortenStep: 0 as const };
   const cfgOff = cfg();
-  const cfgOn = cfg();
-  cfgOn.ledger.ranking = true;
+  cfgOff.ledger.ranking = false;
   const counter = estimateCounter('generic');
   const off = createSummarizerExt(cfgOff, counter).render(input, opts).text;
   const defaultOff = createSummarizerExt(cfg(), counter).render(input, opts).text;
