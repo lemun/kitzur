@@ -6,6 +6,10 @@ All notable changes to Kitzur are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Model profile validation now suggests allowed keys, explains global settings, and warns about empty or nearly duplicate IDs.
+
 ### Added
 
 - `kitzur replay --explain` prints a readable retention summary with a configurable detail limit.

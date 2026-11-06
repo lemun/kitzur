@@ -74,6 +74,30 @@ test('reject invalid maps, IDs, leaves, types, ranges, arrays and prototype path
   assert.throws(() => load({ bad: { client: { inputLimit: 100, reservedTokens: 1000 } } }), /models\["bad"\]/);
 });
 
+test('profile diagnostics identify typos, global keys, empty and near-duplicate IDs, and wrong types', async () => {
+  const cases = [
+    { models: { small: { budget: { widnow: 1 } } }, severity: 'errors', text: /unknown config key models\.small\.budget\.widnow \(did you mean budget\.window\?\)/ },
+    { models: { small: { upstream: { origin: 'https://gateway.example.com' } } }, severity: 'errors', text: /upstream\.origin is global; it cannot be set under models/ },
+    { models: { small: {}, Small: {}, ' small ': {} }, severity: 'warnings', text: /model IDs are matched exactly/ },
+    { models: { small: { budget: { window: 'large' } } }, severity: 'errors', text: /models\["small"\].*budget\.window: expected/ },
+  ];
+  for (const c of cases) {
+    const dir = mkdtempSync(join(tmpdir(), 'kitzur-profile-diagnostics-'));
+    try {
+      const file = join(dir, 'config.json');
+      writeFileSync(file, JSON.stringify({ models: c.models }));
+      const output: string[] = [];
+      const code = await main(['config', 'validate', '--json', '--config', file], {
+        stdout: (s) => output.push(s), stderr: () => {}, env: {}, cwd: dir, onSignal: () => {},
+      });
+      const result = JSON.parse(output.join('')) as { errors: string[]; warnings: string[] };
+      const messages = result[c.severity as 'errors' | 'warnings'];
+      assert.ok(messages.some((message) => c.text.test(message)), JSON.stringify(result));
+      assert.equal(code, c.severity === 'errors' ? 2 : 0);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  }
+});
+
 test('fallback warning is bounded independently of unknown client-controlled IDs', () => {
   const l = load({ known: {} });
   const warnings: string[] = [];

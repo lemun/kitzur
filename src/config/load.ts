@@ -294,7 +294,7 @@ export function loadConfig(opts: LoadOptions = {}): LoadedConfig {
     try {
       const p = loadPreset(presetName, opts.presetsDir === undefined ? presetsDir(env) : opts.presetsDir, cwd);
       const src = `preset:${presetName}`;
-      takeModelLayer(p.layer, modelOverrides, src, issues);
+      takeModelLayer(p.layer, modelOverrides, src, issues, warnings);
       applyLayer(cfg, prov, p.layer, src, dirname(p.file), issues);
       layers.push(src);
     } catch (e) {
@@ -306,7 +306,7 @@ export function loadConfig(opts: LoadOptions = {}): LoadedConfig {
 
   // ---- file
   if (fileLayer) {
-    takeModelLayer(fileLayer, modelOverrides, fileSource, issues);
+    takeModelLayer(fileLayer, modelOverrides, fileSource, issues, warnings);
     applyLayer(cfg, prov, fileLayer, fileSource, fileBase, issues);
     layers.push(fileSource);
   }

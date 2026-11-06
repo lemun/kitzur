@@ -83,6 +83,10 @@ export async function main(argv: readonly string[], io: CliIO = defaultIO()): Pr
       return 2;
     }
     if (e instanceof ConfigError) {
+      if (argv[0] === 'config' && argv[1] === 'validate' && argv.includes('--json')) {
+        io.stdout(JSON.stringify({ ok: false, errors: e.issues, warnings: [] }, null, 1) + '\n');
+        return 2;
+      }
       for (const i of e.issues) io.stderr(`kitzur: config error: ${i}\n`);
       return 2;
     }
