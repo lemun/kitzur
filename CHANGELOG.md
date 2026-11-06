@@ -8,6 +8,7 @@ All notable changes to Kitzur are recorded here. The format follows
 
 ### Added
 
+- `kitzur replay --explain` prints a readable retention summary with a configurable detail limit.
 - After startup metadata discovery returns 401 or 403, make one non-blocking authenticated `/v1/models` retry with the first eligible client's key when no upstream Authorization header is configured.
 - Model profiles: an optional `models` map in the config gives each wire model ID (matched exactly) its
   own settings over the root defaults, such as its window, plan size, client limits and tokenizer. Unknown
