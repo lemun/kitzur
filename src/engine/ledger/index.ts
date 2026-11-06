@@ -5,7 +5,7 @@
 // Each item carries its category, its rank inside the category (the one strict total order of items) and its
 // position inside its section (first appearance, for rendering).
 import type { ChatMessage, ToolCall } from '../../types.js';
-import type { RetentionSource, RetentionAttribution } from '../contracts.js';
+import type { RetentionSource, RetentionAttribution, RankSignal } from '../contracts.js';
 import type { Config } from '../../config/schema.js';
 import { contentText, capHeadTail, collapseWs, capHead, neutralizeRules, oneLine } from './text.js';
 import type { AssistantFacts, CallFacts, Extractor, MessageFacts, ResultFacts, UserFacts } from './extract.js';
@@ -13,6 +13,7 @@ import { explicitIds, supersede, type SupersedeRules, type UserText } from './su
 import { isConfigLike, longerSpelling, PathIndex, samePath } from './paths.js';
 
 export type ItemCategory = RetentionAttribution['category'];
+export type { RankSignal } from '../contracts.js';
 
 /** Category priority, highest first. */
 export const CATEGORY_ORDER: readonly ItemCategory[] = ['user', 'decision', 'todo', 'file', 'rest', 'narrative1', 'narrative2', 'toolLog'];
@@ -52,6 +53,7 @@ export interface LedgerItem {
   user?: UserItemText;
   /** todo-state items: the heading annotation, e.g. "todowrite #7" */
   todoHeading?: string;
+  signals?: RankSignal[];
 }
 
 export interface Ledger {
@@ -266,8 +268,10 @@ export function buildLedger(input: LedgerInput, cfg: Config, extractor: Extracto
     // the latest copy by message index, then position inside the message (copies within one assistant message)
     const at = (it: LedgerItem): number[] => [it.index, ...it.pos];
     const latest = new Map<string, number[]>();
+    const newest = new Map<ItemCategory, number>();
     for (const it of items) {
       if (it.category === 'user') continue;
+      newest.set(it.category, Math.max(newest.get(it.category) ?? -Infinity, it.index));
       const prev = latest.get(dupKey(it));
       if (!prev || cmpArr(at(it), prev) > 0) latest.set(dupKey(it), at(it));
     }
@@ -278,6 +282,12 @@ export function buildLedger(input: LedgerInput, cfg: Config, extractor: Extracto
       // distinct later messages that reference one of the item's paths
       const later = new Set<number>();
       for (const p of keysOf(it)) for (const r of refs.near(p)) if (r.at > it.index && samePath(r.path, p)) later.add(r.at);
+      const signals: RankSignal[] = [];
+      if (dup) signals.push('duplicate');
+      if (!err) signals.push('error');
+      if (later.size > 0) signals.push('referenced');
+      if (signals.length === 0 && it.index === newest.get(it.category)) signals.push('recent');
+      if (signals.length > 0) it.signals = signals;
       it.rank = [dup, err, -later.size, -it.index, ...it.rank];
     }
     return { items };
