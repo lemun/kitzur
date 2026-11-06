@@ -36,6 +36,8 @@ Request token reduction uses records with at least one valid recorded attempt an
 
 Stats records may include `retention`, a content-free count of engine message outcomes: `verbatim`, `excerpted`, `summarized`, and `dropped`. These counts come from the engine's typed retention diagnostics and do not include ledger items separately. Retention digests identify stable facts but cannot recover the original message content. `kitzur replay --explain` emits the typed per-item outcome and reason alongside the usual size output; it contains source coordinates and categories, never message text.
 
+The readable explanation starts with totals and category/reason counts, then shows up to 20 attribution details. Use `--explain-limit N` to change that limit or `--explain-limit 0` to show every detail. For example, synthetic output may include `user | summarized | user-instruction | message[0]` and `rest | dropped | budget-eviction | tool-result[4]`.
+
 ```sh
 kitzur report stats.jsonl
 kitzur report stats.jsonl --json
