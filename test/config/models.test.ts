@@ -79,6 +79,7 @@ test('profile diagnostics identify typos, global keys, empty and near-duplicate 
     { models: { small: { budget: { widnow: 1 } } }, severity: 'errors', text: /unknown config key models\.small\.budget\.widnow \(did you mean budget\.window\?\)/ },
     { models: { small: { upstream: { origin: 'https://gateway.example.com' } } }, severity: 'errors', text: /upstream\.origin is global; it cannot be set under models/ },
     { models: { small: {}, Small: {}, ' small ': {} }, severity: 'warnings', text: /model IDs are matched exactly/ },
+    { models: { small: {} }, severity: 'warnings', text: /profile sets no overrides/ },
     { models: { small: { budget: { window: 'large' } } }, severity: 'errors', text: /models\["small"\].*budget\.window: expected/ },
   ];
   for (const c of cases) {
@@ -96,6 +97,16 @@ test('profile diagnostics identify typos, global keys, empty and near-duplicate 
       assert.equal(code, c.severity === 'errors' ? 2 : 0);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   }
+
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-profile-layers-'));
+  try {
+    const preset = join(dir, 'preset.json');
+    const file = join(dir, 'config.json');
+    writeFileSync(preset, JSON.stringify({ models: { Small: {} } }));
+    writeFileSync(file, JSON.stringify({ models: { small: {} } }));
+    const l = loadConfig({ preset, configPath: file, env: {}, cwd: dir });
+    assert.ok(l.warnings.some((message) => /small.*differs from "Small"/.test(message)));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('fallback warning is bounded independently of unknown client-controlled IDs', () => {

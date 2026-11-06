@@ -31,7 +31,7 @@ export function takeModelLayer(layer: Record<string, unknown>, overrides: ModelO
     const leaves = overrides.get(id) ?? new Map<string, unknown>();
     overrides.set(id, leaves);
     if (isPlainObject(value) && Object.keys(value).length === 0) warnings.push(`${where}: profile sets no overrides; model IDs are matched exactly as ${JSON.stringify(id)}`);
-    for (const other of ids) {
+    for (const other of new Set([...overrides.keys(), ...ids])) {
       if (other !== id && (other.trim().toLowerCase() === id.trim().toLowerCase())) {
         warnings.push(`${where}: model IDs are matched exactly; ${JSON.stringify(id)} differs from ${JSON.stringify(other)} only by case or surrounding whitespace`);
         break;
@@ -51,7 +51,7 @@ export function takeModelLayer(layer: Record<string, unknown>, overrides: ModelO
         else if (ownerLeaf(path) || isInnerNode(path)) issues.push(`${where}.${path} is global; it cannot be set under models[${JSON.stringify(id)}]; per-model settings are under budget, client, and tokenizer`);
         else {
           const hint = suggestLeaf(path);
-          issues.push(`${where}: unknown config key models.${id}.${path}${hint && ALLOWED.has(hint) ? ` (did you mean ${hint}?)` : ''}`);
+          issues.push(`${where}: unknown config key models.${id}.${path}${hint ? ` (did you mean ${hint}?)` : ''}`);
         }
       }
     };
