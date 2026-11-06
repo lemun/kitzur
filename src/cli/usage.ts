@@ -11,7 +11,7 @@ export const USAGE = `usage: kitzur <command> [options]
                                 (default: <name>.redacted.json next to the input)
   count <request.json>          exact token count of a request (per message, no content)
   status [--url URL] [--json]   Show a running instance’s status
-  doctor [--model ID] [--client-config PATH] [--json] [--check-upstream] [--timeout-ms N]  read-only setup diagnostics
+  doctor [--model ID] [--client-config PATH] [--json] [--snapshot FILE|-] [--force] [--check-upstream] [--timeout-ms N]  read-only setup diagnostics
   tls-probe [origin] [--ca-file FILE] [--json] [--timeout-ms N]  inspect the TLS chain
   report <stats.jsonl> [--json]  aggregate request stats; sizes only
   config init [--preset 100k] [--upstream URL] [--tokenizer FILE] [--out FILE|-] [--force]

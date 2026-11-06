@@ -4,6 +4,10 @@ import { ConfigError, type LoadedConfig } from '../../config/load.js';
 import { doctor, renderDoctor } from '../../diagnostics/doctor.js';
 import { inspectTlsChain, renderTlsChain } from '../../diagnostics/tls-chain.js';
 import { reportStream, renderReport } from '../../diagnostics/report.js';
+import { createSnapshot } from '../../diagnostics/snapshot.js';
+import { packageInfo } from '../../config/paths.js';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { UsageError, type CliIO } from '../io.js';
 import { CONFIG_OPTS, loadFromArgs, parseArgs } from '../args.js';
 
@@ -31,7 +35,7 @@ export async function cmdTlsProbe(argv: string[], io: CliIO): Promise<number> {
 }
 
 export async function cmdDoctor(argv: string[], io: CliIO): Promise<number> {
-  const p = parseArgs(argv, { ...CONFIG_OPTS, json: { type: 'boolean' }, model: { type: 'string' }, 'client-config': { type: 'string' }, 'check-upstream': { type: 'boolean' }, 'timeout-ms': { type: 'string' } });
+  const p = parseArgs(argv, { ...CONFIG_OPTS, json: { type: 'boolean' }, snapshot: { type: 'string' }, force: { type: 'boolean' }, model: { type: 'string' }, 'client-config': { type: 'string' }, 'check-upstream': { type: 'boolean' }, 'timeout-ms': { type: 'string' } });
   if (p.positionals.length) throw new UsageError('doctor takes no positional arguments');
   const timeoutMs = p.values['timeout-ms'] === undefined ? 3000 : Number(p.values['timeout-ms']);
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000) throw new UsageError('--timeout-ms must be an integer from 1 to 10000');
@@ -44,6 +48,25 @@ export async function cmdDoctor(argv: string[], io: CliIO): Promise<number> {
     return 2;
   }
   const result = await doctor(loaded.config, { env: io.env, upstreamCheck: p.values['check-upstream'] === true, timeoutMs, configPath: loaded.configPath ?? undefined, clientConfigPath: p.values['client-config'] as string | undefined, models: loaded.models, model: p.values.model as string | undefined });
+  if (typeof p.values.snapshot === 'string') {
+    const check = (code: string): string | undefined => result.checks.find((c) => c.code === code)?.status;
+    const snapshot = createSnapshot(result, loaded.config, loaded.models, {
+      version: packageInfo().version, node: process.version, platform: process.platform, arch: process.arch,
+      home: io.env.HOME, upstreamHost: loaded.config.upstream.origin ? new URL(loaded.config.upstream.origin).hostname : undefined,
+      tokenizerConfigured: Boolean(loaded.config.tokenizer.path), tokenizerLoads: check('tokenizer.load') === 'ok',
+    });
+    const output = JSON.stringify(snapshot, null, 2) + '\n';
+    const file = p.values.snapshot;
+    if (file === '-') io.stdout(output);
+    else {
+      const path = resolve(io.cwd, file);
+      if (existsSync(path) && !p.values.force) { io.stderr(`kitzur: ${path} exists (use --force to overwrite)\n`); return 1; }
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, output, { flag: p.values.force ? 'w' : 'wx' });
+      io.stdout(`wrote ${path}\n`);
+    }
+    return result.exitCode;
+  }
   io.stdout(p.values['json'] ? JSON.stringify(result, null, 2) + '\n' : renderDoctor(result) + '\n');
   return result.exitCode;
 }
