@@ -2,6 +2,7 @@
 - Connect OpenCode: [quick start](../README.md#quick-start).
 - Fit a served window/tokenizer: [configuration](../CONFIG.md).
 - Deploy offline on Linux or Windows: [deployment](../deploy/README.md).
+- Operate a locked-down Windows intranet install: [intranet checklist](INTRANET.md).
 - Diagnose overflow or passthrough: [diagnostics](DIAGNOSTICS.md).
 - Fix a symptom or a doctor code: [troubleshooting](TROUBLESHOOTING.md).
 - Understand retention: [design](../DESIGN.md#mechanical-summary).
