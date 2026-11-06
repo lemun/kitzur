@@ -8,6 +8,7 @@ All notable changes to Kitzur are recorded here. The format follows
 
 ### Added
 
+- Optional `ledger.ranking` orders ledger items within each category by duplicate status, error results, later references and recency; `replay --explain` shows the content-free signals.
 - Model profiles: an optional `models` map in the config gives each wire model ID (matched exactly) its
   own settings over the root defaults, such as its window, plan size, client limits and tokenizer. Unknown
   IDs use the root defaults with a warning; configs without `models` behave as before. Learned windows
