@@ -11,6 +11,7 @@ const pages = [
   { id: 'docs/configuration', file: 'CONFIG.md', description: 'Every Kitzur configuration knob: its default, what it does, what breaks when it is wrong and which gateway probe result sets it.' },
   { id: 'docs/design', file: 'DESIGN.md', description: 'How Kitzur works: a loopback proxy for Chat Completions whose compactor is a deterministic function of the request, with no model calls.' },
   { id: 'docs/deployment', file: 'deploy/README.md', description: 'Install Kitzur as an offline user service on Linux or Windows: the bundle contents, the Node.js 22 requirement and the Windows guides.' },
+  { id: 'docs/intranet', file: 'docs/INTRANET.md', description: 'Prepare and operate Kitzur on a locked-down Windows intranet, from verified offline bundles and config to diagnostics and safe support.' },
   { id: 'docs/diagnostics', file: 'docs/DIAGNOSTICS.md', description: 'Diagnose Kitzur symptoms such as missing compactions, context overflow or missing usage, with the check and recovery for each.' },
   { id: 'docs/troubleshooting', file: 'docs/TROUBLESHOOTING.md', description: 'Run kitzur doctor and look up each WARN or ERROR code it reports, with the likely cause and the fix for each symptom.' },
   { id: 'docs/upstream-rotation', file: 'docs/UPSTREAM-ROTATION.md', description: 'Kitzur forwards one client key to one upstream; to rotate several authorized gateway keys, put a dedicated rotator in between.' },
