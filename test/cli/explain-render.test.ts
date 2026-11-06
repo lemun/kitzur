@@ -51,6 +51,9 @@ test('renderRetention: zero limit shows all details', () => {
 });
 
 test('renderRetention: ignores fields outside the typed attribution contract', () => {
-  const withCanary = { ...item(), messageText: 'CANARY_PRIVATE_MESSAGE' } as RetentionAttribution;
+  const withCanary = {
+    ...item(),
+    sources: [{ kind: 'message', messageIndex: 0, messageText: 'CANARY_PRIVATE_MESSAGE' }],
+  } as unknown as RetentionAttribution;
   assert.ok(!renderRetention([withCanary]).includes('CANARY_PRIVATE_MESSAGE'));
 });
