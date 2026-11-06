@@ -8,8 +8,8 @@ Create a starting config with a preset and the model's tokenizer, set the upstre
 
 ```sh
 kitzur config init --preset 100k --upstream http://gateway.example.com --tokenizer /path/to/tokenizer.json
-kitzur config validate
-kitzur serve
+kitzur config validate --config kitzur.config.jsonc
+kitzur serve --config kitzur.config.jsonc
 ```
 
 Point your agent's OpenAI compatible provider at `http://127.0.0.1:8270/v1`, with the model's truthful context and output limits. `kitzur status` shows the bound address, active budget, learned state and recent requests. Run `kitzur doctor` after changing configuration or when setup or connectivity is unclear; it checks local setup without probing upstream unless asked. State defaults to `~/.local/state/kitzur` (or `$XDG_STATE_HOME/kitzur`); logs are in its `logs` directory. See [configuration and client setup](../CONFIG.md#client-setup-opencode-and-kilo) and [diagnostics](DIAGNOSTICS.md).
