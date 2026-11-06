@@ -8,18 +8,18 @@ import { createSnapshot, maskSnapshotString } from '../../src/diagnostics/snapsh
 import type { DoctorResult } from '../../src/diagnostics/doctor.js';
 import { main, type CliIO } from '../../src/cli.js';
 
-const facts = { version: '0.2.1', node: 'v22', platform: 'linux', arch: 'x64', home: '/Users/alice', upstreamHost: 'gateway.example.com', tokenizerConfigured: false, tokenizerLoads: false };
+const facts = { version: '0.2.1', node: 'v22', platform: 'linux', arch: 'x64', home: '/Users/user', upstreamHost: 'gateway.example.com', tokenizerConfigured: false, tokenizerLoads: false };
 const config = defaultConfig();
-const checks: DoctorResult = { exitCode: 0, checks: [{ code: 'paths', status: 'warn', message: 'https://gateway.example.com and /Users/alice/cache C:\\Users\\bob\\data', fix: 'check upstream.headers' }] };
+const checks: DoctorResult = { exitCode: 0, checks: [{ code: 'paths', status: 'warn', message: 'https://gateway.example.com and /Users/user/cache C:\\Users\\user\\data', fix: 'check upstream.headers' }] };
 
 test('snapshot masks hosts and home paths in every diagnostic string and is deterministic', () => {
   config.upstream.origin = 'https://gateway.example.com';
   config.upstream.headers = { Authorization: 'CANARY_AUTH_TOKEN', 'x-probe': 'CANARY_PROBE_TOKEN' };
   const a = JSON.stringify(createSnapshot(checks, config, {}, facts));
   assert.equal(a, JSON.stringify(createSnapshot(checks, config, {}, facts)));
-  assert.doesNotMatch(a, /CANARY|gateway\.example\.com|\/Users\/alice|C:\\\\Users\\\\bob/);
+  assert.doesNotMatch(a, /CANARY|gateway\.example\.com|\/Users\/user|C:\\\\Users\\\\user/);
   assert.match(a, /<home>/);
-  assert.match(maskSnapshotString('https://other.example/x C:\\Users\\bob\\x', facts), /host-[a-f0-9]{6}.*<home>/);
+  assert.match(maskSnapshotString('https://other.example/x C:\\Users\\user\\x', facts), /host-[a-f0-9]{6}.*<home>/);
 });
 
 test('doctor snapshot refuses overwrite unless --force is supplied', async () => {
