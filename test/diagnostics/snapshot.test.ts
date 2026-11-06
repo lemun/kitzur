@@ -20,6 +20,15 @@ test('snapshot masks hosts and home paths in every diagnostic string and is dete
   assert.doesNotMatch(a, /CANARY|gateway\.example\.com|\/Users\/user|C:\\\\Users\\\\user/);
   assert.match(a, /<home>/);
   assert.match(maskSnapshotString('https://other.example/x C:\\Users\\user\\x', facts), /host-[a-f0-9]{6}.*<home>/);
+  assert.match(maskSnapshotString('https://[fd00::1]:8443/a', facts), /https:\/\/host-[a-f0-9]{6}:8443/);
+  assert.match(maskSnapshotString('C:\\Users\\user\\secret', facts), /^<home>\\secret$/);
+});
+
+test('doctor snapshot never includes KITZUR_PROBE_TOKEN from the environment', async () => {
+  let output = '';
+  const io: CliIO = { stdout: (s) => { output += s; }, stderr: () => {}, env: { KITZUR_PROBE_TOKEN: 'CANARY_ENV_PROBE_TOKEN' }, cwd: process.cwd(), onSignal: () => {} };
+  assert.equal(await main(['doctor', '--snapshot', '-'], io), 0);
+  assert.doesNotMatch(output, /CANARY_ENV_PROBE_TOKEN/);
 });
 
 test('doctor snapshot refuses overwrite unless --force is supplied', async () => {

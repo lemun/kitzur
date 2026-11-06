@@ -50,9 +50,11 @@ export async function cmdDoctor(argv: string[], io: CliIO): Promise<number> {
   const result = await doctor(loaded.config, { env: io.env, upstreamCheck: p.values['check-upstream'] === true, timeoutMs, configPath: loaded.configPath ?? undefined, clientConfigPath: p.values['client-config'] as string | undefined, models: loaded.models, model: p.values.model as string | undefined });
   if (typeof p.values.snapshot === 'string') {
     const check = (code: string): string | undefined => result.checks.find((c) => c.code === code)?.status;
+    let upstreamHost: string | undefined;
+    try { upstreamHost = loaded.config.upstream.origin ? new URL(loaded.config.upstream.origin).hostname : undefined; } catch { /* Doctor reports invalid origins. */ }
     const snapshot = createSnapshot(result, loaded.config, loaded.models, {
       version: packageInfo().version, node: process.version, platform: process.platform, arch: process.arch,
-      home: io.env.HOME, upstreamHost: loaded.config.upstream.origin ? new URL(loaded.config.upstream.origin).hostname : undefined,
+      home: io.env.HOME, upstreamHost,
       tokenizerConfigured: Boolean(loaded.config.tokenizer.path), tokenizerLoads: check('tokenizer.load') === 'ok',
     });
     const output = JSON.stringify(snapshot, null, 2) + '\n';

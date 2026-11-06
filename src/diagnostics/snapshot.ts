@@ -17,14 +17,17 @@ export function maskSnapshotString(input: string, facts: Pick<SnapshotFacts, 'ho
   let value = input;
   const hosts = new Map<string, string>();
   if (facts.upstreamHost) hosts.set(facts.upstreamHost.toLowerCase(), 'upstream-host');
-  value = value.replace(/\bhttps?:\/\/([^/:?#\s]+)/gi, (_all, host: string) => {
-    const bare = host.replace(/^.*@/, '').toLowerCase();
+  value = value.replace(/\bhttps?:\/\/([^/?#\s]+)/gi, (_all, authority: string) => {
+    const host = authority.slice(authority.lastIndexOf('@') + 1).replace(/:\d+$/, '');
+    const bare = host.replace(/^\[|\]$/g, '').toLowerCase();
     const replacement = hosts.get(bare) ?? hostMask(bare);
-    return _all.replace(host, replacement);
+    const prefix = authority.slice(0, authority.lastIndexOf('@') + 1);
+    const suffix = authority.slice(host.length + prefix.length);
+    return _all.replace(authority, prefix + replacement + suffix);
   });
   for (const [host, replacement] of hosts) value = value.replace(new RegExp(host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), replacement);
   if (facts.home) value = value.split(facts.home).join('<home>');
-  value = value.replace(/([A-Za-z]:\\Users\\)[^\\/]+/gi, '$1<home>');
+  value = value.replace(/(?:[A-Za-z]:)?\\Users\\[^\\/]+/gi, '<home>');
   value = value.replace(/\/(?:Users|home)\/[^/\\\s]+/g, '<home>');
   return value;
 }
