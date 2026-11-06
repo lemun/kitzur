@@ -250,8 +250,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       sendJson(res, 200, JSON.stringify(snapshot(), null, 1));
       return;
     }
-    if ((startupProbeStatus === 401 || startupProbeStatus === 403) && !Object.keys(cfg.upstream.headers).some((name) => name.toLowerCase() === 'authorization') && lazyProbe === null) {
-      lazyProbe = upstream.probe('/v1/models', clientAuthorization === undefined ? {} : { authorization: clientAuthorization }, false).then(applyProbe);
+    if ((startupProbeStatus === 401 || startupProbeStatus === 403) && !Object.keys(cfg.upstream.headers).some((name) => name.toLowerCase() === 'authorization') && lazyProbe === null && typeof clientAuthorization === 'string' && clientAuthorization.trim() !== '') {
+      lazyProbe = upstream.probe('/v1/models', { authorization: clientAuthorization }, false).then(applyProbe);
     }
     if (isChatCompletionsPath(req.method ?? '', pathname) && !isJsonContentType(req.headers['content-type'])) {
       sendJson(res, 415, errorBody('kitzur: chat requests must have Content-Type application/json', 'invalid_request_error', 'unsupported_media_type'));
