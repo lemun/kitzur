@@ -21,7 +21,56 @@ const messages: ChatMessage[] = [
 ];
 const input = { messages, digests: [], hEnd: 0, cut: 5, compaction: 1 };
 const opts = { budgetTokens: 100_000, allowFloorEviction: false, userShortenStep: 0 as const };
-const make = () => createSummarizerExt(testConfig(), estimateCounter('generic'));
+const make = (ranking = false) => {
+  const cfg = testConfig();
+  cfg.ledger.ranking = ranking;
+  return createSummarizerExt(cfg, estimateCounter('generic'));
+};
+
+test('ranking signals are absent when ranking is disabled', () => {
+  const render = make().render(input, opts);
+  assert.ok(render.attribution!.every((item) => !Object.hasOwn(item, 'signals')));
+  const userOnly = make().render({
+    messages: [{ role: 'user', content: 'USER-PLAN-R1: Keep this task.' }], digests: [], hEnd: 0, cut: 1, compaction: 1,
+  }, opts);
+  assert.equal(JSON.stringify(userOnly.attribution), JSON.stringify([{
+    category: 'user', sources: [{ kind: 'message', messageIndex: 0 }], supersededBy: [],
+    disposition: 'summarized', reason: 'user-instruction',
+  }]));
+});
+
+test('ranking signals explain errors, references, duplicates and recency without content', () => {
+  const msgs: ChatMessage[] = [
+    { role: 'assistant', content: null, tool_calls: [call('err', 'bash', { command: 'npm test' })] },
+    { role: 'tool', tool_call_id: 'err', content: 'Error: 2 tests failed.' },
+    { role: 'assistant', content: null, tool_calls: [call('read', 'read_file', { filePath: 'src/a.ts' })] },
+    { role: 'tool', tool_call_id: 'read', content: 'Read source.' },
+    { role: 'assistant', content: null, tool_calls: [call('duplicate-1', 'bash', { command: 'npm run lint' })] },
+    { role: 'tool', tool_call_id: 'duplicate-1', content: 'Lint finished.' },
+    { role: 'assistant', content: null, tool_calls: [call('ref', 'edit', { filePath: './src/a.ts', oldString: 'x', newString: 'y' })] },
+    { role: 'tool', tool_call_id: 'ref', content: 'Updated file.' },
+    { role: 'assistant', content: null, tool_calls: [call('duplicate-2', 'bash', { command: 'npm run lint' })] },
+    { role: 'tool', tool_call_id: 'duplicate-2', content: 'Lint finished.' },
+    { role: 'assistant', content: null, tool_calls: [call('recent', 'bash', { command: 'git status' })] },
+    { role: 'tool', tool_call_id: 'recent', content: 'Working tree clean.' },
+  ];
+  const summarizer = make(true);
+  const rankedInput = { messages: msgs, digests: [], hEnd: 0, cut: msgs.length, compaction: 1 };
+  const ranked = summarizer.render(rankedInput, opts);
+  const logs = ranked.attribution!.filter((a) => a.category === 'toolLog');
+  const signalItem = (signal: string) => logs.find((a) => a.signals?.includes(signal as never));
+  assert.ok(signalItem('error')?.sources.some((s) => s.kind === 'tool-call' && s.messageIndex === 0));
+  assert.ok(signalItem('referenced')?.sources.some((s) => s.kind === 'tool-call' && s.messageIndex === 2));
+  assert.ok(signalItem('duplicate')?.sources.some((s) => s.kind === 'tool-call' && s.messageIndex === 4));
+  assert.ok(signalItem('recent')?.sources.some((s) => s.kind === 'tool-call' && s.messageIndex === 10));
+  assert.ok(logs.every((a) => a.signals === undefined || a.signals.every((s) =>
+    ['error', 'referenced', 'duplicate', 'recent'].includes(s))));
+  assert.doesNotMatch(JSON.stringify(logs.map((a) => a.signals)), /src\/|npm|git|Error|tests/);
+  const pristine = JSON.stringify(ranked.attribution);
+  const firstSignals = ranked.attribution!.find((a) => a.signals)?.signals;
+  if (firstSignals) firstSignals.push('recent');
+  assert.equal(JSON.stringify(summarizer.render(rankedInput, opts).attribution), pristine);
+});
 
 test('typed attribution identifies instructions, decisions, todos and file call versus result sources', () => {
   const summary = make().render(input, opts);

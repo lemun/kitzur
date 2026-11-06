@@ -217,6 +217,7 @@ export function createSummarizerExt(cfg: Config, counter: TokenCounter): Summari
         disposition: kept ? 'summarized' : 'dropped',
         reason: !kept ? 'budget-eviction' : it.category === 'user' ? 'user-instruction'
           : !opts.allowFloorEviction && FLOOR_CATEGORIES.has(it.category) ? 'protected-floor' : 'priority-prefix',
+        ...(it.signals ? { signals: [...it.signals] } : {}),
       };
     });
     const render: SummaryRender = { text, tokens, floorTokens, kept: users.length + k, dropped: others.length - k, categories, attribution };
