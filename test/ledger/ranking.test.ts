@@ -117,7 +117,7 @@ test('flag on: same items, same categories, floor first, call/result pairs kept,
   const msgs = MIXED();
   const off = ledger(msgs, false);
   const on = ledger(msgs, true);
-  const strip = (L: Ledger) => L.items.map(({ rank: _rank, ...rest }) => rest);
+  const strip = (L: Ledger) => L.items.map(({ rank: _rank, signals: _signals, ...rest }) => rest);
   assert.deepEqual(strip(on), strip(off));
   const sorted = [...on.items].sort(compareItems);
   const cats = sorted.map((i) => CATEGORY_ORDER.indexOf(i.category));

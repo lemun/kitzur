@@ -84,7 +84,8 @@ test('a leftover temp file from an interrupted write is ignored and left alone',
   assert.equal(r.corrupt, 0, 'files outside the plans-<day>.jsonl pattern are never read');
 });
 
-test('a read-only state directory still loads, drops appends without throwing and keeps the file', { skip: process.getuid?.() === 0 }, async () => {
+// Windows has no POSIX permission bits: chmod cannot produce EACCES or an unreadable file.
+test('a read-only state directory still loads, drops appends without throwing and keeps the file', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-faults-'));
   const file = join(dir, NAME);
   try {

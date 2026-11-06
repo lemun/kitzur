@@ -37,6 +37,9 @@ export type RetentionSource =
   | { kind: 'tool-call'; messageIndex: number; callIndex: number }
   | { kind: 'tool-result'; messageIndex: number; call?: { messageIndex: number; callIndex: number } };
 
+/** Content-free reasons an item received a ranking preference. */
+export type RankSignal = 'error' | 'referenced' | 'duplicate' | 'recent';
+
 export interface RetentionAttribution {
   category: 'user' | 'decision' | 'todo' | 'file' | 'rest' | 'narrative1' | 'narrative2' | 'toolLog';
   sources: RetentionSource[];
@@ -44,6 +47,7 @@ export interface RetentionAttribution {
   reason: 'user-instruction' | 'protected-floor' | 'priority-prefix' | 'budget-eviction';
   /** Corrections can supersede all or part of an instruction, including from the tail. */
   supersededBy: number[];
+  signals?: RankSignal[];
 }
 
 export interface SummaryRender {
