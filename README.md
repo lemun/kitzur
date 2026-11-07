@@ -178,6 +178,12 @@ history is available even without a stats file and resets on restart.
 |---|---|---|
 | OpenAI Chat Completions only | OpenCode example; any compatible client | Local or intranet model with a known served window |
 
+| Platform | Supported | Notes |
+|---|---|---|
+| Node.js | 22, 24, 26 | Tested in CI on Linux and Windows; `kitzur doctor` warns on older versions |
+| Windows | 10, 11 | No administrator rights needed |
+| macOS, Linux | Yes | |
+
 Anthropic Messages and OpenAI Responses are unsupported. Choose Kitzur when the
 server's actual context limit matters more than broader protocol coverage.
 

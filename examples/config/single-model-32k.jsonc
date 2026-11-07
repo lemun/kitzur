@@ -1,0 +1,13 @@
+// One local model with a 32k window behind kitzur. Copy to ~/.config/kitzur/kitzur.jsonc,
+// then replace the upstream host and the tokenizer path with your own.
+{
+  "preset": "32k", // 32000-token window, 8000 reserved for the reply
+  "upstream": {
+    "origin": "http://llm.example.com:8000" // your OpenAI-compatible server, no path
+  },
+  "server": { "type": "vllm" },
+  "tokenizer": {
+    "path": "~/models/<model>/tokenizer.json" // the model's tokenizer.json, relative to this file or ~/
+  },
+  "listen": { "host": "127.0.0.1", "port": 8270 }
+}
