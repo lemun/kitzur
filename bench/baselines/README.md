@@ -2,8 +2,9 @@
 
 `engine-perf.json` is the baseline of `bench/perf-baseline.ts`: the compaction planner run in process with the
 estimate counter (no tokenizer, no network, no listener) over deterministic synthetic coding-agent histories (the
-seeded fuzz chains of `bench/fuzz/gen.ts`, concatenated, contents cut to 2 KB) at about 200, 1000 and 4000
-messages and the 32k and 100k presets, about 40 evenly spaced requests per case. It is separate from the published-numbers golden test, and not part of `npm test` or CI.
+seeded fuzz chains of `bench/fuzz/gen.ts`, concatenated, string contents cut to 2 KB) at about 200, 1000 and
+4000 messages and the 32k and 100k presets, about 40 evenly spaced requests per case. It is separate from the
+published-numbers golden test, and not part of `npm test` or CI.
 
 It protects:
 
