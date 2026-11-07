@@ -210,6 +210,28 @@ test('doctor reads an OpenCode JSONC file and handles unreadable files safely', 
   assert.equal(missing.exitCode, 1);
   assert.ok(missing.checks.some((c) => c.code === 'client.config'));
   assert.doesNotMatch(renderDoctor(missing), /SECRET_MISSING_FILE/);
+  const notFound = missing.checks.find((c) => c.code === 'client.config');
+  assert.equal(notFound?.status, 'error');
+  assert.match(notFound?.message ?? '', /not found/);
+  assert.match(notFound?.fix ?? '', /--client-config/);
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-client-config-'));
+  try {
+    const unreadable = await doctor(cfg, { clientConfigPath: dir });
+    assert.equal(unreadable.exitCode, 1);
+    const read = unreadable.checks.find((c) => c.code === 'client.config');
+    assert.equal(read?.status, 'error');
+    assert.match(read?.message ?? '', /could not be read \(EISDIR\)/);
+    assert.ok(!renderDoctor(unreadable).includes(dir));
+    const broken = join(dir, 'broken.json');
+    writeFileSync(broken, '{\n  "provider": {\n    "authorization": Bearer SK-FAKE-SECRET-123\n  }\n}\n');
+    const invalid = await doctor(cfg, { clientConfigPath: broken });
+    assert.equal(invalid.exitCode, 1);
+    const syntax = invalid.checks.find((c) => c.code === 'client.config');
+    assert.equal(syntax?.status, 'error');
+    assert.match(syntax?.message ?? '', /not valid JSON\/JSONC \(line 3, column \d+\)/);
+    assert.match(syntax?.fix ?? '', /editor/);
+    assert.doesNotMatch(renderDoctor(invalid), /SK-FAKE-SECRET|Bearer|authorization|broken\.json/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('doctor warns when upstream.headers is set without listen.token, without printing secrets', async () => {

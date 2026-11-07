@@ -144,8 +144,26 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
   }
 
   if (opts.clientConfigPath) {
-    try { checks.push(...clientConfigChecks(config, parseJsonc(readFileSync(opts.clientConfigPath, 'utf8')), opts.models)); }
-    catch { add('client.config', 'error', 'Client configuration could not be read as JSON/JSONC.'); }
+    // never echo the path or the file contents: only the error code or the parse position
+    let text: string | null = null;
+    try { text = readFileSync(opts.clientConfigPath, 'utf8'); }
+    catch (error) {
+      const errno = (error as NodeJS.ErrnoException).code;
+      if (errno === 'ENOENT') add('client.config', 'error', 'Client configuration file was not found.', 'Check the path given to --client-config.');
+      else add('client.config', 'error', `Client configuration file could not be read (${errno && /^E[A-Z]+$/.test(errno) ? errno : 'read error'}).`, 'Check that the path given to --client-config is a readable file.');
+    }
+    if (text !== null) {
+      let parsed: unknown;
+      try { parsed = parseJsonc(text, 'client'); }
+      catch (error) {
+        const at = /^client:(\d+):(\d+):/.exec((error as Error).message);
+        add('client.config', 'error', `Client configuration is not valid JSON/JSONC${at ? ` (line ${at[1]}, column ${at[2]})` : ''}.`, 'Open the file in an editor that validates JSON/JSONC and fix the syntax.');
+      }
+      if (parsed !== undefined) {
+        try { checks.push(...clientConfigChecks(config, parsed, opts.models)); }
+        catch { add('client.config', 'error', 'Client configuration could not be checked.'); }
+      }
+    }
   }
 
   if (config.tokenizer.mode === 'estimate') add('tokenizer.mode', 'warn', 'Tokenizer mode is estimate; token counts use the configured character ratios.', 'Set tokenizer.mode to auto and configure tokenizer.path for exact local counts.');
