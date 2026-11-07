@@ -6,6 +6,10 @@ All notable changes to Kitzur are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Model profile validation now suggests allowed keys, explains global settings, and warns about empty or nearly duplicate IDs.
+
 ### Added
 
 - Optional `ledger.ranking` orders ledger items within each category using duplicate, error, later-reference and recency signals; `kitzur replay --explain` displays those signals.

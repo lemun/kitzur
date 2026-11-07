@@ -665,6 +665,8 @@ Allowed profile leaves (validated with the root leaf specs):
   `client.outputLimit`, `client.outputTokenMax`, `client.outputAllowanceTokens`.
 - `tokenizer.mode`, `tokenizer.template.name`.
 
+Unknown profile keys name the closest allowed key (`unknown config key models.small.budget.widnow (did you mean budget.window?)`); known global keys explain where profile settings belong (`upstream.origin is global; it cannot be set under models.small; per-model settings are under budget, client, and tokenizer`).
+
 A profile inheriting root auto mode retains auto mode. An explicit model window
 of `"auto"` falls back to the final root's numeric window until discovery; a
 fallback above an explicit client input/compaction limit produces a warning.
