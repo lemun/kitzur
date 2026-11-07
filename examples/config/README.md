@@ -7,3 +7,4 @@ Ready-to-copy kitzur config files. Copy one to `~/.config/kitzur/kitzur.jsonc` (
 | File | Setup |
 |---|---|
 | [single-model-32k.jsonc](single-model-32k.jsonc) | one local model with a 32k window |
+| [multi-model-gateway.jsonc](multi-model-gateway.jsonc) | a large and a small model behind one gateway, each with its own window |
