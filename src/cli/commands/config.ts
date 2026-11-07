@@ -3,7 +3,9 @@ import { dirname, resolve } from 'node:path';
 import { validateConfig } from '../../config/validate.js';
 import { computeBudget } from '../../config/derived.js';
 import { DEFAULT_LEAVES, getPath } from '../../config/spec.js';
-import { renderInitConfig } from '../../config/init.js';
+import { parseInitModels, renderInitConfig, type InitModel } from '../../config/init.js';
+import { ConfigError, loadConfig } from '../../config/load.js';
+import { parseJsonc } from '../../config/jsonc.js';
 import { packageInfo } from '../../config/paths.js';
 import { exportOpenCode } from '../../config/export-opencode.js';
 import { UsageError, type CliIO } from '../io.js';
@@ -24,28 +26,54 @@ export async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
       return 0;
     }
     case 'init': {
-      const p = parseArgs(rest, { preset: { type: 'string', short: 'p' }, out: { type: 'string', short: 'o' }, force: { type: 'boolean' }, upstream: { type: 'string' }, tokenizer: { type: 'string' } });
+      const p = parseArgs(rest, { preset: { type: 'string', short: 'p' }, out: { type: 'string', short: 'o' }, force: { type: 'boolean' }, upstream: { type: 'string' }, tokenizer: { type: 'string' }, model: { type: 'string', multiple: true }, 'dry-run': { type: 'boolean' } });
       const tokenizerArg = p.values['tokenizer'] as string | undefined;
+      let models: InitModel[];
+      try {
+        models = parseInitModels((p.values['model'] as string[] | undefined) ?? []);
+      } catch (e) {
+        throw new UsageError(`config init: ${(e as Error).message}`);
+      }
       const text = renderInitConfig((p.values['preset'] as string | undefined) ?? '100k', {
         upstream: p.values['upstream'] as string | undefined,
         // a `~/` path is kept for the config loader; others are relative to the shell's directory, not to the written file's
         tokenizer: tokenizerArg === undefined || tokenizerArg === '' ? undefined : tokenizerArg.startsWith('~/') ? tokenizerArg : resolve(io.cwd, tokenizerArg),
+        models,
       });
+      if (models.length) {
+        // a window the preset cannot hold (no room for the prompt) is refused here, not by a later config validate
+        let bad: string[];
+        try {
+          const l = loadConfig({ object: parseJsonc(text) as Record<string, unknown>, env: {}, cwd: io.cwd });
+          bad = models.flatMap((m) => validateConfig(l.models[m.id]!).errors.map((e) => `models[${JSON.stringify(m.id)}]: ${e}`));
+        } catch (e) {
+          if (!(e instanceof ConfigError)) throw e;
+          bad = e.issues;
+        }
+        if (bad.length) throw new UsageError(`config init --model: ${bad.join('; ')}; pass a larger window, or omit =WINDOW to inherit the preset's`);
+      }
       const out = (p.values['out'] as string | undefined) ?? 'kitzur.config.jsonc';
       if (out === '-') {
         io.stdout(text);
         return 0;
       }
       const path = resolve(io.cwd, out);
-      if (existsSync(path) && !p.values['force']) {
+      const exists = existsSync(path);
+      const todo = [p.values['upstream'] ? '' : 'upstream.origin', tokenizerArg ? '' : 'tokenizer.path'].filter(Boolean);
+      const next = `next: ${todo.length ? `set ${todo.join(' and ')}, then: ` : ''}kitzur config validate --config ${out}\n`;
+      if (p.values['dry-run']) {
+        const state = !exists ? 'new' : p.values['force'] ? 'exists: would overwrite, --force' : 'exists: refused without --force';
+        io.stdout(`would write ${path} (${state})\n${text}${next}`);
+        return exists && !p.values['force'] ? 1 : 0;
+      }
+      if (exists && !p.values['force']) {
         io.stderr(`kitzur: ${path} exists (use --force to overwrite)\n`);
         return 1;
       }
       // the README's `--out ~/.config/kitzur/kitzur.jsonc` on a fresh host: the directory does not exist yet
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, text);
-      const todo = [p.values['upstream'] ? '' : 'upstream.origin', tokenizerArg ? '' : 'tokenizer.path'].filter(Boolean);
-      io.stdout(`wrote ${path}\nnext: ${todo.length ? `set ${todo.join(' and ')}, then: ` : ''}kitzur config validate --config ${out}\n`);
+      io.stdout(`wrote ${path}\n${next}`);
       return 0;
     }
     case 'show': {
