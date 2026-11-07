@@ -8,6 +8,7 @@ All notable changes to Kitzur are recorded here. The format follows
 
 ### Added
 
+- `kitzur config init --dry-run` prints the target path, whether it exists, the config text and the next steps without creating anything; `--model ID[=WINDOW]` (repeatable) adds a model profile per wire model ID, optionally with its window.
 - `--set` and `KITZUR_SET` set one model profile's leaf with `models["<id>"].budget.window=64000`; the ID is a JSON string, and `config show --json` reports the leaf's source.
 - `deploy/verify-bundle.mjs`, shipped in the offline bundle and the Windows ZIP, verifies an extracted bundle on the target with Node.js alone: Node version, archive and per-file checksums, no unlisted or forbidden files, resolvable imports and a CLI smoke test.
 - `kitzur doctor` warns when the running Node.js is older than 22 (`runtime.node`), and the README has a compatibility table for Node.js, Windows, macOS and Linux.
