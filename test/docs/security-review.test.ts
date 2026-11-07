@@ -8,8 +8,7 @@ const DOC = 'docs/SECURITY-REVIEW.md';
 const doc = readFileSync(join(ROOT, DOC), 'utf8');
 const TABLE = '## Modules that can reach the network or start processes';
 const MODULES = 'http|https|net|tls|dns|dgram|child_process';
-// value imports only: `import type` cannot open a socket or start a process
-const IMPORT = new RegExp(`^\\s*import\\s+(?!type\\b)[^;]*?\\bfrom\\s+['"](?:node:)?(${MODULES})['"]|\\b(?:import|require)\\(\\s*['"](?:node:)?(${MODULES})['"]`, 'gm');
+const IMPORT = new RegExp(`^\\s*import\\s+[^;]*?\\bfrom\\s+['"](?:node:)?(${MODULES})['"]|\\b(?:import|require)\\(\\s*['"](?:node:)?(${MODULES})['"]`, 'gm');
 const FETCH = /(?<![\w.$])fetch\s*\(|globalThis\.fetch\b/;
 
 function tsFiles(dir: string): string[] {

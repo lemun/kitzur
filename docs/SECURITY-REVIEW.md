@@ -25,12 +25,13 @@ Commands assume the repository root. `test/docs/security-review.test.ts` keeps t
   **Verify:** `curl -H 'Host: example.com' http://127.0.0.1:8270/status` returns an error status. **Owner:** [src/proxy/hostcheck.ts](../src/proxy/hostcheck.ts), [SECURITY.md](../SECURITY.md#network).
 - **Claim:** `listen.token` optionally requires `Authorization: Bearer <token>` on every route; it is never forwarded.
   **Verify:** with a token set, `curl http://127.0.0.1:8270/status` returns 401. **Owner:** [SECURITY.md](../SECURITY.md#network).
-- **Claim:** the only outbound destination is `upstream.origin` (chat, the optional `tokenizer.endpoint` on the same
-  origin, and doctor's opt-in `--check-upstream` probe). The host never comes from the request and `HTTP(S)_PROXY` is not honoured.
+- **Claim:** the proxy's only outbound destination is `upstream.origin` (chat, the optional `tokenizer.endpoint` on the same
+  origin, and doctor's opt-in `--check-upstream` probe). The CLI diagnostic `kitzur status --url <url>` is the one exception:
+  it reads `/status` from the URL the operator passes. The host never comes from the request and `HTTP(S)_PROXY` is not honoured.
   **Verify:** the module table below; `grep -n "new URL" src/tokenize/remote.ts src/proxy/upstream.ts`. **Owner:** [src/proxy/upstream.ts](../src/proxy/upstream.ts).
 - **Claim:** `scripts/fetch-tokenizer.sh` downloads a development tokenizer into `bench/.cache` and checks its SHA-256.
   It is a build and benchmark step, not part of the runtime or the bundle. **Verify:** `grep -rn fetch-tokenizer dist/src` prints nothing. **Owner:** [scripts/fetch-tokenizer.sh](../scripts/fetch-tokenizer.sh).
-- **Claim:** no telemetry, update check or download. **Verify:** `grep -rnE "(^|[^.a-zA-Z])fetch\(" dist/src` prints nothing, and every outbound module is in the table below. **Owner:** [SECURITY.md](../SECURITY.md#network).
+- **Claim:** no telemetry, update check or runtime download (the tokenizer fetch above is the build-time exception). **Verify:** `grep -rnE "(^|[^.a-zA-Z])fetch\(" dist/src` prints nothing, and every outbound module is in the table below. **Owner:** [SECURITY.md](../SECURITY.md#network).
 
 ## Credentials
 
@@ -56,8 +57,10 @@ Commands assume the repository root. `test/docs/security-review.test.ts` keeps t
 
 ## Process behaviour
 
-- **Claim:** child processes start only from the modules marked `node:child_process` in the table below.
-  **Verify:** `grep -rln child_process dist/src`. **Owner:** this document.
+- **Claim:** in `src/`, child processes start only from the modules marked `node:child_process` in the table below.
+  The packaged Windows helper `deploy/windows/manage.mjs` also starts PowerShell (install and uninstall scripts) and a
+  detached supervisor of its own. **Verify:** `grep -rln child_process dist/src deploy/windows`. **Owner:** this document,
+  [deploy/windows/manage.mjs](../deploy/windows/manage.mjs).
 - **Claim:** no `eval`, `new Function` or dynamic import of user input; dynamic imports use fixed in-package paths.
   **Verify:** `grep -rnE "eval\(|new Function|import\(" src`. **Owner:** [src/app.ts](../src/app.ts).
 - **Claim:** request bodies are capped by `listen.maxRequestBytes` (413) and concurrency by `listen.maxConcurrentRequests` (503).
@@ -75,17 +78,20 @@ Commands assume the repository root. `test/docs/security-review.test.ts` keeps t
 ## What Kitzur does not do
 
 - **Claim:** it does not call a model; compaction is mechanical and local. **Verify:** the module table below. **Owner:** [DESIGN.md](../DESIGN.md#mechanical-summary).
-- **Claim:** it does not rewrite transcript files; only the forwarded request changes. **Owner:** [DESIGN.md](../DESIGN.md).
-- **Claim:** it does not store or rotate keys beyond the one client key it forwards. **Owner:** [SECURITY.md](../SECURITY.md#network).
+- **Claim:** it does not rewrite transcript files; only the forwarded request changes. **Verify:**
+  `grep -rlnE "writeFile|createWriteStream|appendFile|writeSync|copyFile" src` lists only modules writing under `stateDir`,
+  the tokenizer cache, log, stats and capture files, or an output path given on the command line. **Owner:** [DESIGN.md](../DESIGN.md).
+- **Claim:** it does not store or rotate keys beyond the one client key it forwards. **Verify:** `grep -rni rotat src` matches only log rotation. **Owner:** [SECURITY.md](../SECURITY.md#network).
 
 ## Modules that can reach the network or start processes
 
-Every `src/` file with a value import of `node:http`, `node:https`, `node:net`, `node:tls`, `node:dns`, `node:dgram`
+Every `src/` file with an import (including `import type`) of `node:http`, `node:https`, `node:net`, `node:tls`, `node:dns`, `node:dgram`
 or `node:child_process`, or a `fetch(` call.
 
 | Module | Imports | Why |
 |---|---|---|
 | `src/proxy/server.ts` | `node:http` | The proxy listener. |
+| `src/proxy/relay.ts` | `node:http` (types only) | Relays the upstream response to the client socket the listener owns. |
 | `src/proxy/upstream.ts` | `node:http`, `node:https`, `node:tls` | The client for `upstream.origin`, the only outbound destination. |
 | `src/tokenize/remote.ts` | `node:http`, `node:https` | Optional `tokenizer.endpoint` calls on `upstream.origin`. |
 | `src/diagnostics/tls-chain.ts` | `node:net`, `node:tls` | Inspects the upstream certificate chain when a TLS error is reported. |
