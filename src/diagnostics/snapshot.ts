@@ -21,9 +21,9 @@ export function maskSnapshotString(input: string, facts: Pick<SnapshotFacts, 'ho
     const host = authority.slice(authority.lastIndexOf('@') + 1).replace(/:\d+$/, '');
     const bare = host.replace(/^\[|\]$/g, '').toLowerCase();
     const replacement = hosts.get(bare) ?? hostMask(bare);
-    const prefix = authority.slice(0, authority.lastIndexOf('@') + 1);
-    const suffix = authority.slice(host.length + prefix.length);
-    return _all.replace(authority, prefix + replacement + suffix);
+    // Userinfo (user:token@) is dropped entirely: it is a credential, not a location.
+    const suffix = authority.slice(authority.lastIndexOf('@') + 1 + host.length);
+    return _all.replace(authority, replacement + suffix);
   });
   for (const [host, replacement] of hosts) value = value.replace(new RegExp(host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), replacement);
   if (facts.home) value = value.split(facts.home).join('<home>');
