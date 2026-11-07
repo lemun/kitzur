@@ -83,11 +83,12 @@ test('config init --model: one or several profiles, IDs JSON-escaped, every vari
       assert.equal(l.models[ids[0]!]!.budget.window, big);
       assert.equal(l.models[ids[1]!]!.budget.window, l.config.budget.window, 'no =WINDOW inherits the root');
     }
-    const eq = await run(['config', 'init', '-o', '-', '--model', 'org/m=32000=', '--model', 'org/n==64000']);
+    const eq = await run(['config', 'init', '-o', '-', '--model', 'org/m=32000=', '--model', 'org/n==64000', '--model', 'p==']);
     assert.equal(eq.code, 0, eq.err);
     assert.match(eq.out, /"org\/m=32000": \{\}/, 'a trailing = keeps an ID containing = whole');
     assert.match(eq.out, /"org\/n=": \{ "budget": \{ "window": 64000 \} \}/);
-    assert.deepEqual(validates(dir, eq.out), ['org/m=32000', 'org/n=']);
+    assert.match(eq.out, /"p=": \{\}/, 'a doubled trailing = is an ID ending in =');
+    assert.deepEqual(validates(dir, eq.out), ['org/m=32000', 'org/n=', 'p=']);
     const dry = await run(['config', 'init', '--dry-run', '--model', 'm=64000', '--out', 'k.jsonc'], dir);
     assert.equal(dry.code, 0, dry.err);
     assert.match(dry.out, /"m": \{ "budget": \{ "window": 64000 \} \}/);
@@ -103,6 +104,7 @@ test('config init --model: duplicate, empty and invalid values are usage errors 
     [['--model', 'm=1.5'], /must be a positive integer/],
     [['--model', 'm=x'], /--model "m=x": the window must be a positive integer/],
     [['--model', '='], /empty model ID/],
+    [['--model', 'm='], /--model "m=": empty window; write --model m=32000, or --model m to inherit the root window/],
     [['--model', '__proto__'], /--model "__proto__": invalid model ID/],
     [['--model', 'm=1000'], /config init --model: models\["m"\]: no room for the prompt.*; pass a larger window/],
   ];
