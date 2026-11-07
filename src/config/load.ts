@@ -102,7 +102,7 @@ export function parseSetArg(arg: string, source = 'cli:--set'): SetOp {
   // `upstream.headers.Authorization:Bearer …` (a typo for '='): the rest of the argument is a credential
   const shown = /^\s*upstream\.headers\b/i.test(arg) ? '"upstream.headers…" (value not shown)'
     : /^\s*listen\.token\b/i.test(arg) ? '"listen.token…" (value not shown)' : JSON.stringify(arg);
-  if (eq <= 0) throw new ConfigError([`${source}: expected path=value, got ${shown}`]);
+  if (eq <= 0) throw new ConfigError([`${source}: expected path=value, got ${shown}; write it as key=value (kitzur config show --full lists the keys)`]);
   return { path: arg.slice(0, eq).trim(), raw: arg.slice(eq + 1), source };
 }
 
@@ -269,14 +269,16 @@ export function loadConfig(opts: LoadOptions = {}): LoadedConfig {
     fileSource = 'object';
   } else if (cfgPathRaw) {
     configPath = resolve(cwd, cfgPathRaw);
-    if (!existsSync(configPath)) throw new ConfigError([`config file not found: ${configPath}`]);
+    if (!existsSync(configPath)) throw new ConfigError([`config file not found: ${configPath}; create one with kitzur config init --out ${configPath}`]);
     let parsed: unknown;
     try {
       parsed = parseJsonc(readFileSync(configPath, 'utf8'), configPath);
     } catch (e) {
       throw new ConfigError([(e as Error).message]);
     }
-    if (!isPlainObject(parsed)) throw new ConfigError([`${configPath}: the config must be a JSON object`]);
+    if (!isPlainObject(parsed)) {
+      throw new ConfigError([`${configPath}: the config must be a JSON object ({ ... }); kitzur config init --out - prints a starting file`]);
+    }
     fileLayer = { ...parsed };
     fileSource = `file:${configPath}`;
     fileBase = dirname(configPath);

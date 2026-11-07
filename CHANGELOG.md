@@ -64,6 +64,7 @@ All notable changes to Kitzur are recorded here. The format follows
 
 ### Changed
 
+- Common first-run errors (missing or non-object config file, unknown option, bad `--set`, unknown `--model`, unreadable tokenizer, unwritable `stateDir`) now name the next step to take.
 - Model profile validation now suggests allowed keys, explains global settings, and warns about empty or nearly duplicate IDs.
 - `kitzur replay --explain` prints a readable table instead of raw JSON.
 - `kitzur report` streams the stats file instead of loading it whole, so large logs stay within bounded

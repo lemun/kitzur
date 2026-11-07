@@ -20,7 +20,7 @@ export async function cmdServe(argv: string[], io: CliIO): Promise<number> {
   for (const w of [...l.warnings, ...v.warnings.filter((x) => !/^upstream\.origin is not set/.test(x))]) log.warn(w);
   if (v.errors.length || !cfg.upstream.origin) {
     for (const e of v.errors) io.stderr(`kitzur: config error: ${e}\n`);
-    if (!cfg.upstream.origin) io.stderr('kitzur: config error: upstream.origin is required (--upstream http://gateway:8000, KITZUR_UPSTREAM_ORIGIN or the config file)\n');
+    if (!cfg.upstream.origin) io.stderr('kitzur: config error: upstream.origin is required (--upstream http://gateway:8000, KITZUR_UPSTREAM_ORIGIN, or write a config file with kitzur config init)\n');
     await log.close();
     return 2;
   }
