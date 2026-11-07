@@ -20,7 +20,6 @@ export async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
   const reqs = collectRequests(p.positionals, io.cwd);
   const modelArg = p.values['model'] as string | undefined;
   checkModelOverride(l, modelArg);
-  const profiled = Object.keys(l.models).length > 0;
   const live = await buildEngine(cfg, { log, modules: io.modules, env: io.env });
   // one live engine per profile, built when a request first selects it
   const engines = new Map<string, Promise<typeof live>>([['root', Promise.resolve(live)]]);
@@ -73,7 +72,7 @@ export async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
     io.stdout(JSON.stringify({ counter: live.counter.mode, requests: rows, mismatches, failures }, null, 1) + '\n');
   } else {
     io.stdout(`counter ${live.counter.mode}${live.estimateReason ? ` (${live.estimateReason})` : ''}; ${reqs.length} request(s)\n`);
-    io.stdout(`${'#'.padStart(4)}  ${'file'.padEnd(24)} ${'action'.padEnd(14)} ${'msgs'.padStart(9)} ${'tokens in -> out'.padStart(19)} ${'budget'.padStart(7)} ${'trigger'.padStart(7)} ${'fit'.padEnd(11)} cmp ${'max_tok'.padStart(7)}  det${profiled ? '  profile' : ''}\n`);
+    io.stdout(`${'#'.padStart(4)}  ${'file'.padEnd(24)} ${'action'.padEnd(14)} ${'msgs'.padStart(9)} ${'tokens in -> out'.padStart(19)} ${'budget'.padStart(7)} ${'trigger'.padStart(7)} ${'fit'.padEnd(11)} cmp ${'max_tok'.padStart(7)}  det  profile\n`);
     for (const r of rows) {
       if (r['error']) {
         io.stdout(`${String(r['i']).padStart(4)}  ${String(r['file']).padEnd(24)} ERROR ${r['error']}\n`);
@@ -84,7 +83,7 @@ export async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
         `${String(r['i']).padStart(4)}  ${String(r['file']).slice(0, 24).padEnd(24)} ${String(r['action']).padEnd(14)} ` +
           `${`${r['messagesIn']}->${r['messagesOut']}`.padStart(9)} ${`${r['tokensIn']} -> ${r['tokensOut']}`.padStart(19)} ` +
           `${String(r['budget']).padStart(7)} ${String(r['trigger']).padStart(7)} ${String(r['fit'] ?? '-').padEnd(11)} ${String(r['compactions']).padStart(3)} ` +
-          `${String(r['maxTokens'] ?? '-').padStart(7)}  ${det.padEnd(profiled ? 4 : 0)}${profiled ? `  ${r['profile']}` : ''}\n`,
+          `${String(r['maxTokens'] ?? '-').padStart(7)}  ${det.padEnd(4)}  ${r['profile']}\n`,
       );
       if (p.values['explain'] && Array.isArray(r['retentionExplanation'])) {
         io.stdout(`${renderRetention(r['retentionExplanation'] as import('../../engine/contracts.js').RetentionAttribution[], { limit: explainLimit }).split('\n').map((line) => `      ${line}`).join('\n')}\n`);

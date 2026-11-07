@@ -94,14 +94,13 @@ test('replay picks the model profile from each request, with a --model override'
     assert.match(bad.err, /--model nope: no configured profile for this model \(configured: org\/small\)/);
   }));
 
-test('replay without model profiles reports root and prints the same table', () =>
+test('replay without model profiles reports root in JSON and text', () =>
   withTmp(async (dir) => {
     writeFileSync(join(dir, 'r.json'), JSON.stringify({ model: 'm', max_tokens: 100, messages: [{ role: 'user', content: 'hi' }] }));
     const j = await run(['replay', 'r.json', '--json', '--no-fresh', '--state-dir', dir], dir);
     assert.equal((JSON.parse(j.out) as { requests: Array<Record<string, unknown>> }).requests[0]!['profile'], 'root');
     const t = await run(['replay', 'r.json', '--no-fresh', '--state-dir', dir], dir);
-    assert.match(t.out, /max_tok {2}det\n/);
-    assert.ok(!t.out.includes('profile'), t.out);
+    assert.match(t.out, /max_tok {2}det {2}profile\n[^\n]+ {2}root\n/);
     const bad = await run(['replay', 'r.json', '--model', 'm', '--state-dir', dir], dir);
     assert.equal(bad.code, 2);
     assert.match(bad.err, /\(configured: none\)/);

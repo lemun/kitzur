@@ -44,7 +44,7 @@ export async function cmdCount(argv: string[], io: CliIO): Promise<number> {
     io.stdout(JSON.stringify(out, null, 1) + '\n');
     return 0;
   }
-  io.stdout(`${out.file}: ${out.total} tokens (${out.counter}, template ${out.template}${Object.keys(l.models).length ? `, profile ${profile}` : ''}${out.tokenizerSha256 ? `, tokenizer ${out.tokenizerSha256.slice(0, 12)}` : ''})\n`);
+  io.stdout(`${out.file}: ${out.total} tokens (${out.counter}, template ${out.template}, profile ${profile}${out.tokenizerSha256 ? `, tokenizer ${out.tokenizerSha256.slice(0, 12)}` : ''})\n`);
   io.stdout(`  ${out.messages} messages, ${out.tools} tools; overhead ${out.overhead} (tools block / generation prompt not attributed to a message)\n`);
   io.stdout(`  T_req ${tReq}; ${b.mode}: budget ${b.budget} ${out.withinBudget ? 'ok' : `exceeded by ${out.total - b.budget}`}; serverFits ${out.serverFits ? 'yes' : 'no'}\n`);
   for (const r of out.perMessage) io.stdout(`  #${String(r.i).padEnd(4)} ${r.role.padEnd(10)} ${String(r.tokens).padStart(8)}\n`);

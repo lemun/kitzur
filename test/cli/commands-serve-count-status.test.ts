@@ -85,11 +85,11 @@ test('count uses the model profile of the request, with a --model override', () 
     assert.match(bad.err, /--model nope: no configured profile for this model \(configured: org\/small\)/);
   }));
 
-test('count without model profiles reports root and keeps its text line', () =>
+test('count without model profiles reports root in JSON and text', () =>
   withTmp(async (dir) => {
     writeFileSync(join(dir, 'r.json'), JSON.stringify({ model: 'm', max_tokens: 100, messages: [{ role: 'user', content: 'hi' }] }));
     const j = await run(['count', 'r.json', '--estimate', '--json', '--state-dir', dir], dir);
     assert.equal((JSON.parse(j.out) as { profile: string }).profile, 'root');
     const t = await run(['count', 'r.json', '--estimate', '--state-dir', dir], dir);
-    assert.match(t.out, /^r\.json: \d+ tokens \(estimate, template [^,)]+\)\n/);
+    assert.match(t.out, /^r\.json: \d+ tokens \(estimate, template [^,)]+, profile root\)\n/);
   }));
