@@ -1,4 +1,5 @@
 import { loadConfig, parseSetArg, type LoadedConfig, type SetOp } from '../config/load.js';
+import type { Config } from '../config/schema.js';
 import { defaultConfigPath } from '../config/paths.js';
 import { UsageError, type CliIO } from './io.js';
 
@@ -99,4 +100,20 @@ export function loadFromArgs(p: ParsedArgs, io: CliIO): LoadedConfig {
     cwd: io.cwd,
     sets: setOpsOf(p),
   });
+}
+
+/** `--model ID`: the model used to pick a profile instead of each request's `model` field. */
+export const MODEL_OPT: OptSpec = { model: { type: 'string' } };
+
+/** Rejects a `--model` that names no configured profile, listing the configured IDs. */
+export function checkModelOverride(l: LoadedConfig, model: string | undefined): void {
+  if (model === undefined || Object.hasOwn(l.models, model)) return;
+  const ids = Object.keys(l.models);
+  throw new UsageError(`--model ${model}: no configured profile for this model (configured: ${ids.length ? ids.join(', ') : 'none'})`);
+}
+
+/** The profile a request selects, as serve does: an exact configured model ID, else root. */
+export function selectProfile(l: LoadedConfig, override: string | undefined, requestModel: unknown): { profile: string; config: Config } {
+  const model = override ?? requestModel;
+  return typeof model === 'string' && Object.hasOwn(l.models, model) ? { profile: model, config: l.models[model]! } : { profile: 'root', config: l.config };
 }

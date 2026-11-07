@@ -626,6 +626,8 @@ remain raw.
 `models` is optional loader metadata, like `preset`, outside `DEFAULT_CONFIG` and the
 leaf/knob table. Existing config files need no migration. OpenCode checks resolve each
 wire model against its own profile; unknown IDs use root defaults and produce a warning.
+`kitzur replay` and `kitzur count` pick the profile from each request's `model` field the same way, or from
+`--model ID`, and report it as `profile`.
 
 ```json
 {
