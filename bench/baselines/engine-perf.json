@@ -1,11 +1,11 @@
 {
   "cases": {
-    "1000msg@100k": {"relCost":3.161,"results":{"compactions":14,"requests":40,"retention":{"dropped":763,"excerpted":2,"summarized":164,"verbatim":72},"tokensIn":635287,"tokensOut":54391}},
-    "1000msg@32k": {"relCost":7.011,"results":{"compactions":99,"requests":40,"retention":{"dropped":944,"excerpted":0,"summarized":47,"verbatim":10},"tokensIn":635287,"tokensOut":17430}},
-    "200msg@100k": {"relCost":0.468,"results":{"compactions":2,"requests":40,"retention":{"dropped":68,"excerpted":1,"summarized":65,"verbatim":67},"tokensIn":135785,"tokensOut":53796}},
-    "200msg@32k": {"relCost":1.333,"results":{"compactions":19,"requests":40,"retention":{"dropped":141,"excerpted":0,"summarized":50,"verbatim":10},"tokensIn":135785,"tokensOut":17459}},
-    "4000msg@100k": {"relCost":19.816,"results":{"compactions":60,"requests":40,"retention":{"dropped":3815,"excerpted":3,"summarized":158,"verbatim":25},"tokensIn":2500343,"tokensOut":25431}},
-    "4000msg@32k": {"relCost":58.138,"results":{"compactions":399,"requests":40,"retention":{"dropped":3947,"excerpted":0,"summarized":44,"verbatim":10},"tokensIn":2500343,"tokensOut":18104}}
+    "1000msg@100k": {"relCost":3.611,"results":{"compactions":10,"requests":40,"retention":{"dropped":676,"excerpted":0,"summarized":282,"verbatim":43},"tokensIn":431700,"tokensOut":44433}},
+    "1000msg@32k": {"relCost":13.076,"results":{"compactions":72,"requests":40,"retention":{"dropped":705,"excerpted":1,"summarized":292,"verbatim":3},"tokensIn":431700,"tokensOut":20763}},
+    "200msg@100k": {"relCost":0.343,"results":{"compactions":1,"requests":40,"retention":{"dropped":86,"excerpted":0,"summarized":63,"verbatim":53},"tokensIn":88266,"tokensOut":39842}},
+    "200msg@32k": {"relCost":0.545,"results":{"compactions":6,"requests":40,"retention":{"dropped":114,"excerpted":0,"summarized":76,"verbatim":12},"tokensIn":88266,"tokensOut":14853}},
+    "4000msg@100k": {"relCost":207.088,"results":{"compactions":146,"requests":40,"retention":{"dropped":2971,"excerpted":0,"summarized":1026,"verbatim":5},"tokensIn":1827251,"tokensOut":65283}},
+    "4000msg@32k": {"relCost":578.441,"results":{"compactions":804,"requests":40,"retention":{"dropped":3625,"excerpted":0,"summarized":372,"verbatim":5},"tokensIn":1827251,"tokensOut":27396}}
   },
   "date": "2026-11-07",
   "schema": 1

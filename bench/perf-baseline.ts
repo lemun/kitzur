@@ -1,5 +1,6 @@
 // Planner performance baseline: the engine (estimate counter, real summarizer and rules, in process, no
-// tokenizer, no network, no listener) over the reference coding-agent history at three sizes and two windows.
+// tokenizer, no network, no listener) over seeded synthetic coding-agent histories (bench/fuzz/gen.ts) at three
+// sizes and two windows.
 // Per case: deterministic results and the median planner time of 5 runs divided by a fixed CPU-bound
 // calibration loop timed in the same process (a machine-relative cost, not milliseconds). Default: a table;
 // --check: compare with bench/baselines/engine-perf.json (exit 1 on a regression); --update: rewrite it (refused
@@ -14,7 +15,7 @@ import { createEngine } from '../src/engine/engine.js';
 import { createSummarizer } from '../src/engine/summary.js';
 import { createToolRules } from '../src/engine/rules/index.js';
 import { counterFromConfig } from '../src/tokenize/counter.js';
-import { assistantMessage, initialHistory, toolOutput, tools as scenarioTools, USER_INJECT } from './scenarios/reference.js';
+import { genChain } from './fuzz/gen.js';
 import { ROOT } from './lib/paths.js';
 
 export const BASELINE_PATH = join(ROOT, 'bench', 'baselines', 'engine-perf.json');
@@ -33,19 +34,35 @@ export type Clock = () => number;
 const hrNow: Clock = () => performance.now();
 export const caseKey = (c: Case): string => `${c.messages}msg@${c.window}`;
 
-/** The reference history grown step by step to at least `n` messages, sent at `requests` evenly spaced boundaries. */
+const CAP_CHARS = 2048;
+
+/** A history of at least `n` messages: the final requests of the fuzz chains of seeds 1, 2, ... (HTTP subset,
+ *  estimate counter) concatenated, tool-call ids prefixed per chain, later system/developer heads dropped and
+ *  string contents cut to CAP_CHARS (the generator sizes contents to its own random windows, up to 128k). */
+function history(n: number): ChatMessage[] {
+  const h: ChatMessage[] = [];
+  for (let seed = 1; h.length < n; seed++) {
+    const id = (x: string): string => `s${seed}_${x}`;
+    for (const m of genChain(seed, { exact: false, http: true }).requests.at(-1)!.messages) {
+      if (h.length > 0 && (m.role === 'system' || m.role === 'developer')) continue;
+      const tool_calls = m.tool_calls?.map((c) => ({ ...c, id: id(c.id) }));
+      const content = typeof m.content === 'string' ? m.content.slice(0, CAP_CHARS) : m.content;
+      h.push({ ...m, content, ...(tool_calls ? { tool_calls } : {}), ...(m.tool_call_id !== undefined ? { tool_call_id: id(m.tool_call_id) } : {}) });
+    }
+  }
+  return h;
+}
+
+/** That history cut at the first turn boundary at or past `n` messages, sent at about `requests` evenly spaced boundaries. */
 function* session(n: number, requests = REQUESTS): Generator<ChatMessage[]> {
-  const msgs = initialHistory() as ChatMessage[];
+  const h = history(n);
   let next = n / requests;
-  for (let step = 0; msgs.length < n; step++) {
-    const a = assistantMessage(step) as ChatMessage;
-    msgs.push(a);
-    for (const c of a.tool_calls ?? []) msgs.push({ role: 'tool', tool_call_id: c.id, content: toolOutput(step, { capBytes: 4096 }) });
-    const inj = USER_INJECT.get(step);
-    if (inj !== undefined) msgs.push({ role: 'user', content: inj });
-    if (msgs.length < next && msgs.length < n) continue;
+  for (let b = 2; b <= h.length; b++) {
+    if (b < h.length && !(h[b]!.role === 'assistant' && h[b - 1]!.role !== 'assistant')) continue;
+    if (b < next && b < n) continue;
     next += n / requests;
-    yield msgs;
+    yield h.slice(0, b);
+    if (b >= n) return;
   }
 }
 
@@ -54,7 +71,7 @@ export function runCase(c: Case, now: Clock = hrNow): { results: Results; ms: nu
   const cfg = loadConfig({ preset: c.window, env: {}, sets: ['calibration.enabled=false'] }).config;
   const counter = counterFromConfig(cfg);
   const e = createEngine(cfg, { counter, summarizer: createSummarizer(cfg, counter), rules: createToolRules(cfg), faults: null });
-  const tools = scenarioTools();
+  const tools = [{ type: 'function', function: { name: 'read', description: 'Read a file', parameters: { type: 'object' } } }];
   const results: Results = { requests: 0, tokensIn: 0, tokensOut: 0, compactions: 0, retention: {} };
   let ms = 0;
   for (const msgs of session(c.messages)) {
