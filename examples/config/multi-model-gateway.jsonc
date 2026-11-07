@@ -1,0 +1,29 @@
+// Two models behind one OpenAI-compatible gateway: a large main model and a small one
+// (OpenCode's small_model). Profiles under "models" match the wire model ID exactly and
+// inherit every root setting they do not override. Copy to ~/.config/kitzur/kitzur.jsonc,
+// then replace the gateway host, the model IDs and the tokenizer path with your own.
+{
+  "upstream": {
+    "origin": "https://gw.example.com" // the gateway, no path; the client's baseURL carries it
+  },
+  "server": { "type": "vllm" },
+  "budget": { "window": 128000 }, // root default, used by any model not listed below
+  "tokenizer": {
+    "path": "~/models/<large-model>/tokenizer.json" // shared by every profile
+  },
+  "models": {
+    "org/large-model": {
+      "budget": { "window": 128000, "defaultMaxTokens": 32000 },
+      // client.* mirrors this model's OpenCode limit: { "context": 128000, "output": 32000 }
+      "client": { "outputLimit": 32000 }
+    },
+    "org/small-model": {
+      "budget": { "window": 32000, "defaultMaxTokens": 8000 },
+      // client.* mirrors this model's OpenCode limit: { "context": 32000, "output": 8000 }
+      "client": { "outputLimit": 8000 },
+      // another vocabulary than the shared tokenizer.json: count with the estimate
+      "tokenizer": { "mode": "estimate", "template": { "name": "generic" } }
+    }
+  },
+  "listen": { "host": "127.0.0.1", "port": 8270 }
+}
