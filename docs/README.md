@@ -6,5 +6,6 @@
 - Choose a solo, shared-server or automation setup: [pick your setup](SETUPS.md).
 - Diagnose overflow or passthrough: [diagnostics](DIAGNOSTICS.md).
 - Fix a symptom or a doctor code: [troubleshooting](TROUBLESHOOTING.md).
+- Parse `--json` output in scripts: [JSON output contract](JSON-OUTPUT.md).
 - Understand retention: [design](../DESIGN.md#mechanical-summary).
 - Review data handling: [security](../SECURITY.md); evaluate: [benchmarks](../bench/README.md).

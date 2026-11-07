@@ -8,6 +8,7 @@ All notable changes to Kitzur are recorded here. The format follows
 
 ### Added
 
+- [docs/JSON-OUTPUT.md](docs/JSON-OUTPUT.md) documents which `--json` keys of `status`, `doctor`, `count`, `state show`, `config validate`, `config show` and `tls-probe` are stable.
 - `kitzur replay` and `kitzur count` use the model profile selected by each request's `model` field, as `serve` does, report it as `profile`, and accept `--model ID` to choose a profile.
 - Optional `ledger.ranking` orders ledger items within each category using duplicate, error, later-reference and recency signals; `kitzur replay --explain` displays those signals.
 - `kitzur replay --explain` prints a readable retention summary with a configurable detail limit.
