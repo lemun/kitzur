@@ -1,10 +1,9 @@
-// Planner performance baseline: the engine (estimate counter, real summarizer and rules, in process, no
-// tokenizer, no network, no listener) over seeded synthetic coding-agent histories (bench/fuzz/gen.ts) at three
-// sizes and two windows.
-// Per case: deterministic results and the median planner time of 5 runs divided by a fixed CPU-bound
-// calibration loop timed in the same process (a machine-relative cost, not milliseconds). Default: a table;
-// --check: compare with bench/baselines/engine-perf.json (exit 1 on a regression); --update: rewrite it (refused
-// under CI=true); --json: machine-readable output. See bench/baselines/README.md.
+// Planner performance baseline: the engine (estimate counter, real summarizer and rules, in process, no tokenizer,
+// network or listener) over seeded synthetic coding-agent histories (bench/fuzz/gen.ts) at three sizes and two
+// windows. Per case: deterministic results and the median planner time of 5 runs divided by a fixed CPU-bound
+// calibration loop timed in the same process (machine-relative, not milliseconds). Default: a table; --check:
+// compare with bench/baselines/engine-perf.json (exit 1 on a regression); --update: rewrite it (refused under
+// CI=true); --json: machine-readable output. See bench/baselines/README.md.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -33,21 +32,22 @@ export type Clock = () => number;
 
 const hrNow: Clock = () => performance.now();
 export const caseKey = (c: Case): string => `${c.messages}msg@${c.window}`;
-
 const CAP_CHARS = 2048;
+const TOOLS = [{ type: 'function', function: { name: 'read', description: 'Read a file', parameters: { type: 'object' } } }];
 
-/** A history of at least `n` messages: the final requests of the fuzz chains of seeds 1, 2, ... (HTTP subset,
- *  estimate counter) concatenated, tool-call ids prefixed per chain, later system/developer heads dropped and
- *  string contents cut to CAP_CHARS (the generator sizes contents to its own random windows, up to 128k). */
+/** At least `n` messages: the final requests of the fuzz chains of seeds 1, 2, ... (HTTP subset, estimate counter)
+ *  concatenated, tool-call ids prefixed per chain, later system/developer heads dropped, string contents cut to
+ *  CAP_CHARS (text parts are kept whole; the generator sizes contents to its own random windows, up to 128k). */
 function history(n: number): ChatMessage[] {
   const h: ChatMessage[] = [];
   for (let seed = 1; h.length < n; seed++) {
     const id = (x: string): string => `s${seed}_${x}`;
     for (const m of genChain(seed, { exact: false, http: true }).requests.at(-1)!.messages) {
       if (h.length > 0 && (m.role === 'system' || m.role === 'developer')) continue;
-      const tool_calls = m.tool_calls?.map((c) => ({ ...c, id: id(c.id) }));
-      const content = typeof m.content === 'string' ? m.content.slice(0, CAP_CHARS) : m.content;
-      h.push({ ...m, content, ...(tool_calls ? { tool_calls } : {}), ...(m.tool_call_id !== undefined ? { tool_call_id: id(m.tool_call_id) } : {}) });
+      const x: ChatMessage = { ...m, content: typeof m.content === 'string' ? m.content.slice(0, CAP_CHARS) : m.content };
+      if (m.tool_calls) x.tool_calls = m.tool_calls.map((c) => ({ ...c, id: id(c.id) }));
+      if (m.tool_call_id !== undefined) x.tool_call_id = id(m.tool_call_id);
+      h.push(x);
     }
   }
   return h;
@@ -71,11 +71,10 @@ export function runCase(c: Case, now: Clock = hrNow): { results: Results; ms: nu
   const cfg = loadConfig({ preset: c.window, env: {}, sets: ['calibration.enabled=false'] }).config;
   const counter = counterFromConfig(cfg);
   const e = createEngine(cfg, { counter, summarizer: createSummarizer(cfg, counter), rules: createToolRules(cfg), faults: null });
-  const tools = [{ type: 'function', function: { name: 'read', description: 'Read a file', parameters: { type: 'object' } } }];
   const results: Results = { requests: 0, tokensIn: 0, tokensOut: 0, compactions: 0, retention: {} };
   let ms = 0;
   for (const msgs of session(c.messages)) {
-    const req = { model: 'qwen', messages: msgs.slice(), tools, max_tokens: cfg.budget.defaultMaxTokens } as ChatRequest;
+    const req = { model: 'qwen', messages: msgs.slice(), tools: TOOLS, max_tokens: cfg.budget.defaultMaxTokens } as ChatRequest;
     const t0 = now();
     const r = e.process(req, { attempt: 1 });
     ms += now() - t0;
@@ -90,21 +89,19 @@ export function calibrate(now: Clock = hrNow, iterations = 100_000_000): number 
   const t0 = now();
   let h = 0x811c9dc5;
   for (let i = 0; i < iterations; i++) h = Math.imul(h ^ i, 0x01000193) >>> 0;
-  const ms = now() - t0;
   sink ^= h; // keeps the loop observable
-  return ms;
+  return now() - t0;
 }
 
 const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
 const round = (x: number): number => Math.round(x * 1000) / 1000;
 
 export function measure(cases: readonly Case[] = CASES, o: { runs?: number; now?: Clock; calibrate?: () => number } = {}): Record<string, CaseRecord> {
-  const runs = o.runs ?? RUNS;
   const cal = o.calibrate ?? (() => calibrate(o.now));
   const out: Record<string, CaseRecord> = {};
   for (const c of cases) {
     const cals: number[] = [];
-    const rs = Array.from({ length: runs }, () => (cals.push(cal()), runCase(c, o.now)));
+    const rs = Array.from({ length: o.runs ?? RUNS }, () => (cals.push(cal()), runCase(c, o.now)));
     out[caseKey(c)] = { results: rs.at(-1)!.results, relCost: round(median(rs.map((r) => r.ms)) / Math.max(median(cals), 1e-9)) };
   }
   return out;
@@ -121,8 +118,7 @@ export function validateBaseline(x: unknown): string[] {
   for (const [k, v] of Object.entries(b.cases)) {
     const r = (v as Partial<CaseRecord> | null)?.results as Partial<Results> | undefined;
     if (!(typeof v?.relCost === 'number' && v.relCost > 0)) errs.push(`baseline: ${k}.relCost must be a positive number`);
-    const nums = ['requests', 'tokensIn', 'tokensOut', 'compactions'] as const;
-    if (!r || nums.some((n) => !Number.isInteger(r[n])) || r.retention === null || typeof r.retention !== 'object') errs.push(`baseline: ${k}.results is malformed`);
+    if (!r || (['requests', 'tokensIn', 'tokensOut', 'compactions'] as const).some((n) => !Number.isInteger(r[n])) || r.retention === null || typeof r.retention !== 'object') errs.push(`baseline: ${k}.results is malformed`);
   }
   return errs;
 }
@@ -132,10 +128,7 @@ export function compare(baseline: Baseline, current: Record<string, CaseRecord>,
   const out: string[] = [];
   for (const [k, cur] of Object.entries(current)) {
     const base = baseline.cases[k];
-    if (!base) {
-      out.push(`${k}: missing from the baseline; refresh it with: ${REFRESH}`);
-      continue;
-    }
+    if (!base) { out.push(`${k}: missing from the baseline; refresh it with: ${REFRESH}`); continue; }
     const was = stableJSON(base.results, 0).trimEnd();
     const now = stableJSON(cur.results, 0).trimEnd();
     if (was !== now) out.push(`${k}: planner output changed: baseline ${was}, now ${now}; if intended, refresh with: ${REFRESH}`);
@@ -158,29 +151,19 @@ export function stableJSON(x: unknown, compact = 2): string {
   return fmt(x, '') + '\n';
 }
 
-export interface MainDeps {
-  env?: Record<string, string | undefined>;
-  log?: (s: string) => void;
-  measure?: () => Record<string, CaseRecord>;
-  baselinePath?: string;
-  today?: () => string;
-}
+export interface MainDeps { env?: Record<string, string | undefined>; log?: (s: string) => void; measure?: () => Record<string, CaseRecord>; baselinePath?: string; today?: () => string }
 
 export function main(argv: string[], d: MainDeps = {}): number {
   const env = d.env ?? process.env;
   const log = d.log ?? ((s: string) => console.log(s));
   const path = d.baselinePath ?? BASELINE_PATH;
   const update = argv.includes('--update');
-  if (update && env['CI'] === 'true') {
-    log(`perf-baseline: --update refused under CI=true; refresh the baseline locally with: ${REFRESH}`);
-    return 2;
-  }
+  if (update && env['CI'] === 'true') return log(`perf-baseline: --update refused under CI=true; refresh the baseline locally with: ${REFRESH}`), 2;
   const current = (d.measure ?? (() => measure()))();
   if (argv.includes('--json')) log(stableJSON({ cases: current }).trimEnd());
   else for (const [k, r] of Object.entries(current)) log(`${k.padEnd(14)} relCost ${String(r.relCost).padStart(8)}  ${JSON.stringify(r.results)}`);
   if (update) {
-    const date = (d.today ?? (() => new Date().toISOString().slice(0, 10)))();
-    writeFileSync(path, stableJSON({ schema: 1, date, cases: current } satisfies Baseline));
+    writeFileSync(path, stableJSON({ schema: 1, date: (d.today ?? (() => new Date().toISOString().slice(0, 10)))(), cases: current } satisfies Baseline));
     log(`perf-baseline: wrote ${d.baselinePath ?? 'bench/baselines/engine-perf.json'}`);
     return 0;
   }
@@ -189,8 +172,7 @@ export function main(argv: string[], d: MainDeps = {}): number {
   try {
     baseline = JSON.parse(readFileSync(path, 'utf8'));
   } catch (err) {
-    log(`perf-baseline: cannot read the baseline (${(err as Error).message}); create it with: ${REFRESH}`);
-    return 1;
+    return log(`perf-baseline: cannot read the baseline (${(err as Error).message}); create it with: ${REFRESH}`), 1;
   }
   const errs = validateBaseline(baseline);
   const fails = errs.length ? errs.map((e) => `${e}; regenerate it with: ${REFRESH}`) : compare(baseline as Baseline, current);
