@@ -2,6 +2,8 @@
 
 Run `kitzur doctor` (add `--check-upstream`, `--client-config FILE` or `--json` as needed) and look up each `WARN` or `ERROR` code below. Background: [diagnostics](DIAGNOSTICS.md), [configuration](../CONFIG.md).
 
+Use `kitzur doctor --snapshot support.json` to write a shareable support snapshot. It omits credentials and masks hosts and home paths; use `--snapshot -` to print it, or `--force` to replace an existing file.
+
 ## The proxy does not start, or the port is taken
 - Codes: `config.valid`, `config.warnings`, `instance.responsive`, `paths`, `state.directory`, `stats.path`.
 - Cause: invalid settings, another service on `listen.port`, or a state/stats path that is blocked or not writable.
