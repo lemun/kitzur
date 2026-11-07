@@ -5,7 +5,7 @@ import { Readable } from 'node:stream';
 import { EventEmitter } from 'node:events';
 import { syncBuiltinESMExports } from 'node:module';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -210,6 +210,40 @@ test('doctor reads an OpenCode JSONC file and handles unreadable files safely', 
   assert.equal(missing.exitCode, 1);
   assert.ok(missing.checks.some((c) => c.code === 'client.config'));
   assert.doesNotMatch(renderDoctor(missing), /SECRET_MISSING_FILE/);
+  const notFound = missing.checks.find((c) => c.code === 'client.config');
+  assert.equal(notFound?.status, 'error');
+  assert.match(notFound?.message ?? '', /not found/);
+  assert.match(notFound?.fix ?? '', /--client-config/);
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-client-config-'));
+  try {
+    const unreadable = await doctor(cfg, { clientConfigPath: dir });
+    assert.equal(unreadable.exitCode, 1);
+    const read = unreadable.checks.find((c) => c.code === 'client.config');
+    assert.equal(read?.status, 'error');
+    assert.match(read?.message ?? '', /could not be read \(EISDIR\)/);
+    assert.ok(!renderDoctor(unreadable).includes(dir));
+    const broken = join(dir, 'broken.json');
+    writeFileSync(broken, '{\n  "provider": {\n    "authorization": Bearer SK-FAKE-SECRET-123\n  }\n}\n');
+    const invalid = await doctor(cfg, { clientConfigPath: broken });
+    assert.equal(invalid.exitCode, 1);
+    const syntax = invalid.checks.find((c) => c.code === 'client.config');
+    assert.equal(syntax?.status, 'error');
+    assert.match(syntax?.message ?? '', /not valid JSON\/JSONC \(line 3, column \d+\)/);
+    assert.match(syntax?.fix ?? '', /editor/);
+    assert.doesNotMatch(renderDoctor(invalid), /SK-FAKE-SECRET|Bearer|authorization|broken\.json/);
+    for (const [code, shown] of [['UNKNOWN', 'UNKNOWN'], ['ERR_FS_FILE_TOO_LARGE', 'ERR_FS_FILE_TOO_LARGE'], ['bad code SK-FAKE', 'UNKNOWN'], [undefined, 'UNKNOWN']] as const) {
+      mock.method(fs, 'readFileSync', () => { throw Object.assign(new Error(`read failed SK-FAKE-SECRET ${broken}`), { code }); });
+      syncBuiltinESMExports();
+      try {
+        const other = await doctor(cfg, { clientConfigPath: broken });
+        assert.equal(other.exitCode, 1);
+        const failed = other.checks.find((c) => c.code === 'client.config');
+        assert.equal(failed?.status, 'error');
+        assert.equal(failed?.message, `Client configuration file could not be read (${shown}).`);
+        assert.doesNotMatch(renderDoctor(other), /SK-FAKE|broken\.json/);
+      } finally { mock.restoreAll(); syncBuiltinESMExports(); }
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('doctor warns when upstream.headers is set without listen.token, without printing secrets', async () => {
