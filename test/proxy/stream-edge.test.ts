@@ -17,7 +17,7 @@ const logOutcome = (logs: string[], outcome: string) => logs.some(line => line.i
 const streams = [
   {
     name: 'recurring keep-alive comments before first data',
-    script: async (_h: unknown, res: http.ServerResponse) => sseRes(res, [': ping\n\n', ': ping\n\n', ': ping\n\n', chunk('hello'), DONE], { delayMs: 100 }),
+    script: async (_h: unknown, res: http.ServerResponse) => sseRes(res, [': ping\n\n', ': ping\n\n', ': ping\n\n', chunk('hello'), DONE], { delayMs: 40 }),
     expected: ': ping\n\n'.repeat(3) + chunk('hello') + DONE, outcome: 'ok',
   },
   {
