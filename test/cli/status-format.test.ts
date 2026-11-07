@@ -48,6 +48,7 @@ test('formatStatus: a minimal or empty body prints no undefined or NaN', () => {
   }
   assert.match(formatStatus({ name: 'kitzur', uptime_s: 3 }, NOW), /^kitzur — uptime 3s$/m);
   assert.match(formatStatus({}, NOW), /^Budget: unknown$/m);
+  assert.match(formatStatus({ name: 'kitzur', uptime_s: 3 }, NOW), /^Paths: config=defaults only; state_dir=\?; log_file=\?$/m);
 });
 
 test('formatStatus skips absent fields of partial paths, compaction and request entries', () => {

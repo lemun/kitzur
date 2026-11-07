@@ -100,7 +100,7 @@ export function formatStatus(s: Record<string, unknown>, now: number = Date.now(
   const uptime = isNum(s['uptime_s']) ? `— uptime ${fmtUptime(s['uptime_s'])}` : '';
   groups.push([
     [one(typeof s['name'] === 'string' ? s['name'] : 'kitzur'), typeof s['version'] === 'string' ? one(s['version']) : '', uptime].filter(Boolean).join(' '),
-    pathsLine(isRec(s['paths']) ? s['paths'] : {}),
+    isRec(s['paths']) ? pathsLine(s['paths']) : 'Paths: config=defaults only; state_dir=?; log_file=?',
   ]);
   const warnings = Array.isArray(s['warnings']) ? s['warnings'].filter(isRec) : [];
   groups.push(warnings.length
