@@ -26,7 +26,8 @@ for (const f of files) {
     assert.doesNotMatch(text, /\b(?:Bearer\s+[\w.-]{8,}|sk-[\w-]{8,}|gh[pousr]_\w{8,}|[A-Za-z0-9+/_-]{32,})/, f);
     assert.doesNotMatch(text, /"token"\s*:\s*"(?!<)[^"]+"/, f);
     for (const [, p] of text.matchAll(/"((?:\/|[A-Za-z]:\\)[^"]*)"/g)) {
-      assert.match(p!, /<[^>]+>|%\w+%|\$\{?\w+\}?/, `${f}: absolute path without a placeholder: ${p}`);
+      // C:\Kitzur is the documented intranet install folder (docs/INTRANET.md), not a machine path
+      assert.match(p!, /<[^>]+>|%\w+%|\$\{?\w+\}?|^C:\\{1,2}Kitzur\\/, `${f}: absolute path without a placeholder: ${p}`);
     }
   });
 }
