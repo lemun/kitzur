@@ -356,8 +356,10 @@ export function validateConfig(cfg: Config, opts: ValidateOptions = {}): Validat
         );
       }
     }
-    if (cfg.stateDir && !writableDir(cfg.stateDir)) {
-      warnings.push(`stateDir: ${cfg.stateDir} is not writable${src(prov, 'stateDir')}; learned limits are not kept. Pass --state-dir DIR or set stateDir to a writable directory`);
+    // the effective dir: a first run with no stateDir set still writes to the default one
+    const stateDir = stateDirOf(cfg);
+    if (!writableDir(stateDir)) {
+      warnings.push(`stateDir: ${stateDir} is not writable${src(prov, 'stateDir')}; learned limits are not kept. Pass --state-dir DIR or set stateDir to a writable directory`);
     }
   }
   return { errors, warnings };

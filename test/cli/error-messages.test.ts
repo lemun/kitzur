@@ -19,6 +19,8 @@ interface Row {
   stdout?: boolean;
   /** needs a directory the test user cannot write (not as root, not on Windows) */
   readOnly?: boolean;
+  /** process.env overrides for the run (validate resolves the default state dir from process.env) */
+  env?: (dir: string) => Record<string, string>;
 }
 
 const ROWS: Row[] = [
@@ -33,6 +35,7 @@ const ROWS: Row[] = [
   { name: 'replay: request file missing', argv: (d) => ['replay', join(d, 'nope.json')], code: 2, names: /not found: \S*nope\.json/, next: /kitzur help/ },
   { name: 'count: not a chat body', argv: (d) => ['count', join(d, 'nochat.json')], code: 2, names: /nochat\.json: not a chat request/, next: /kitzur help/ },
   { name: 'stateDir not writable', argv: (d) => ['config', 'validate', '--state-dir', join(d, 'ro', 'state')], code: 0, names: /stateDir: \S*state is not writable/, next: /--state-dir DIR or set stateDir/, stdout: true, readOnly: true },
+  { name: 'default stateDir not writable', argv: () => ['config', 'validate'], env: (d) => ({ XDG_STATE_HOME: join(d, 'ro') }), code: 0, names: /stateDir: \S*ro\/kitzur is not writable/, next: /--state-dir DIR or set stateDir/, stdout: true, readOnly: true },
   { name: 'upstream.origin unset at serve', argv: () => ['serve', '--port', '0'], code: 2, names: /upstream\.origin is required/, next: /--upstream/ },
   { name: 'tokenizer unreadable (count)', argv: (d) => ['count', '--tokenizer', join(d, 'tok.json'), join(d, 'chat.json')], code: 2, names: /tok\.json failed to load/, next: /--tokenizer FILE, or --estimate/ },
   { name: 'tokenizer unreadable (validate)', argv: (d) => ['config', 'validate', '--tokenizer', join(d, 'tok.json')], code: 0, names: /tokenizer\.path: \S*tok\.json could not be loaded/, next: /--tokenizer or tokenizer\.path/, stdout: true },
@@ -50,6 +53,8 @@ for (const row of ROWS) {
     writeFileSync(join(dir, 'tok.json'), 'not a tokenizer');
     mkdirSync(join(dir, 'ro'));
     if (row.readOnly) chmodSync(join(dir, 'ro'), 0o555);
+    const saved = { ...process.env };
+    Object.assign(process.env, row.env?.(dir));
     try {
       const out: string[] = [];
       const err: string[] = [];
@@ -61,6 +66,10 @@ for (const row of ROWS) {
       assert.ok(line, `no line names the offending value: ${text}`);
       assert.match(text, row.next);
     } finally {
+      for (const k of Object.keys(row.env?.(dir) ?? {})) {
+        if (saved[k] === undefined) delete process.env[k];
+        else process.env[k] = saved[k];
+      }
       chmodSync(join(dir, 'ro'), 0o755);
       rmSync(dir, { recursive: true, force: true });
     }
