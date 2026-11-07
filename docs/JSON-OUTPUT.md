@@ -12,7 +12,8 @@ General rules, for every command here:
 - On success stdout carries exactly one JSON document and nothing else. Diagnostics go to stderr.
 - The indentation differs between commands (one or two spaces); it is not part of the contract.
 - A usage error (exit 2, `kitzur: ...` on stderr) prints no JSON. So does a config file that cannot be
-  loaded, except for `doctor`, which reports it as a `config.load` check.
+  loaded, except for `doctor`, which reports it as a `config.load` check, and `config validate`, which
+  prints `{ ok: false, errors, warnings }` with the load errors in `errors`.
 - No output contains message content. `test/cli/json-contract.test.ts` checks the stable keys.
 
 ## `kitzur status --json`
@@ -38,8 +39,16 @@ and the exit code is 1.
 | `model_counters` | object | stable |
 | `warnings` | array | stable |
 | `profiles` | object | informational, present only with `models` profiles |
-| `learned`, `budget_by_key`, `counter`, `model_tokenizers`, `discovered_window`, `discovered_limits` | object | informational |
-| `latency_ms`, `memory`, `upstream`, `state`, `stats`, `error_kinds`, `guard`, `replan` and the other keys | various | informational |
+| `learned`, `budget_by_key`, `counter`, `model_tokenizers` | object | informational |
+| `discovered_window`, `discovered_limits` | object | informational |
+| `error_kinds`, `guard`, `replan`, `upstream_rejected_rewrite`, `fail_open_reasons` | object | informational |
+| `latency_ms`, `memory`, `upstream`, `state`, `stats`, `debug` | object | informational |
+| `log` | object | informational, present only with the runtime log (`kitzur serve` has it) |
+| `client_compactions`, `sessions`, `concurrency_rejected` | number | informational |
+| `completion_tokens_p99` | number\|null | informational |
+| `last_client_compaction` | object\|null | informational |
+| `recent_rejections` | array | informational |
+| `loop_lag_ms`, `stalls_total` | number | informational, present only with the runtime log |
 
 ## `kitzur doctor --json`
 
@@ -122,7 +131,17 @@ Secrets in `config` are masked. The keys inside `config` follow [the configurati
 
 ## `kitzur tls-probe --json`
 
-On a completed probe the report has `origin`, `diagnosis`, `certificates`, `links`, `failingLink`,
-`hint`, `authorized` and `authorizationError`; the exit code is 0 only when `diagnosis` is `ok`. These
-keys are informational. When the probe cannot complete, stdout carries a one-line `{"error": "..."}`
-(stable, string) and the exit code is 1.
+On a completed probe the exit code is 0 only when `diagnosis` is `ok`. When the probe cannot complete,
+stdout carries a one-line `{"error": "..."}` and the exit code is 1.
+
+| Key | Type | Contract |
+| --- | --- | --- |
+| `error` | string | stable, only when the probe cannot complete |
+| `origin` | string | informational |
+| `diagnosis` | string | informational |
+| `certificates` | array | informational |
+| `links` | array | informational |
+| `failingLink` | object\|null | informational |
+| `hint` | string | informational |
+| `authorized` | boolean | informational |
+| `authorizationError` | string\|null | informational |

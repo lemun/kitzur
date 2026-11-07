@@ -79,6 +79,9 @@ test('config validate --json and config show --json keep their documented keys',
   withTmp(async (dir) => {
     const v = await run(['config', 'validate', '--json', '--config', 'kitzur.json'], dir);
     assert.equal(contract(v.out, documented('kitzur config validate --json'), 'validate')['ok'], v.code === 0);
+    const missing = await run(['config', 'validate', '--json', '--config', 'missing.json'], dir);
+    assert.equal(missing.code, 2);
+    assert.equal(contract(missing.out, documented('kitzur config validate --json'), 'validate (unloadable)')['ok'], false);
     const s = await run(['config', 'show', '--json', '--config', 'kitzur.json'], dir);
     contract(s.out, documented('kitzur config show --json'), 'show');
   }));
