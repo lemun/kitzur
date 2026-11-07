@@ -877,7 +877,10 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     if (r.first?.sessionKey) status.session(r.first.sessionKey);
     if (r.originalResent) status.originalResent++;
     if (r.final.type === 'aborted') status.aborted++;
-    const incomplete = r.final.type === 'relayed' && r.sent !== null && isStreaming(r.sent.req) && !r.complete;
+    // a stream that ended without [DONE]/finish_reason, or whose upstream failed after bytes reached the client
+    const lastReq = r.attempts.at(-1)?.attempt.req;
+    const incomplete = (r.final.type === 'relayed' && r.sent !== null && isStreaming(r.sent.req) && !r.complete) ||
+      (r.final.type === 'unavailable' && r.final.committed && lastReq !== undefined && isStreaming(lastReq));
     if (incomplete) status.upstreamIncomplete++;
 
     // calibration: usage of the attempt that reached the client, else the tokenize endpoint
