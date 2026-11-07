@@ -21,6 +21,10 @@ test('usageOf: config options appear unless the command reads no config', () => 
   assert.ok(usageOf('serve').endsWith(USAGE.slice(USAGE.indexOf('config options'))));
 });
 
+test('usageOf: replay and count document --model', () => {
+  for (const cmd of ['replay', 'count']) assert.match(usageOf(cmd), /\[--model ID\]/, cmd);
+});
+
 test('wantsHelp: --help or -h before `--` only', () => {
   assert.equal(wantsHelp(['--help']), true);
   assert.equal(wantsHelp(['x', '-h']), true);

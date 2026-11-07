@@ -59,3 +59,37 @@ test('count --estimate measures a tiny synthetic request offline', () =>
     assert.equal(o.perMessage[0]!.tokens + o.overhead, o.total);
     assert.ok(!r.out.includes('hello'), 'no content');
   }));
+
+test('count uses the model profile of the request, with a --model override', () =>
+  withTmp(async (dir) => {
+    writeFileSync(join(dir, 'kitzur.json'), JSON.stringify({ budget: { window: 100000 }, models: { 'org/small': { budget: { window: 50000 } } } }));
+    const messages = [{ role: 'user', content: 'hello there' }];
+    writeFileSync(join(dir, 'a.json'), JSON.stringify({ model: 'org/small', max_tokens: 100, messages }));
+    writeFileSync(join(dir, 'b.json'), JSON.stringify({ max_tokens: 100, messages }));
+    const count = async (...argv: string[]) => {
+      const r = await run(['count', ...argv, '--config', 'kitzur.json', '--estimate', '--json', '--state-dir', dir], dir);
+      assert.equal(r.code, 0, r.err);
+      const o = JSON.parse(r.out) as { profile: string; budget: number };
+      return [o.profile, o.budget] as const;
+    };
+    const small = await count('a.json');
+    const root = await count('b.json');
+    assert.equal(small[0], 'org/small');
+    assert.equal(root[0], 'root');
+    assert.ok(small[1] < root[1], `${small[1]} < ${root[1]}`);
+    assert.deepEqual(await count('b.json', '--model', 'org/small'), small);
+    const text = await run(['count', 'a.json', '--config', 'kitzur.json', '--estimate', '--state-dir', dir], dir);
+    assert.match(text.out, /, profile org\/small\)/);
+    const bad = await run(['count', 'a.json', '--config', 'kitzur.json', '--model', 'nope', '--state-dir', dir], dir);
+    assert.equal(bad.code, 2);
+    assert.match(bad.err, /--model nope: no configured profile for this model \(configured: org\/small\)/);
+  }));
+
+test('count without model profiles reports root and keeps its text line', () =>
+  withTmp(async (dir) => {
+    writeFileSync(join(dir, 'r.json'), JSON.stringify({ model: 'm', max_tokens: 100, messages: [{ role: 'user', content: 'hi' }] }));
+    const j = await run(['count', 'r.json', '--estimate', '--json', '--state-dir', dir], dir);
+    assert.equal((JSON.parse(j.out) as { profile: string }).profile, 'root');
+    const t = await run(['count', 'r.json', '--estimate', '--state-dir', dir], dir);
+    assert.match(t.out, /^r\.json: \d+ tokens \(estimate, template [^,)]+\)\n/);
+  }));
