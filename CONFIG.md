@@ -653,9 +653,27 @@ own profile, otherwise root defaults. Kitzur does not rewrite model IDs.
 
 Preset and file model leaves merge in layer order. Each profile inherits the
 **final** root: a late `--set budget.window=200000` changes inheriting profiles,
-while the explicit windows above stay 252000 and 131071. Model leaves are edited
-in files; bracket addressing through `--set` is deferred. Nullable leaves can be
+while the explicit windows above stay 252000 and 131071. Nullable leaves can be
 cleared with `null`; arrays and model-local presets are not supported.
+
+`--set` and `KITZUR_SET` address one model's leaf with a bracket:
+`models["<id>"].budget.window=64000`. The bracket holds one JSON string literal,
+so IDs with dots, slashes, colons, `;` or `\"` work; the profile is created if the
+file has none. Precedence is file < `KITZUR_SET` < `--set`, over the final root.
+The same leaf rules apply; errors name the path, never the value. `config show
+--json` reports the source under `provenance` as `models["<id>"].budget.window`.
+
+```sh
+# POSIX shells
+kitzur serve --set 'models["org/qwen.v1"].budget.window=64000'
+KITZUR_SET='models["org/qwen.v1"].budget.window=64000;budget.window=100000' kitzur serve
+```
+
+```bat
+:: Windows cmd: escape the inner quotes of an argument as \"
+kitzur serve --set models[\"org/qwen.v1\"].budget.window=64000
+set "KITZUR_SET=models["org/qwen.v1"].budget.window=64000"
+```
 
 Allowed profile leaves (validated with the root leaf specs):
 

@@ -18,6 +18,14 @@ export function validModelId(id: string): boolean {
   return id.trim().length > 0 && id.length <= 256 && !/[\u0000-\u001f\u007f-\u009f]/u.test(id) && !FORBIDDEN.has(id);
 }
 
+/** Why `path` cannot be set under models[id] (null when it can); `where` prefixes the message. */
+export function modelLeafError(where: string, id: string, path: string): string | null {
+  if (ALLOWED.has(path)) return null;
+  if (ownerLeaf(path) || isInnerNode(path)) return `${where}.${path} is global; it cannot be set under models[${JSON.stringify(id)}]; per-model settings are under budget, client, and tokenizer`;
+  const hint = suggestLeaf(path);
+  return `${where}: unknown config key models.${id}.${path}${hint ? ` (did you mean ${hint}?)` : ''}`;
+}
+
 /** Strip and merge each JSON layer before the ordinary leaf loader sees it. */
 export function takeModelLayer(layer: Record<string, unknown>, overrides: ModelOverrides, source: string, issues: string[], warnings: string[]): void {
   if (!Object.hasOwn(layer, 'models')) return;
@@ -48,11 +56,7 @@ export function takeModelLayer(layer: Record<string, unknown>, overrides: ModelO
           if (error) issues.push(`${where}: ${error}`);
           else leaves.set(path, v);
         } else if ([...ALLOWED].some((p) => p.startsWith(path + '.')) || (isInnerNode(path) && isPlainObject(v))) visit(v, path);
-        else if (ownerLeaf(path) || isInnerNode(path)) issues.push(`${where}.${path} is global; it cannot be set under models[${JSON.stringify(id)}]; per-model settings are under budget, client, and tokenizer`);
-        else {
-          const hint = suggestLeaf(path);
-          issues.push(`${where}: unknown config key models.${id}.${path}${hint ? ` (did you mean ${hint}?)` : ''}`);
-        }
+        else issues.push(modelLeafError(where, id, path)!);
       }
     };
     visit(value, '');
