@@ -1,68 +1,79 @@
+// Pins the engine-level compression and planted-fact survival of a fixed subset of bench scenarios against the
+// committed golden file, so a change that silently moves the published numbers fails here. Runs in process with the
+// estimate counter: no tokenizer, no network, no listener. Refresh: KITZUR_UPDATE_GOLDEN=1 npm test -- <this file>.
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { test } from 'node:test';
-import { runExperiment } from '../../bench/harness.js';
-import { PromptCounter } from '../../bench/lib/render.js';
+import { simulateSession } from '../../bench/scenarios/common.js';
 import { buildScenario } from '../../bench/scenarios/index.js';
-import { Kitzur } from '../../bench/systems/kitzur.js';
+import { WINDOWS } from '../../bench/scenarios/windows.js';
+import { DEFAULT_CONFIG } from '../../src/config/schema.js';
+import { createEngine } from '../../src/engine/engine.js';
+import { createSummarizer } from '../../src/engine/summary.js';
+import { createToolRules } from '../../src/engine/rules/index.js';
+import { counterFromConfig } from '../../src/tokenize/counter.js';
+import { ROOT } from '../helpers.js';
 
-const fixture = join(dirname(fileURLToPath(import.meta.url)), '../fixtures/bench/published-numbers.json');
-const scenarioId = 'qa46-ref';
-const scenario = buildScenario(scenarioId, '100k');
+const GOLDEN = join(ROOT, 'test', 'fixtures', 'bench', 'published-numbers.json');
+const SCENARIOS = ['qa46', 'talk80', 'code60', 'corr60'];
+const WINDOW = WINDOWS['100k'];
+const COUNTS = ['compactions', 'factsPlanted', 'factsSurvived', 'requests', 'tokensIn', 'tokensOut'] as const;
+const REFRESH = 'refresh with: KITZUR_UPDATE_GOLDEN=1 npm test -- dist/test/bench/published-numbers.test.js';
 
-// The mock's counter deliberately uses a deterministic estimate so this regression never needs a tokenizer file.
-const counter = new PromptCounter({
-  vocabSize: 0,
-  addedTokens: new Map(),
-  count: text => Math.ceil(Array.from(text).length / 4),
-  encode: text => Array.from({ length: Math.ceil(Array.from(text).length / 4) }, (_, i) => i),
-  clearCache() {},
-});
+type Metrics = Record<(typeof COUNTS)[number] | 'compressionRatio', number>;
 
-async function measure() {
-  const runDir = join(dirname(fixture), `published-numbers-${process.pid}`);
-  const result = await runExperiment({
-    name: scenarioId,
-    runDir,
-    system: new Kitzur({ name: 'kitzur-estimate', preset: '100k', tokenizer: null, set: { 'tokenizer.mode': 'estimate' } }),
-    scenario: scenario.reference!,
-    counter,
-    client: { steps: scenario.sessions[0]!.steps, maxTokens: 32000 },
-  });
-  const input = result.client.reduce((sum, record) => sum + Number(record.orig_est_tokens ?? 0), 0);
-  const output = result.mock.reduce((sum, record) => sum + Number(record.prompt_tokens ?? 0), 0);
-  const ledger = readFileSync(join(runDir, 'ledger.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as { action?: string });
+function measure(id: string): Metrics {
+  const scenario = buildScenario(id, WINDOW.id);
+  const session = scenario.sessions[0]!;
+  const cfg = structuredClone(DEFAULT_CONFIG);
+  cfg.budget.window = WINDOW.W;
+  cfg.budget.defaultMaxTokens = WINDOW.O;
+  cfg.tokenizer.mode = 'estimate';
+  cfg.tokenizer.template.name = 'generic';
+  const counter = counterFromConfig(cfg);
+  const engine = createEngine(cfg, { counter, summarizer: createSummarizer(cfg, counter), rules: createToolRules(cfg) });
+  const history = simulateSession(session);
   const facts = scenario.facts.filter(f => f.gate && f.expect === 'survive');
-  const surviving = facts.filter(f => result.mock.filter(r => r.status === 200).every(r => JSON.stringify(r.facts).includes(f.marker))).length;
+  const lost = new Set<string>();
+  let tokensIn = 0, tokensOut = 0, compactions = 0;
+  for (let k = 0; k < session.steps; k++) {
+    // the client request of step k: everything appended before the assistant reply of step k
+    const messages = history.filter(m => m.step < k).map(m => m.message);
+    const result = engine.process({ model: 'deterministic-mock', messages, max_tokens: WINDOW.O }, { attempt: 1 });
+    assert.ok(result.request, `${id} step ${k}: ${result.reason}`);
+    tokensIn += result.stats.tokensIn;
+    tokensOut += result.stats.tokensOut;
+    compactions = result.stats.compactions;
+    const sent = JSON.stringify(messages), forwarded = JSON.stringify(result.request.messages);
+    for (const f of facts) if (sent.includes(f.marker) && !forwarded.includes(f.marker)) lost.add(f.id);
+  }
   return {
-    compactions: ledger.filter(row => row.action === 'compacted').length,
-    compressionRatio: Number((1 - output / input).toFixed(6)),
-    factsSurvived: surviving,
-    factsPlanted: facts.length,
-    tokensIn: input,
-    tokensOut: output,
+    compactions, compressionRatio: Number((1 - tokensOut / tokensIn).toFixed(4)), factsPlanted: facts.length,
+    factsSurvived: facts.length - lost.size, requests: session.steps, tokensIn, tokensOut,
   };
 }
 
-test('published benchmark numbers stay within their committed bounds', async () => {
-  const actual = { [scenarioId]: await measure() };
+test('published compression and fact-survival numbers match the golden file', () => {
+  const actual: Record<string, Metrics> = {};
+  for (const id of SCENARIOS) actual[id] = measure(id);
   if (process.env['KITZUR_UPDATE_GOLDEN'] === '1') {
-    assert.notEqual(process.env['CI'], 'true', 'golden refresh is forbidden when CI=true');
-    writeFileSync(fixture, `${JSON.stringify(actual, null, 2)}\n`);
+    assert.notEqual(process.env['CI'], 'true', 'KITZUR_UPDATE_GOLDEN=1 is not allowed when CI=true');
+    const sorted = Object.fromEntries(Object.keys(actual).sort().map(id => [id,
+      Object.fromEntries(Object.entries(actual[id]!).sort(([a], [b]) => (a < b ? -1 : 1)))]));
+    writeFileSync(GOLDEN, `${JSON.stringify(sorted, null, 2)}\n`);
     return;
   }
-  const expected = JSON.parse(readFileSync(fixture, 'utf8')) as Record<string, typeof actual[typeof scenarioId]>;
-  const failures: string[] = [];
-  for (const [scenarioName, metrics] of Object.entries(actual)) {
-    const golden = expected[scenarioName];
-    assert.ok(golden, `missing golden scenario ${scenarioName}; refresh with KITZUR_UPDATE_GOLDEN=1 npm test -- ...`);
-    for (const metric of ['tokensIn', 'tokensOut', 'compactions', 'factsSurvived', 'factsPlanted'] as const) {
-      if (metrics[metric] !== golden[metric]) failures.push(`${scenarioName} ${metric} moved by ${metrics[metric] - golden[metric]} (${golden[metric]} → ${metrics[metric]})`);
+  const golden = JSON.parse(readFileSync(GOLDEN, 'utf8')) as Record<string, Metrics>;
+  assert.deepEqual(Object.keys(golden).sort(), [...SCENARIOS].sort(), `the golden scenario set changed; ${REFRESH}`);
+  const moved: string[] = [];
+  for (const id of SCENARIOS) {
+    const got = actual[id]!, want = golden[id]!;
+    for (const metric of COUNTS) {
+      if (got[metric] !== want[metric]) moved.push(`${id} ${metric}: ${want[metric]} -> ${got[metric]} (${got[metric] - want[metric] > 0 ? '+' : ''}${got[metric] - want[metric]})`);
     }
-    const delta = metrics.compressionRatio - golden.compressionRatio;
-    if (Math.abs(delta) > 0.005) failures.push(`${scenarioName} compressionRatio moved by ${delta.toFixed(6)}`);
+    const delta = got.compressionRatio - want.compressionRatio;
+    if (Math.abs(delta) > 0.005) moved.push(`${id} compressionRatio: ${want.compressionRatio} -> ${got.compressionRatio} (${delta > 0 ? '+' : ''}${delta.toFixed(4)}, band 0.005)`);
   }
-  assert.deepEqual(failures, [], `${failures.join('; ')}. Refresh with: KITZUR_UPDATE_GOLDEN=1 npm test -- ...`);
+  assert.deepEqual(moved, [], `published numbers moved:\n  ${moved.join('\n  ')}\nIf the change is intended, ${REFRESH}`);
 });

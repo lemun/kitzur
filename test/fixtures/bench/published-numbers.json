@@ -1,0 +1,38 @@
+{
+  "code60": {
+    "compactions": 1,
+    "compressionRatio": 0.3301,
+    "factsPlanted": 6,
+    "factsSurvived": 6,
+    "requests": 60,
+    "tokensIn": 3192468,
+    "tokensOut": 2138643
+  },
+  "corr60": {
+    "compactions": 8,
+    "compressionRatio": 0.8386,
+    "factsPlanted": 8,
+    "factsSurvived": 8,
+    "requests": 60,
+    "tokensIn": 12937845,
+    "tokensOut": 2087858
+  },
+  "qa46": {
+    "compactions": 6,
+    "compressionRatio": 0.7648,
+    "factsPlanted": 3,
+    "factsSurvived": 3,
+    "requests": 46,
+    "tokensIn": 7268251,
+    "tokensOut": 1709227
+  },
+  "talk80": {
+    "compactions": 11,
+    "compressionRatio": 0.8647,
+    "factsPlanted": 3,
+    "factsSurvived": 3,
+    "requests": 80,
+    "tokensIn": 22476648,
+    "tokensOut": 3040661
+  }
+}
