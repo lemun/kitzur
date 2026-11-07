@@ -25,6 +25,18 @@ test('usageOf: replay and count document --model', () => {
   for (const cmd of ['replay', 'count']) assert.match(usageOf(cmd), /\[--model ID\]/, cmd);
 });
 
+test('usageOf: every flag a command parses is listed', () => {
+  const flags: Record<string, RegExp[]> = {
+    config: [/config init .*\[--model ID\[=WINDOW\]\]\.\.\. .*\[--dry-run\]/, /config show \[--model ID\] \[--changed\] \[--full\] \[--json\]/, /config validate \[--model ID\] \[--json\]/],
+    count: [/count <request\.json> \[--model ID\] \[--estimate\] \[--json\]/],
+    replay: [/\[--json\]/, /\[--no-fresh\]/],
+    serve: [/serve \[--drain-ms N\]/],
+    status: [/ {2}status \[--url URL\] \[--json\] \[--timeout-ms N\] {2}show a running instance's status\n/],
+  };
+  for (const [cmd, res] of Object.entries(flags)) for (const re of res) assert.match(usageOf(cmd), re, cmd);
+  assert.match(USAGE, /^[\x00-\x7f]*$/, 'USAGE is plain ASCII');
+});
+
 test('wantsHelp: --help or -h before `--` only', () => {
   assert.equal(wantsHelp(['--help']), true);
   assert.equal(wantsHelp(['x', '-h']), true);
