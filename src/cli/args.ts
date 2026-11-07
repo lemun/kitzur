@@ -41,13 +41,13 @@ export function parseArgs(argv: readonly string[], spec: OptSpec): ParsedArgs {
       inline = eq > 0 ? a.slice(eq + 1) : undefined;
     } else if (a.length === 2 && a[0] === '-' && a[1] !== '-') {
       name = byShort.get(a[1]!);
-      if (!name) throw new UsageError(`unknown option ${a}`);
+      if (!name) throw new UsageError(`unknown option ${a}; kitzur <command> --help lists the options of each command`);
     } else {
       positionals.push(a);
       continue;
     }
     const def = spec[name];
-    if (!def) throw new UsageError(`unknown option --${name}`);
+    if (!def) throw new UsageError(`unknown option --${name}; kitzur <command> --help lists the options of each command`);
     let value: string | boolean;
     if (def.type === 'boolean') {
       if (inline !== undefined) throw new UsageError(`--${name} takes no value`);
@@ -109,7 +109,7 @@ export const MODEL_OPT: OptSpec = { model: { type: 'string' } };
 export function checkModelOverride(l: LoadedConfig, model: string | undefined): void {
   if (model === undefined || Object.hasOwn(l.models, model)) return;
   const ids = Object.keys(l.models);
-  throw new UsageError(`--model ${model}: no configured profile for this model (configured: ${ids.length ? ids.join(', ') : 'none'})`);
+  throw new UsageError(`--model ${model}: no configured profile for this model (configured: ${ids.length ? ids.join(', ') : 'none'}); pass one of those IDs or add a profile for it under models in the config`);
 }
 
 /** The profile a request selects, as serve does: an exact configured model ID, else root. */
