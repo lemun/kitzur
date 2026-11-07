@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main, type CliIO } from '../../src/cli.js';
@@ -41,4 +41,30 @@ test('report CLI empty/malformed/unreadable exit codes and JSON shape',async()=>
   assert.doesNotMatch(output,/SECRET_VALUE/);assert.equal(JSON.parse(output).coverage.malformed,1);
   assert.equal(await main(['report','absent.jsonl'],io),1);
   assert.equal(await main(['report'],io),2);
+});
+test('report CLI names the unreadable path and cause',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'kitzur-report-unreadable-'));let errors='';
+  const io:CliIO={stdout:()=>{},stderr:s=>{errors+=s;},env:{},cwd:dir,onSignal:()=>{}};
+  assert.equal(await main(['report','nonexist.jsonl'],io),1);
+  assert.equal(errors,'kitzur: report could not read nonexist.jsonl: no such file; pass the file written by stats.path (see kitzur doctor)\n');
+  errors='';mkdirSync(join(dir,'stats'));
+  assert.equal(await main(['report','stats'],io),1);
+  assert.match(errors,/^kitzur: report could not read stats: it is a directory;/);
+});
+test('tls-probe CLI explains bad origins without echoing credentials',async()=>{
+  let errors='';
+  const io:CliIO={stdout:()=>{},stderr:s=>{errors+=s;},env:{},cwd:tmpdir(),onSignal:()=>{}};
+  const cases:Array<[string,RegExp]>=[
+    ['notaurl',/tls-probe needs an origin such as https:\/\/gateway\.example\.com/],
+    ['ftp://x',/tls-probe only inspects https origins, not ftp/],
+    ['http://gw',/tls-probe only inspects https origins, not http\b/],
+    ['https://alice:SECRET_VALUE@gw',/tls-probe origin must not contain credentials; remove the user:password@ part/],
+    ['http://alice:SECRET_VALUE@gw',/tls-probe only inspects https origins, not http\b/],
+  ];
+  for(const [origin,message] of cases){
+    errors='';
+    assert.equal(await main(['tls-probe',origin],io),2,origin);
+    assert.match(errors,message);
+    assert.doesNotMatch(errors,/alice|SECRET_VALUE/);
+  }
 });
