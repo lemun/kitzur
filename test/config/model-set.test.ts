@@ -92,3 +92,13 @@ test('config show --json --model reports the provenance of bracket leaves', asyn
   assert.equal(prov['models["org/m.v1"].budget.window'], 'cli:--set');
   assert.equal(prov['models["org/m.v1"].client.inputLimit'], 'env:KITZUR_SET');
 });
+
+test('config show --model reports the provenance of bracket leaves in text', async () => {
+  let out = '';
+  const code = await main(['config', 'show', '--model', 'org/m.v1', '--set', 'models["org/m.v1"].budget.window=64000'], {
+    stdout: (s) => { out += s; }, stderr: () => {}, env: { KITZUR_SET: 'models["org/m.v1"].client.inputLimit=60000' }, cwd: process.cwd(), onSignal: () => {},
+  });
+  assert.equal(code, 0, out);
+  assert.match(out, /^models\["org\/m\.v1"\]\.budget\.window = 64000   \(cli:--set\)$/m);
+  assert.match(out, /^models\["org\/m\.v1"\]\.client\.inputLimit = 60000   \(env:KITZUR_SET\)$/m);
+});

@@ -75,6 +75,10 @@ export async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
       for (const id of profiles) {
         const cfg = l.models[id]!;
         io.stdout(`\n# model ${id}${isAutoWindow(cfg) ? ` (auto (fallback ${cfg.budget.window}))` : ''}\n` + derivedLines(cfg).slice(1).join('\n') + '\n');
+        const prefix = `models[${JSON.stringify(id)}].`;
+        for (const k of Object.keys(l.provenance).filter((k) => k.startsWith(prefix)).sort()) {
+          io.stdout(`${k} = ${display(k.slice(prefix.length), getPath(cfg, k.slice(prefix.length)), p.values['full'] === true)}   (${l.provenance[k]})\n`);
+        }
       }
       for (const x of [...l.warnings, ...v.warnings]) io.stdout(`# warning: ${x}\n`);
       for (const x of v.errors) io.stdout(`# ERROR: ${x}\n`);
