@@ -56,7 +56,7 @@ function checkAttribution(at: string, attrs: RetentionAttribution[], n: number, 
     assert.ok(REASONS.includes(a.reason), `${at}: invalid reason ${a.reason}`);
     assert.ok(a.sources.length > 0, `${at}: ${a.category} item has no source`);
     for (const index of a.supersededBy) {
-      assert.ok(Number.isInteger(index) && index < n, `${at}: superseder ${index} is outside the planned history`);
+      assert.ok(Number.isInteger(index) && index >= 0 && index < n, `${at}: superseder ${index} is outside the planned history`);
       for (const s of a.sources) assert.ok(index > s.messageIndex, `${at}: superseder ${index} is not later than source ${s.messageIndex}`);
     }
   }
