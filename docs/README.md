@@ -8,4 +8,5 @@
 - Fix a symptom or a doctor code: [troubleshooting](TROUBLESHOOTING.md).
 - Parse `--json` output in scripts: [JSON output contract](JSON-OUTPUT.md).
 - Understand retention: [design](../DESIGN.md#mechanical-summary).
+- Vet Kitzur before it enters an internal network: [security review checklist](SECURITY-REVIEW.md).
 - Review data handling: [security](../SECURITY.md); evaluate: [benchmarks](../bench/README.md).
