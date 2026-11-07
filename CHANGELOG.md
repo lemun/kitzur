@@ -68,6 +68,7 @@ All notable changes to Kitzur are recorded here. The format follows
 
 ### Changed
 
+- `kitzur status` prints readable groups: uptime as `2h 14m`, active warnings, per-model budgets, outcome counts and stats writer problems, and when the server cannot be reached it names the host:port tried and how to start it; `--json` is unchanged.
 - Common first-run errors (missing or non-object config file, unknown option, bad `--set`, unknown `--model`, unreadable tokenizer, unwritable `stateDir`) now name the next step to take.
 - Model profile validation now suggests allowed keys, explains global settings, and warns about empty or nearly duplicate IDs.
 - `kitzur replay --explain` prints a readable table instead of raw JSON.
