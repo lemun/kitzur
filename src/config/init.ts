@@ -19,7 +19,8 @@ export interface InitModel {
 
 /**
  * Parses repeated `--model ID[=WINDOW]` values; the window follows the last `=`, and a trailing `=` means none
- * (so `--model a=b=` is ID `a=b` with the root window). Throws a message naming the flag on an empty, invalid or repeated ID or a bad window.
+ * (so `--model a=b=` is ID `a=b` with the root window); a trailing `=` on an ID without `=` (`--model m=`) is an
+ * empty window and is refused. Throws a message naming the flag on an empty, invalid or repeated ID or a bad window.
  */
 export function parseInitModels(args: readonly string[]): InitModel[] {
   const out: InitModel[] = [];
@@ -30,6 +31,7 @@ export function parseInitModels(args: readonly string[]): InitModel[] {
     if (id.trim() === '') throw new Error(`--model ${JSON.stringify(arg)}: empty model ID; pass the exact wire model ID, for example --model org/model-name=32000`);
     if (!validModelId(id)) throw new Error(`--model ${JSON.stringify(id)}: invalid model ID (non-empty, at most 256 characters, no controls or prototype keys)`);
     if (out.some((m) => m.id === id)) throw new Error(`--model ${JSON.stringify(id)}: given twice; pass each model ID once`);
+    if (eq === arg.length - 1 && !id.includes('=')) throw new Error(`--model ${JSON.stringify(arg)}: empty window; write --model ${id}=32000, or --model ${id} to inherit the root window`);
     if (raw === undefined) {
       out.push({ id });
       continue;
