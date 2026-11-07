@@ -20,8 +20,9 @@ export async function cmdTlsProbe(argv: string[], io: CliIO): Promise<number> {
   const origin = p.positionals[0] ?? config.upstream.origin;
   if (!origin) throw new UsageError('tls-probe needs an origin or upstream.origin in config');
   let url: URL;
-  try { url = new URL(origin); } catch { throw new UsageError('tls-probe requires an https origin'); }
-  if (url.protocol !== 'https:' || url.username || url.password) throw new UsageError('tls-probe requires an https origin without credentials');
+  try { url = new URL(origin); } catch { throw new UsageError('tls-probe needs an origin such as https://gateway.example.com'); }
+  if (url.protocol !== 'https:') throw new UsageError(`tls-probe only inspects https origins, not ${url.protocol.slice(0, -1)}`);
+  if (url.username || url.password) throw new UsageError('tls-probe origin must not contain credentials; remove the user:password@ part');
   const caFile = p.values['ca-file'] as string | undefined ?? config.upstream.caFile;
   try {
     const result = await inspectTlsChain({ origin, caFile: caFile ? resolve(io.cwd, caFile) : null, timeoutMs });
@@ -73,12 +74,19 @@ export async function cmdDoctor(argv: string[], io: CliIO): Promise<number> {
   return result.exitCode;
 }
 
+const READ_ERRORS: Record<string, string> = { ENOENT: 'no such file', EISDIR: 'it is a directory', EACCES: 'permission denied', EPERM: 'permission denied' };
+
 export async function cmdReport(argv: string[], io: CliIO): Promise<number> {
   const p = parseArgs(argv, { json: { type: 'boolean' } });
   if (p.positionals.length !== 1) throw new UsageError('report needs one stats JSONL file');
   let result;
   try { result = await reportStream(createReadStream(resolve(io.cwd, p.positionals[0]!))); }
-  catch { io.stderr('kitzur: report could not read the stats file\n'); return 1; }
+  catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    const cause = code ? READ_ERRORS[code] ?? `error ${code}` : 'unknown error';
+    io.stderr(`kitzur: report could not read ${p.positionals[0]}: ${cause}; pass the file written by stats.path (see kitzur doctor)\n`);
+    return 1;
+  }
   io.stdout(p.values['json'] ? JSON.stringify(result, null, 2) + '\n' : renderReport(result) + '\n');
   return result.coverage.malformed ? 1 : 0;
 }
