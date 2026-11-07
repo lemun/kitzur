@@ -5,7 +5,7 @@ import type { EngineResult } from '../../types.js';
 import { UsageError, type CliIO } from '../io.js';
 import { CONFIG_OPTS, MODEL_OPT, checkModelOverride, loadFromArgs, parseArgs, selectProfile } from '../args.js';
 import type { Config } from '../../config/schema.js';
-import { collectRequests } from '../requests.js';
+import { CHAT_BODY_HINT, collectRequests } from '../requests.js';
 import { renderRetention } from '../explain.js';
 
 export async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
@@ -40,7 +40,7 @@ export async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
   const fingerprint = (r: EngineResult): string => canonicalJSON({ request: r.request, maxTokens: r.maxTokens, error: r.error ?? null });
   for (const [i, { label, req }] of reqs.entries()) {
     if (!req) {
-      rows.push({ i: i + 1, file: label, error: 'not a chat request' });
+      rows.push({ i: i + 1, file: label, error: `not a chat request; ${CHAT_BODY_HINT}` });
       failures++;
       continue;
     }

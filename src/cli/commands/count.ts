@@ -3,7 +3,7 @@ import { computeBudget, requestMaxTokens, serverFits } from '../../config/derive
 import { stateDirOf } from '../../config/paths.js';
 import { UsageError, type CliIO } from '../io.js';
 import { CONFIG_OPTS, MODEL_OPT, checkModelOverride, loadFromArgs, parseArgs, selectProfile } from '../args.js';
-import { collectRequests } from '../requests.js';
+import { CHAT_BODY_HINT, collectRequests } from '../requests.js';
 
 export async function cmdCount(argv: string[], io: CliIO): Promise<number> {
   const p = parseArgs(argv, { ...CONFIG_OPTS, ...MODEL_OPT, estimate: { type: 'boolean' }, json: { type: 'boolean' } });
@@ -13,7 +13,7 @@ export async function cmdCount(argv: string[], io: CliIO): Promise<number> {
   checkModelOverride(l, modelArg);
   const reqs = collectRequests(p.positionals, io.cwd);
   const req = reqs[0]?.req;
-  if (!req) throw new UsageError(`${p.positionals[0]}: not a chat request (no messages array)`);
+  if (!req) throw new UsageError(`${p.positionals[0]}: not a chat request (no messages array); ${CHAT_BODY_HINT}`);
   const { profile, config: cfg } = selectProfile(l, modelArg, req.model);
   const cs = setupCounter(cfg, { stateDir: stateDirOf(cfg, io.env) });
   if (cs.estimateReason && !p.values['estimate']) {
