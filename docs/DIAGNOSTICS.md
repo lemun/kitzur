@@ -38,6 +38,10 @@ Stats records may include `retention`, a content-free count of engine message ou
 
 The readable explanation starts with totals and category/reason counts, then shows up to 20 attribution details. Use `--explain-limit N` to change that limit or `--explain-limit 0` to show every detail. For example, synthetic output may include `user | summarized | user-instruction | message[0]` and `rest | dropped | budget-eviction | tool-result[4]`.
 
+`kitzur replay` and `kitzur count` use the model profile selected by each request's `model` field, exactly as `serve` does (unknown or missing IDs use the root defaults), and report it as `profile` (a model ID or `root`); `--model ID` selects a configured profile instead, and an unknown ID is a usage error that lists the configured IDs.
+
+When `ledger.ranking` is enabled, each retained item may also include content-free ranking signals such as `duplicate`, `error`, `referenced`, or `recent`. These explain its within-category ordering; they do not include message text.
+
 ```sh
 kitzur report stats.jsonl
 kitzur report stats.jsonl --json

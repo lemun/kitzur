@@ -330,7 +330,7 @@ set `upstream.origin` to the rotator; see [the LiteLLM example](docs/UPSTREAM-RO
 | `ledger.outputPaths.maxPerResult` | `3` | Cap of output paths per tool result. | – | – |
 | `ledger.outputPaths.maxTotal` | `20` | Cap of output paths in the ledger. | – | – |
 | `ledger.mirrorPath` | `null` | Reserved: would write the rendered facts section to this file after each compaction (user content; SECURITY.md). **Not implemented in v1**: setting it writes nothing (startup warning). | – | – |
-| `ledger.ranking` | `false` | Reserved: would rank ledger facts by relevance before rendering. **Not implemented yet**: setting it changes nothing. | – | – |
+| `ledger.ranking` | `false` | When enabled, orders items inside each category by duplicate status, error results, later references, then recency. Category order and floor items stay unchanged; tool calls remain paired with results. Ranking signals are shown by `kitzur replay --explain`. | Too broad: duplicate or error signals can keep less useful items longer within their category. | – (local ledger analysis; tool names and paths only) |
 
 ### rules (tool rules, )
 
@@ -626,6 +626,8 @@ remain raw.
 `models` is optional loader metadata, like `preset`, outside `DEFAULT_CONFIG` and the
 leaf/knob table. Existing config files need no migration. OpenCode checks resolve each
 wire model against its own profile; unknown IDs use root defaults and produce a warning.
+`kitzur replay` and `kitzur count` pick the profile from each request's `model` field the same way, or from
+`--model ID`, and report it as `profile`.
 
 ```json
 {

@@ -3,12 +3,13 @@ import { counterFromConfig } from '../../tokenize/counter.js';
 import { canonicalJSON } from '../../tokenize/canonical.js';
 import type { EngineResult } from '../../types.js';
 import { UsageError, type CliIO } from '../io.js';
-import { CONFIG_OPTS, loadFromArgs, parseArgs } from '../args.js';
+import { CONFIG_OPTS, MODEL_OPT, checkModelOverride, loadFromArgs, parseArgs, selectProfile } from '../args.js';
+import type { Config } from '../../config/schema.js';
 import { collectRequests } from '../requests.js';
 import { renderRetention } from '../explain.js';
 
 export async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
-  const p = parseArgs(argv, { ...CONFIG_OPTS, json: { type: 'boolean' }, explain: { type: 'boolean' }, 'explain-limit': { type: 'string' }, 'no-fresh': { type: 'boolean' } });
+  const p = parseArgs(argv, { ...CONFIG_OPTS, ...MODEL_OPT, json: { type: 'boolean' }, explain: { type: 'boolean' }, 'explain-limit': { type: 'string' }, 'no-fresh': { type: 'boolean' } });
   const explainLimitArg = p.values['explain-limit'] as string | undefined;
   const explainLimit = explainLimitArg === undefined ? 20 : Number(explainLimitArg);
   if (!Number.isInteger(explainLimit) || explainLimit < 0 || (explainLimitArg !== undefined && explainLimitArg.trim() === '')) throw new UsageError('--explain-limit must be a non-negative integer');
@@ -17,12 +18,21 @@ export async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
   const cfg = l.config;
   const log = createLogger(cfg.logLevel === 'debug' ? 'debug' : 'warn', io.stderr);
   const reqs = collectRequests(p.positionals, io.cwd);
+  const modelArg = p.values['model'] as string | undefined;
+  checkModelOverride(l, modelArg);
   const live = await buildEngine(cfg, { log, modules: io.modules, env: io.env });
-  const fresh = async () =>
-    (await buildEngine(cfg, {
+  // one live engine per profile, built when a request first selects it
+  const engines = new Map<string, Promise<typeof live>>([['root', Promise.resolve(live)]]);
+  const engineFor = (profile: string, pcfg: Config): Promise<typeof live> => {
+    let e = engines.get(profile);
+    if (!e) engines.set(profile, (e = buildEngine(pcfg, { log, modules: live.modules, env: io.env })));
+    return e;
+  };
+  const fresh = async (pcfg: Config, of: typeof live) =>
+    (await buildEngine(pcfg, {
       modules: live.modules,
       env: io.env,
-      counter: { counter: counterFromConfig(cfg, { tokenizer: live.tokenizer }), tokenizer: live.tokenizer, estimateReason: live.estimateReason },
+      counter: { counter: counterFromConfig(pcfg, { tokenizer: of.tokenizer }), tokenizer: of.tokenizer, estimateReason: of.estimateReason },
     })).engine;
   const rows: Array<Record<string, unknown>> = [];
   let mismatches = 0;
@@ -35,10 +45,12 @@ export async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
       continue;
     }
     let row: Record<string, unknown>;
+    const { profile, config: pcfg } = selectProfile(l, modelArg, req.model);
     try {
-      const r = live.engine.process(req, { attempt: 1 });
+      const es = await engineFor(profile, pcfg);
+      const r = es.engine.process(req, { attempt: 1 });
       row = {
-        i: i + 1, file: label, action: r.action, replan: r.replan ?? null, fit: r.plan?.fit ?? null, compactions: r.plan?.compactions ?? 0,
+        i: i + 1, file: label, profile, action: r.action, replan: r.replan ?? null, fit: r.plan?.fit ?? null, compactions: r.plan?.compactions ?? 0,
         ...(p.values['explain'] && r.plan?.retention ? { retention: r.plan.retention } : {}),
         ...(p.values['explain'] && !p.values['json'] && r.plan?.summaryAttribution ? { retentionExplanation: r.plan.summaryAttribution } : {}),
         ...(r.stats.retention ? { retentionCounts: r.stats.retention } : {}),
@@ -46,12 +58,12 @@ export async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
         budget: r.stats.budget.budget, trigger: r.stats.budget.trigger, maxTokens: r.maxTokens?.value ?? null, engineMs: Math.round(r.stats.engineMs * 10) / 10,
       };
       if (!p.values['no-fresh']) {
-        const f = (await fresh()).process(req, { attempt: 1 });
+        const f = (await fresh(pcfg, es)).process(req, { attempt: 1 });
         row['deterministic'] = fingerprint(f) === fingerprint(r);
         if (!row['deterministic']) mismatches++;
       }
     } catch (e) {
-      row = { i: i + 1, file: label, error: `${(e as Error).name}: ${(e as Error).message.split('\n')[0]!.slice(0, 200)}` };
+      row = { i: i + 1, file: label, profile, error: `${(e as Error).name}: ${(e as Error).message.split('\n')[0]!.slice(0, 200)}` };
       failures++;
     }
     rows.push(row);
@@ -60,10 +72,10 @@ export async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
     io.stdout(JSON.stringify({ counter: live.counter.mode, requests: rows, mismatches, failures }, null, 1) + '\n');
   } else {
     io.stdout(`counter ${live.counter.mode}${live.estimateReason ? ` (${live.estimateReason})` : ''}; ${reqs.length} request(s)\n`);
-    io.stdout(`${'#'.padStart(4)}  ${'file'.padEnd(24)} ${'action'.padEnd(14)} ${'msgs'.padStart(9)} ${'tokens in -> out'.padStart(19)} ${'budget'.padStart(7)} ${'trigger'.padStart(7)} ${'fit'.padEnd(11)} cmp ${'max_tok'.padStart(7)}  det\n`);
+    io.stdout(`${'#'.padStart(4)}  ${'file'.padEnd(24)} ${'action'.padEnd(14)} ${'msgs'.padStart(9)} ${'tokens in -> out'.padStart(19)} ${'budget'.padStart(7)} ${'trigger'.padStart(7)} ${'fit'.padEnd(11)} cmp ${'max_tok'.padStart(7)}  det  profile\n`);
     for (const r of rows) {
       if (r['error']) {
-        io.stdout(`${String(r['i']).padStart(4)}  ${String(r['file']).padEnd(24)} ERROR ${r['error']}\n`);
+        io.stdout(`${String(r['i']).padStart(4)}  ${String(r['file']).padEnd(24)} ERROR ${r['error']}${r['profile'] ? `  profile ${r['profile']}` : ''}\n`);
         continue;
       }
       const det = r['deterministic'] === undefined ? '-' : r['deterministic'] ? 'ok' : 'DIFF';
@@ -71,7 +83,7 @@ export async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
         `${String(r['i']).padStart(4)}  ${String(r['file']).slice(0, 24).padEnd(24)} ${String(r['action']).padEnd(14)} ` +
           `${`${r['messagesIn']}->${r['messagesOut']}`.padStart(9)} ${`${r['tokensIn']} -> ${r['tokensOut']}`.padStart(19)} ` +
           `${String(r['budget']).padStart(7)} ${String(r['trigger']).padStart(7)} ${String(r['fit'] ?? '-').padEnd(11)} ${String(r['compactions']).padStart(3)} ` +
-          `${String(r['maxTokens'] ?? '-').padStart(7)}  ${det}\n`,
+          `${String(r['maxTokens'] ?? '-').padStart(7)}  ${det.padEnd(4)}  ${r['profile']}\n`,
       );
       if (p.values['explain'] && Array.isArray(r['retentionExplanation'])) {
         io.stdout(`${renderRetention(r['retentionExplanation'] as import('../../engine/contracts.js').RetentionAttribution[], { limit: explainLimit }).split('\n').map((line) => `      ${line}`).join('\n')}\n`);
