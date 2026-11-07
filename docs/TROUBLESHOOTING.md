@@ -55,6 +55,10 @@ Use `kitzur doctor --snapshot support.json` to write a shareable support snapsho
 - Cause: an overflow taught a smaller window, or a shared `stateDir` carries learned limits from another instance.
 - Fix: run `kitzur state show`; after correcting `budget.window`, run `kitzur state reset`; give each instance its own `stateDir`.
 
+## Unsupported Node.js version
+- `runtime.node`: the running Node.js is older than 22, the minimum Kitzur supports.
+- Fix: install Node.js 22 or later (`node --version` shows the running one); with the offline bundle, install the version its README names.
+
 ## Windows without administrator rights
 These checks run only on Windows and need no administrator rights; a missing `netsh` or unreadable output skips the port check instead of failing.
 - `windows.port`: `listen.port` falls inside a range from `netsh int ipv4 show excludedportrange protocol=tcp` (Hyper-V, WSL or Docker reserve these), so binding fails. Fix: set `listen.port` to the free port doctor suggests.
