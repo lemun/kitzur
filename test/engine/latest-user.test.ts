@@ -60,6 +60,19 @@ test('seeded chains: an unanswered latest user message is never summarized; an a
   assert.ok(summarized > 0, 'no answered latest user message was summarized (seed 1000 request 2 is one)');
 });
 
+// the reported case: the answered latest user message is behind the cut, and the ledger keeps no facts from it
+test('seed 1000 request 2: the answered latest user message is compacted behind the cut', () => {
+  const chain = genChain(1000, { exact: false });
+  const r = runChain(chain)[2]!;
+  const ms = chain.requests[2]!.messages;
+  const i = lastUser(ms);
+  assert.ok(r.request && r.plan?.summaryAttribution, 'seed 1000 request 2 is compacted');
+  assert.ok(answered(ms, i), `latest user message ${i} is answered`);
+  assert.ok(i >= r.plan!.hEnd && i < r.plan!.cut, `latest user message ${i} lies between hEnd ${r.plan!.hEnd} and cut ${r.plan!.cut}`);
+  assert.ok(!forwardedVerbatim(r, ms[i]!));
+  assert.equal(outcomeOf(r, i).disposition, 'dropped');
+});
+
 const cfg: Config = testConfig({
   budget: { window: 4000, defaultMaxTokens: 128 }, compaction: { triggerTokens: 900, targetTokens: 500 }, tokenizer: { template: { name: 'sim' } },
 });
