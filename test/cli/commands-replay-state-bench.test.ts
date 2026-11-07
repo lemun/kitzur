@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { main, type CliIO } from '../../src/cli.js';
 import { benchEntry } from '../../src/cli/commands/bench.js';
+import { loadModules } from '../../src/app.js';
 
 async function run(argv: string[], cwd: string): Promise<{ code: number; out: string; err: string }> {
   const out: string[] = [];
@@ -104,4 +105,19 @@ test('replay without model profiles reports root in JSON and text', () =>
     const bad = await run(['replay', 'r.json', '--model', 'm', '--state-dir', dir], dir);
     assert.equal(bad.code, 2);
     assert.match(bad.err, /\(configured: none\)/);
+  }));
+
+test('replay text output names the profile of a request that fails processing', () =>
+  withTmp(async (dir) => {
+    writeFileSync(join(dir, 'kitzur.json'), JSON.stringify({ budget: { window: 100000 }, models: { 'org/small': { budget: { window: 50000 } } } }));
+    writeFileSync(join(dir, 'r.json'), JSON.stringify({ model: 'org/small', max_tokens: 100, messages: [{ role: 'user', content: 'hi' }] }));
+    const base = await loadModules({ proxy: false });
+    const createEngine: typeof base.createEngine = (c, o) => {
+      if (c.budget.window === 50000) throw new Error('profile engine broke');
+      return base.createEngine(c, o);
+    };
+    const out: string[] = [];
+    const io: CliIO = { stdout: (s) => void out.push(s), stderr: () => undefined, env: {}, cwd: dir, onSignal: () => undefined, modules: { ...base, createEngine } };
+    assert.equal(await main(['replay', 'r.json', '--config', 'kitzur.json', '--no-fresh', '--state-dir', dir], io), 1);
+    assert.match(out.join(''), / ERROR Error: profile engine broke {2}profile org\/small\n/);
   }));
