@@ -150,7 +150,7 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
     catch (error) {
       const errno = (error as NodeJS.ErrnoException).code;
       if (errno === 'ENOENT') add('client.config', 'error', 'Client configuration file was not found.', 'Check the path given to --client-config.');
-      else add('client.config', 'error', `Client configuration file could not be read (${errno && /^E[A-Z]+$/.test(errno) ? errno : 'read error'}).`, 'Check that the path given to --client-config is a readable file.');
+      else add('client.config', 'error', `Client configuration file could not be read (${errno && /^[A-Z][A-Z0-9_]{0,63}$/.test(errno) ? errno : 'UNKNOWN'}).`, 'Check that the path given to --client-config is a readable file.');
     }
     if (text !== null) {
       let parsed: unknown;
