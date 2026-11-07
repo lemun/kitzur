@@ -34,6 +34,28 @@ test('the module table lists exactly the src/ files that can reach the network o
   for (const f of listed) assert.ok(found.has(f), `${f} no longer imports a network or process module: remove it from the table in ${DOC}`);
 });
 
+// Calls that open an outbound connection, in files that import a network module (or call fetch).
+const NET_IMPORT = /\bfrom\s+['"](?:node:)?(?:http|https|net|tls|dns|dgram)['"]/;
+const OUTBOUND = /(?:\b(?:lib|mod|http|https|net|tls|dns|dgram)\.(?:request|get|connect|createConnection|createSocket|lookup|resolve\w*)|(?<![\w.$])(?:request|get|connect|createConnection|fetch))\s*\(/g;
+
+test('the outbound table names every exported entry point that opens a connection', () => {
+  const table = doc.slice(doc.indexOf('| Command | Trigger |'), doc.indexOf('\n\n', doc.indexOf('| Command | Trigger |')));
+  const entries = new Set([...table.matchAll(/\| `(\w+)` \|$/gm)].map(([, e]) => e!));
+  const found = new Map<string, string>();
+  for (const file of tsFiles(join(ROOT, 'src'))) {
+    const text = readFileSync(file, 'utf8');
+    if (!NET_IMPORT.test(text) && !FETCH.test(text)) continue;
+    for (const m of text.matchAll(OUTBOUND)) {
+      const before = text.slice(0, m.index);
+      const name = [...before.matchAll(/^export\s+(?:async\s+)?(?:function|class)\s+(\w+)/gm)].pop()?.[1] ?? '(not exported)';
+      found.set(name, `${relative(ROOT, file).replaceAll('\\', '/')}:${before.split('\n').length}`);
+    }
+  }
+  assert.ok(found.size > 0, 'no outbound calls found: the scan is broken');
+  for (const [name, at] of found) assert.ok(entries.has(name), `${at} opens a connection from ${name}: add the commands that reach it to the outbound table in ${DOC}`);
+  for (const e of entries) assert.ok(found.has(e), `${e} no longer opens a connection: update the outbound table in ${DOC}`);
+});
+
 test('every repo path and anchor the checklist links to exists', () => {
   for (const [, target] of doc.matchAll(/\]\(([^)\s]+)\)/g)) {
     if (/^[a-z][a-z\d+.-]*:/i.test(target!)) continue;

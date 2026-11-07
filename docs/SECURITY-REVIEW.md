@@ -25,10 +25,24 @@ Commands assume the repository root. `test/docs/security-review.test.ts` keeps t
   **Verify:** `curl -H 'Host: example.com' http://127.0.0.1:8270/status` returns an error status. **Owner:** [src/proxy/hostcheck.ts](../src/proxy/hostcheck.ts), [SECURITY.md](../SECURITY.md#network).
 - **Claim:** `listen.token` optionally requires `Authorization: Bearer <token>` on every route; it is never forwarded.
   **Verify:** with a token set, `curl http://127.0.0.1:8270/status` returns 401. **Owner:** [SECURITY.md](../SECURITY.md#network).
-- **Claim:** the proxy's only outbound destination is `upstream.origin` (chat, the optional `tokenizer.endpoint` on the same
-  origin, and doctor's opt-in `--check-upstream` probe). The CLI diagnostic `kitzur status --url <url>` is the one exception:
-  it reads `/status` from the URL the operator passes. The host never comes from the request and `HTTP(S)_PROXY` is not honoured.
-  **Verify:** the module table below; `grep -n "new URL" src/tokenize/remote.ts src/proxy/upstream.ts`. **Owner:** [src/proxy/upstream.ts](../src/proxy/upstream.ts).
+- **Claim:** the proxy (`kitzur serve`) connects only to `upstream.origin`; the host never comes from the request and
+  `HTTP(S)_PROXY` is not honoured. Two CLI diagnostics connect where the operator points them: `kitzur status --url <url>`
+  and `kitzur tls-probe <origin>`. Every outbound connection is in the table below.
+  **Verify:** the outbound table below; `grep -n "new URL" src/tokenize/remote.ts src/proxy/upstream.ts`. **Owner:** [src/proxy/upstream.ts](../src/proxy/upstream.ts).
+
+| Command | Trigger | Destination | Directed by | Can be disabled | Entry point |
+|---|---|---|---|---|---|
+| `kitzur serve` | each client chat request | `upstream.origin` | automatic | no (the proxy's purpose) | `Upstream` |
+| `kitzur serve` | startup (`GET /v1/models`, then `/props`); once more with the client key if startup got 401/403 | `upstream.origin` | automatic | no | `Upstream` |
+| `kitzur serve` | `tokenizer.endpoint.style` set: tokenize calls | `upstream.origin` | config | yes, leave `tokenizer.endpoint.style` `null` (default) | `createRemoteTokenizer` |
+| `kitzur serve`, `kitzur doctor --check-upstream` | TLS verification of the upstream failed | `upstream.origin` host and port | automatic | no (only after a TLS failure) | `inspectTlsChain` |
+| `kitzur doctor` | every run: TCP connect and `GET /status` | `listen.host:listen.port` | automatic | no | `probeInstance` |
+| `kitzur doctor --check-upstream` | the flag: `GET /v1/models` | `upstream.origin` | operator | yes, omit the flag (default) | `Upstream` |
+| `kitzur autostart run` | before launching: TCP connect and `GET /status` | `listen.host:listen.port` | automatic | no | `probeInstance` |
+| `kitzur status` | the command: `GET /status` | `listen.host:listen.port`, or any URL given with `--url` | operator | yes, do not run it | `httpGet` |
+| `kitzur tls-probe [origin]` | the command: TLS handshake only | the `https` origin given, else `upstream.origin` | operator | yes, do not run it | `inspectTlsChain` |
+
+The library export `createRemoteTokenizer` ([src/index.ts](../src/index.ts)) connects to the origin its caller passes.
 - **Claim:** `scripts/fetch-tokenizer.sh` downloads a development tokenizer into `bench/.cache` and checks its SHA-256.
   It is a build and benchmark step, not part of the runtime or the bundle. **Verify:** `grep -rn fetch-tokenizer dist/src` prints nothing. **Owner:** [scripts/fetch-tokenizer.sh](../scripts/fetch-tokenizer.sh).
 - **Claim:** no telemetry, update check or runtime download (the tokenizer fetch above is the build-time exception). **Verify:** `grep -rnE "(^|[^.a-zA-Z])fetch\(" dist/src` prints nothing, and every outbound module is in the table below. **Owner:** [SECURITY.md](../SECURITY.md#network).
