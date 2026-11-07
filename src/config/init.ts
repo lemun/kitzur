@@ -17,13 +17,16 @@ export interface InitModel {
   window?: number;
 }
 
-/** Parses repeated `--model ID[=WINDOW]` values. Throws a message naming the flag on an empty, invalid or repeated ID or a bad window. */
+/**
+ * Parses repeated `--model ID[=WINDOW]` values; the window follows the last `=`, and a trailing `=` means none
+ * (so `--model a=b=` is ID `a=b` with the root window). Throws a message naming the flag on an empty, invalid or repeated ID or a bad window.
+ */
 export function parseInitModels(args: readonly string[]): InitModel[] {
   const out: InitModel[] = [];
   for (const arg of args) {
     const eq = arg.lastIndexOf('=');
     const id = eq < 0 ? arg : arg.slice(0, eq);
-    const raw = eq < 0 ? undefined : arg.slice(eq + 1);
+    const raw = eq < 0 || eq === arg.length - 1 ? undefined : arg.slice(eq + 1);
     if (id.trim() === '') throw new Error(`--model ${JSON.stringify(arg)}: empty model ID; pass the exact wire model ID, for example --model org/model-name=32000`);
     if (!validModelId(id)) throw new Error(`--model ${JSON.stringify(id)}: invalid model ID (non-empty, at most 256 characters, no controls or prototype keys)`);
     if (out.some((m) => m.id === id)) throw new Error(`--model ${JSON.stringify(id)}: given twice; pass each model ID once`);
