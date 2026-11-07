@@ -1,0 +1,12 @@
+{
+  "cases": {
+    "1000msg@100k": {"relCost":3.611,"results":{"compactions":10,"requests":40,"retention":{"dropped":676,"excerpted":0,"summarized":282,"verbatim":43},"tokensIn":431700,"tokensOut":44433}},
+    "1000msg@32k": {"relCost":13.076,"results":{"compactions":72,"requests":40,"retention":{"dropped":705,"excerpted":1,"summarized":292,"verbatim":3},"tokensIn":431700,"tokensOut":20763}},
+    "200msg@100k": {"relCost":0.343,"results":{"compactions":1,"requests":40,"retention":{"dropped":86,"excerpted":0,"summarized":63,"verbatim":53},"tokensIn":88266,"tokensOut":39842}},
+    "200msg@32k": {"relCost":0.545,"results":{"compactions":6,"requests":40,"retention":{"dropped":114,"excerpted":0,"summarized":76,"verbatim":12},"tokensIn":88266,"tokensOut":14853}},
+    "4000msg@100k": {"relCost":207.088,"results":{"compactions":146,"requests":40,"retention":{"dropped":2971,"excerpted":0,"summarized":1026,"verbatim":5},"tokensIn":1827251,"tokensOut":65283}},
+    "4000msg@32k": {"relCost":578.441,"results":{"compactions":804,"requests":40,"retention":{"dropped":3625,"excerpted":0,"summarized":372,"verbatim":5},"tokensIn":1827251,"tokensOut":27396}}
+  },
+  "date": "2026-11-07",
+  "schema": 1
+}
