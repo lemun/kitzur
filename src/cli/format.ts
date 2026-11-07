@@ -3,7 +3,6 @@ import { isPlainObject } from '../config/spec.js';
 import { isAutoWindow } from '../config/window.js';
 import { jsonErrorInfo, lineCol } from '../config/jsonc.js';
 import type { Config } from '../config/schema.js';
-import { formatPaths, type ResolvedPaths } from '../proxy/status.js';
 
 // ---------------------------------------------------------------- helpers
 
@@ -77,7 +76,6 @@ export function fmtUptime(s: number): string {
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isRec = (v: unknown): v is Record<string, unknown> => isPlainObject(v);
-const num = (v: unknown): string => (isNum(v) ? String(v) : '?');
 /** One line of at most 200 characters: control characters (newlines included) become spaces. */
 const one = (v: unknown): string => {
   const s = String(v).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/gu, ' ').trim();
@@ -87,13 +85,22 @@ const one = (v: unknown): string => {
 const pairs = (o: Record<string, unknown>, keys: Array<[string, string]>, sep = ' '): string[] =>
   keys.flatMap(([k, label]) => (isNum(o[k]) || typeof o[k] === 'string' ? [`${label}${sep}${one(o[k])}`] : []));
 
+/** `<in> -> <out> tokens`, or '' unless both counts are numbers. */
+const tokens = (o: Record<string, unknown>): string => (isNum(o['in']) && isNum(o['out']) ? `${o['in']} -> ${o['out']} tokens` : '');
+/** The Paths line of a /status `paths` record: a null config or log_file reads as before, an absent field is skipped. */
+const pathsLine = (p: Record<string, unknown>): string => {
+  const shown = (k: string, ifNull?: string): string[] =>
+    typeof p[k] === 'string' ? [`${k}=${String(p[k]).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/gu, ' ')}`] : p[k] === null && ifNull ? [`${k}=${ifNull}`] : [];
+  return `Paths: ${[...shown('config', 'defaults only'), ...shown('state_dir'), ...shown('log_file', '?')].join('; ') || 'unknown'}`;
+};
+
 /** The human text of `kitzur status` for a /status body. Never content: only names, counts and sizes. */
 export function formatStatus(s: Record<string, unknown>, now: number = Date.now()): string {
   const groups: string[][] = [];
   const uptime = isNum(s['uptime_s']) ? `— uptime ${fmtUptime(s['uptime_s'])}` : '';
   groups.push([
     [one(typeof s['name'] === 'string' ? s['name'] : 'kitzur'), typeof s['version'] === 'string' ? one(s['version']) : '', uptime].filter(Boolean).join(' '),
-    formatPaths(isRec(s['paths']) ? (s['paths'] as unknown as ResolvedPaths) : { config: null, state_dir: '?', log_file: null }),
+    pathsLine(isRec(s['paths']) ? s['paths'] : {}),
   ]);
   const warnings = Array.isArray(s['warnings']) ? s['warnings'].filter(isRec) : [];
   groups.push(warnings.length
@@ -116,7 +123,7 @@ export function formatStatus(s: Record<string, unknown>, now: number = Date.now(
   const at = lc && typeof lc['at'] === 'string' ? Date.parse(lc['at']) : NaN;
   const ago = Number.isFinite(at) && now >= at ? ` (${fmtUptime((now - at) / 1000)} ago)` : '';
   requests.push(lc
-    ? `Last compaction: ${one(lc['at'] ?? '?')}${ago} — ${num(lc['in'])} -> ${num(lc['out'])} tokens (trigger ${num(lc['trigger'])})`
+    ? `Last compaction: ${[typeof lc['at'] === 'string' ? `${one(lc['at'])}${ago}` : '', tokens(lc)].filter(Boolean).join(' — ') || 'unknown'}${isNum(lc['trigger']) ? ` (trigger ${lc['trigger']})` : ''}`
     : 'Last compaction: none since startup');
   groups.push(requests);
   const st = isRec(s['stats']) ? s['stats'] : {};
@@ -126,9 +133,9 @@ export function formatStatus(s: Record<string, unknown>, now: number = Date.now(
   groups.push([
     `Recent requests: ${recent.length}/64 (in memory; reset on restart)`,
     ...recent.slice(-5).map((r) => {
-      const t = isRec(r['tokens']) ? r['tokens'] : {};
-      const model = typeof r['model'] === 'string' ? JSON.stringify(one(r['model'])) : 'null';
-      return `  ${one(r['action'] ?? '?')} ${num(t['in'])} -> ${num(t['out'])} tokens; model=${model}${isNum(r['ms']) ? `; ${r['ms']}ms` : ''}`;
+      const model = typeof r['model'] === 'string' ? `model=${JSON.stringify(one(r['model']))}` : r['model'] === null ? 'model=null' : '';
+      const head = [typeof r['action'] === 'string' ? one(r['action']) : '', tokens(isRec(r['tokens']) ? r['tokens'] : {})].filter(Boolean).join(' ');
+      return `  ${[head, model, isNum(r['ms']) ? `${r['ms']}ms` : ''].filter(Boolean).join('; ') || '?'}`;
     }),
   ]);
   return groups.map((g) => g.join('\n')).join('\n\n');

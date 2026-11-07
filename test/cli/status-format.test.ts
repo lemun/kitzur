@@ -50,6 +50,20 @@ test('formatStatus: a minimal or empty body prints no undefined or NaN', () => {
   assert.match(formatStatus({}, NOW), /^Budget: unknown$/m);
 });
 
+test('formatStatus skips absent fields of partial paths, compaction and request entries', () => {
+  const out = formatStatus({
+    paths: { config: null },
+    last_compaction: { trigger: 24000 },
+    recent_requests: [{ action: 'compact' }, { tokens: { in: 5 }, model: null, ms: 3 }],
+  }, NOW);
+  assert.doesNotMatch(out, /undefined|NaN|\?/, out);
+  assert.match(out, /^Paths: config=defaults only$/m);
+  assert.match(out, /^Last compaction: unknown \(trigger 24000\)$/m);
+  assert.match(out, /^ {2}compact$/m);
+  assert.match(out, /^ {2}model=null; 3ms$/m);
+  assert.match(formatStatus({ paths: {} }, NOW), /^Paths: unknown$/m);
+});
+
 test('formatStatus caps the per-model lines at 8', () => {
   const profiles = Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`m${i}`, profile(8192)]));
   const out = formatStatus({ ...full, profiles }, NOW);
