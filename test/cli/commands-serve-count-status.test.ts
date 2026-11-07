@@ -20,7 +20,9 @@ async function withTmp(f: (dir: string) => Promise<void>): Promise<void> {
 
 test('serve, count and status keep their usage-error contract through main', () =>
   withTmp(async (dir) => {
-    for (const argv of [['serve', '--frob'], ['serve', 'extra'], ['count'], ['count', 'a.json', 'b.json'], ['status', '--frob']]) {
+    for (const argv of [['serve', '--frob'], ['serve', 'extra'], ['count'], ['count', 'a.json', 'b.json'], ['status', '--frob'],
+      ['status', '--timeout-ms', 'abc'], ['status', '--timeout-ms', '-5'], ['status', '--timeout-ms', '10001'],
+      ['status', '--url', 'not a url'], ['status', '--url', 'notaurl'], ['status', '--url', 'ftp://u:secret@h/status']]) {
       const r = await run(argv, dir);
       assert.equal(r.code, 2, argv.join(' '));
       assert.match(r.err, /^kitzur: /, argv.join(' '));
@@ -32,10 +34,10 @@ test('serve, count and status keep their usage-error contract through main', () 
     const notChat = await run(['count', 'nope.json', '--state-dir', dir], dir);
     assert.equal(notChat.code, 2);
     assert.match(notChat.err, /nope\.json: not a chat request/);
-    // an unparseable --url is a runtime failure (exit 1), not a usage error
-    const badUrl = await run(['status', '--url', 'not a url'], dir);
-    assert.equal(badUrl.code, 1);
-    assert.match(badUrl.err, /^kitzur: cannot reach not a url: /);
+    assert.match((await run(['status', '--timeout-ms', 'abc'], dir)).err, /--timeout-ms must be an integer from 1 to 10000\n/);
+    const badUrl = await run(['status', '--url', 'ftp://u:secret@h/status'], dir);
+    assert.match(badUrl.err, /--url must be an http\(s\) URL such as http:\/\/127\.0\.0\.1:8270\/status\n/);
+    assert.doesNotMatch(badUrl.err, /secret|cannot reach|nothing answered/);
   }));
 
 test('serve loads the runtime log from its new directory and exits 2 without an upstream origin', () =>

@@ -1,11 +1,18 @@
-import type { CliIO } from '../io.js';
+import { UsageError, type CliIO } from '../io.js';
 import { CONFIG_OPTS, loadFromArgs, parseArgs } from '../args.js';
 import { fmtHost, formatStatus } from '../format.js';
 import { httpGet } from '../http.js';
 
 export async function cmdStatus(argv: string[], io: CliIO): Promise<number> {
   const p = parseArgs(argv, { ...CONFIG_OPTS, url: { type: 'string' }, json: { type: 'boolean' }, 'timeout-ms': { type: 'string' } });
+  const timeoutMs = Number(p.values['timeout-ms'] ?? 5000);
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000) throw new UsageError('--timeout-ms must be an integer from 1 to 10000');
   let url = p.values['url'] as string | undefined;
+  if (url !== undefined) {
+    let protocol = '';
+    try { protocol = new URL(url).protocol; } catch { /* not a URL: rejected below */ }
+    if (protocol !== 'http:' && protocol !== 'https:') throw new UsageError('--url must be an http(s) URL such as http://127.0.0.1:8270/status');
+  }
   let token: string | null = null;
   let configPath: string | null = null;
   if (!url) {
@@ -17,7 +24,7 @@ export async function cmdStatus(argv: string[], io: CliIO): Promise<number> {
     url = `http://${fmtHost(host)}:${cfg.listen.port}/status`;
   }
   try {
-    const r = await httpGet(url, Number(p.values['timeout-ms'] ?? 5000), token);
+    const r = await httpGet(url, timeoutMs, token);
     let body = r.body;
     try {
       const s = JSON.parse(r.body);
