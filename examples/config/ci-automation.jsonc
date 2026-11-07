@@ -1,0 +1,24 @@
+// A CI job: one short-lived kitzur per run, with nothing kept between runs. Commit this next to the
+// pipeline as kitzur.jsonc and start it with --config kitzur.jsonc; relative paths resolve against this
+// file, so everything lands in the build output folder the job already throws away. Replace the gateway host.
+{
+  "preset": "32k",
+  "upstream": {
+    "origin": "https://llm.example.com" // your OpenAI-compatible gateway, no path
+  },
+  "server": { "type": "vllm" },
+  "budget": {
+    "planMaxTokens": 4000 // short plan: CI steps ask for short replies, so more of the window is prompt
+  },
+  "listen": { "host": "127.0.0.1", "port": 0 }, // a free port per job; read the bound address from the log
+  "stateDir": "build/kitzur/state", // learned windows and the tokenizer cache die with the build folder
+  "store": { "persist": false }, // no plans on disk: a rerun recomputes them (same results)
+  "stats": { "path": "build/kitzur/stats.jsonl" }, // sizes only; archive it and run kitzur report on it
+  "log": { "file": "build/kitzur/kitzur.log" },
+  // fail closed: an oversized head returns the documented error instead of a silently truncated
+  // first message, so the job goes red rather than passing on a shortened prompt
+  "oversize": { "headPolicy": "error" },
+  "debug": {
+    "capture": { "path": null } // off: a capture writes model output to disk, keep it out of CI artifacts
+  }
+}
