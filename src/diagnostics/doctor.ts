@@ -82,7 +82,7 @@ function nearestExistingDirectory(path: string): { path: string; blocked: boolea
 }
 
 /** Read-only local diagnostics. Network access is opt-in and uses the small models endpoint probe. */
-export async function doctor(config: Config, opts: { env?: Record<string, string | undefined>; upstreamCheck?: boolean; timeoutMs?: number; configPath?: string; clientConfigPath?: string; models?: ModelProfiles; model?: string; windows?: WindowsDeps } = {}): Promise<DoctorResult> {
+export async function doctor(config: Config, opts: { env?: Record<string, string | undefined>; upstreamCheck?: boolean; timeoutMs?: number; configPath?: string; clientConfigPath?: string; models?: ModelProfiles; model?: string; windows?: WindowsDeps; nodeVersion?: string } = {}): Promise<DoctorResult> {
   const checks: DoctorCheck[] = [];
   const add = (code: string, status: DoctorCheck['status'], message: string, fix?: string): void => { checks.push({ code, status, message, ...(fix ? { fix } : {}) }); };
 
@@ -94,6 +94,9 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
   } catch {
     add('config.valid', 'error', 'Configuration could not be validated safely.', 'Run `kitzur config validate` and correct the reported settings.');
   }
+  const nodeVersion = opts.nodeVersion ?? process.versions.node;
+  if (Number(nodeVersion.split('.')[0]) >= 22) add('runtime.node', 'ok', `Node.js ${nodeVersion} is supported.`);
+  else add('runtime.node', 'warn', `Node.js ${nodeVersion} is too old: Kitzur supports Node.js 22 or later.`, 'Install Node.js 22 or later; with the offline bundle, install the version its README names.');
   if (listenTokenWarning(config)) add('listen.token', 'warn', 'upstream.headers is set without listen.token: every local process can use those credentials through the proxy.', 'Set listen.token and give it to the agent as its API key.');
 
   let b: ReturnType<typeof computeBudget> | null = null;
