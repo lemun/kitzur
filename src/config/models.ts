@@ -1,6 +1,6 @@
 // Model maps are loader metadata, never leaves of the root Config.
 import type { Config, ModelProfiles } from './schema.js';
-import { isPlainObject, LEAF_SPECS, setPath } from './spec.js';
+import { isPlainObject, LEAF_SPECS, ownerLeaf, isInnerNode, suggestLeaf, setPath } from './spec.js';
 import { checkLeaf, validateConfig } from './validate.js';
 import { enableAutoWindow, isAutoWindow } from './window.js';
 
@@ -19,18 +19,26 @@ export function validModelId(id: string): boolean {
 }
 
 /** Strip and merge each JSON layer before the ordinary leaf loader sees it. */
-export function takeModelLayer(layer: Record<string, unknown>, overrides: ModelOverrides, source: string, issues: string[]): void {
+export function takeModelLayer(layer: Record<string, unknown>, overrides: ModelOverrides, source: string, issues: string[], warnings: string[]): void {
   if (!Object.hasOwn(layer, 'models')) return;
   const models = layer['models'];
   delete layer['models'];
   if (!isPlainObject(models)) { issues.push(`${source}: models must be an object`); return; }
+  const ids = Object.keys(models);
   for (const [id, value] of Object.entries(models)) {
     const where = `${source}: models[${JSON.stringify(id)}]`;
     if (!validModelId(id)) { issues.push(`${where}: invalid model ID (non-empty, at most 256 characters, no controls or prototype keys)`); continue; }
     const leaves = overrides.get(id) ?? new Map<string, unknown>();
     overrides.set(id, leaves);
+    if (isPlainObject(value) && Object.keys(value).length === 0) warnings.push(`${where}: profile sets no overrides; model IDs are matched exactly as ${JSON.stringify(id)}`);
+    for (const other of new Set([...overrides.keys(), ...ids])) {
+      if (other !== id && (other.trim().toLowerCase() === id.trim().toLowerCase())) {
+        warnings.push(`${where}: model IDs are matched exactly; ${JSON.stringify(id)} differs from ${JSON.stringify(other)} only by case or surrounding whitespace`);
+        break;
+      }
+    }
     const visit = (node: unknown, prefix: string): void => {
-      if (!isPlainObject(node)) { issues.push(`${where}${prefix ? '.' + prefix : ''}: must be an object`); return; }
+      if (!isPlainObject(node)) { issues.push(`${where}${prefix ? '.' + prefix : ''}: must be an object, got ${JSON.stringify(node)}`); return; }
       for (const [key, v] of Object.entries(node)) {
         const path = prefix ? `${prefix}.${key}` : key;
         // Literal dotted keys must not bypass the nested schema or prototype checks.
@@ -39,8 +47,12 @@ export function takeModelLayer(layer: Record<string, unknown>, overrides: ModelO
           const error = checkLeaf(path, LEAF_SPECS[path]!, v);
           if (error) issues.push(`${where}: ${error}`);
           else leaves.set(path, v);
-        } else if ([...ALLOWED].some((p) => p.startsWith(path + '.'))) visit(v, path);
-        else issues.push(`${where}.${path}: model override is not allowed`);
+        } else if ([...ALLOWED].some((p) => p.startsWith(path + '.')) || (isInnerNode(path) && isPlainObject(v))) visit(v, path);
+        else if (ownerLeaf(path) || isInnerNode(path)) issues.push(`${where}.${path} is global; it cannot be set under models[${JSON.stringify(id)}]; per-model settings are under budget, client, and tokenizer`);
+        else {
+          const hint = suggestLeaf(path);
+          issues.push(`${where}: unknown config key models.${id}.${path}${hint ? ` (did you mean ${hint}?)` : ''}`);
+        }
       }
     };
     visit(value, '');
