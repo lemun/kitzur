@@ -8,6 +8,9 @@ All notable changes to Kitzur are recorded here. The format follows
 
 ### Added
 
+- [docs/SECURITY-REVIEW.md](docs/SECURITY-REVIEW.md) is a checklist for teams that vet Kitzur before allowing it on an internal network, with a claim, a verify command and an owning file per item (#151).
+- [examples/config/](examples/config/README.md) has ready-to-copy config files for a single 32k model, a multi-model gateway, a Windows intranet and a CI job, each loaded and validated by the test suite (#150, #152, #154, #157).
+- A planner performance baseline: `npm run bench:perf` checks the compaction planner's output and its machine-relative cost against `bench/baselines/engine-perf.json`, and `node dist/bench/perf-baseline.js --update` refreshes it; it is not part of `npm test` or CI (see [bench/baselines/README.md](bench/baselines/README.md)) (#155, #159).
 - `kitzur config init --dry-run` prints the target path, whether it exists, the config text and the next steps without creating anything; `--model ID[=WINDOW]` (repeatable) adds a model profile per wire model ID, optionally with its window.
 - `--set` and `KITZUR_SET` set one model profile's leaf with `models["<id>"].budget.window=64000`; the ID is a JSON string, and `config show --json` reports the leaf's source.
 - `deploy/verify-bundle.mjs`, shipped in the offline bundle and the Windows ZIP, verifies an extracted bundle on the target with Node.js alone: Node version, archive and per-file checksums, no unlisted or forbidden files, resolvable imports and a CLI smoke test.
