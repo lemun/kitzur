@@ -50,6 +50,14 @@ Commands:
 | `kitzur config validate [--json]` | errors (exit 2) and startup warnings; also checks that `upstream.caFile` exists |
 | `kitzur config import-eval <results…>` | gateway probe results → config + provenance sidecar ([below](#gateway-probes-import)) |
 
+**Stopping Kitzur.** `kitzur serve --drain-ms N` sets how long a stop waits for in-flight requests (default
+`30000`; a negative or non-numeric value is refused with `--drain-ms must be a number of milliseconds`, exit 2).
+On the first SIGINT or SIGTERM Kitzur stops accepting connections and logs
+`stopping; draining in-flight requests (up to N ms)`; when the last request finishes, or N ms pass, it closes
+the remaining connections, flushes its state and exits 0 (1 if the shutdown fails).
+`--drain-ms 0` does not wait: in-flight requests are cut off at once. A second signal during the drain logs
+`exiting without waiting for the drain` and exits 130.
+
 **Validation** rejects: a wrong type or out-of-range value for any key; an invalid regex (`ledger.*Cues`,
 `ledger.labelPattern`, `rules.test.commands`, `errors.custom[].match`, `errors.exclusions[].match`); an
 unknown named group in an error rule; the `g`/`y` flags on an error rule or exclusion (they make matching
