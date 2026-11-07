@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // The kitzur command line (DESIGN.md):
-//   kitzur serve | replay | redact | status | count | config {init,show,validate,import-eval} | state {show,reset} | bench | version
+//   kitzur serve | replay | redact | status | count | config {init,show,validate,import-eval,export-opencode} | state {show,reset} | bench | version
 // Arguments are parsed here without dependencies. Exit codes: 0 ok, 1 runtime failure, 2 usage or config
 // error; `config import-eval` also returns 10 (a safety-critical knob fell back to a default) and 11
 // (conflicting measurements). Nothing here prints message content: replay and count print sizes only.
@@ -41,6 +41,16 @@ export async function main(argv: readonly string[], io: CliIO = defaultIO()): Pr
         io.stderr(USAGE);
         return 2;
       case 'help':
+        if (rest[0] !== undefined) {
+          if (!HELP_COMMANDS.has(rest[0])) {
+            io.stderr(`kitzur: no help for '${rest[0]}'; run 'kitzur help' for the command list\n`);
+            return 2;
+          }
+          io.stdout(usageOf(rest[0]));
+          return 0;
+        }
+        io.stdout(USAGE);
+        return 0;
       case '--help':
       case '-h':
         io.stdout(USAGE);
