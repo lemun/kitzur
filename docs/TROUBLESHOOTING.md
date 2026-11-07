@@ -54,3 +54,9 @@ Use `kitzur doctor --snapshot support.json` to write a shareable support snapsho
 - Codes: `model.<model>.budget`, `budget.compatible`.
 - Cause: an overflow taught a smaller window, or a shared `stateDir` carries learned limits from another instance.
 - Fix: run `kitzur state show`; after correcting `budget.window`, run `kitzur state reset`; give each instance its own `stateDir`.
+
+## Windows without administrator rights
+These checks run only on Windows and need no administrator rights; a missing `netsh` or unreadable output skips the port check instead of failing.
+- `windows.port`: `listen.port` falls inside a range from `netsh int ipv4 show excludedportrange protocol=tcp` (Hyper-V, WSL or Docker reserve these), so binding fails. Fix: set `listen.port` to the free port doctor suggests.
+- `windows.synced_folder`: the state directory, log file or config file is under OneDrive or a similar synced folder, where file locks and renames can fail. Fix: move `stateDir`, `log.file` and the config to a local folder such as `%LOCALAPPDATA%\kitzur`.
+- `windows.autostart`: reports whether the per-user Startup shortcut (`Kitzur.lnk`) from `kitzur autostart install` exists. Fix: run `kitzur autostart status` for details, or `kitzur autostart install --config PATH` to start Kitzur at sign-in.

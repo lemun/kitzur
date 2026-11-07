@@ -15,6 +15,7 @@ import { clientConfigChecks } from './client-config.js';
 import { Upstream } from '../proxy/upstream.js';
 import { formatPaths } from '../proxy/status.js';
 import { inspectTlsChain, renderTlsChain } from './tls-chain.js';
+import { windowsChecks, type WindowsDeps } from './windows.js';
 
 export interface DoctorCheck { code: string; status: 'ok' | 'warn' | 'error'; message: string; fix?: string }
 export interface DoctorResult { checks: DoctorCheck[]; exitCode: number }
@@ -81,7 +82,7 @@ function nearestExistingDirectory(path: string): { path: string; blocked: boolea
 }
 
 /** Read-only local diagnostics. Network access is opt-in and uses the small models endpoint probe. */
-export async function doctor(config: Config, opts: { env?: Record<string, string | undefined>; upstreamCheck?: boolean; timeoutMs?: number; configPath?: string; clientConfigPath?: string; models?: ModelProfiles; model?: string } = {}): Promise<DoctorResult> {
+export async function doctor(config: Config, opts: { env?: Record<string, string | undefined>; upstreamCheck?: boolean; timeoutMs?: number; configPath?: string; clientConfigPath?: string; models?: ModelProfiles; model?: string; windows?: WindowsDeps } = {}): Promise<DoctorResult> {
   const checks: DoctorCheck[] = [];
   const add = (code: string, status: DoctorCheck['status'], message: string, fix?: string): void => { checks.push({ code, status, message, ...(fix ? { fix } : {}) }); };
 
@@ -177,8 +178,10 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
     } catch { add(code, 'warn', `${label} directory is not accessible.`, 'Check directory permissions and configured path.'); }
   };
   const statePath = stateDirOf(config, opts.env);
-  add('paths', 'ok', formatPaths({ config: opts.configPath ?? null, state_dir: statePath, log_file: config.log.file ?? join(statePath, 'logs', `kitzur-${new Date().toISOString().slice(0, 10)}.log`) }));
+  const logFile = config.log.file ?? join(statePath, 'logs', `kitzur-${new Date().toISOString().slice(0, 10)}.log`);
+  add('paths', 'ok', formatPaths({ config: opts.configPath ?? null, state_dir: statePath, log_file: logFile }));
   pathCheck('state.directory', statePath, 'State');
+  checks.push(...await windowsChecks({ port: config.listen.port, stateDir: statePath, logFile, configPath: opts.configPath }, { env: opts.env, ...opts.windows }));
   if (config.stats.path) {
     try {
       const parent = dirname(config.stats.path);
