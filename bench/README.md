@@ -56,6 +56,37 @@ The direct arm's smaller total covers an incomplete session and is not a savings
 baseline. The seven Kitzur fact checks all pass; the offline comparator does not
 evaluate facts. Passing those checks establishes marker retention, not comprehension.
 
+## Regression numbers
+
+`test/bench/published-numbers.test.ts` replays four scenarios at 100k/32k through
+the engine in process (default config, no proxy, no mock server, no tokenizer
+download) and compares the result with
+[the golden file](../test/fixtures/bench/published-numbers.json). Token counts,
+request and compaction counts and fact survival must match exactly; the
+compression ratio (`1 - tokens out / tokens in`, engine input versus forwarded
+prompt) may move by at most 0.005. A change that moves these numbers fails the
+test, which names the scenario, the metric and the delta.
+
+Measured November 7, 2026 with the estimate counter (not the development tokenizer):
+
+| Scenario | Requests | Tokens in | Tokens out | Ratio | Compactions | Planted facts surviving |
+|---|---:|---:|---:|---:|---:|---:|
+| `code60` | 60 | 3,192,468 | 2,138,643 | 0.3301 | 1 | 6/6 |
+| `corr60` | 60 | 12,937,845 | 2,087,858 | 0.8386 | 8 | 8/8 |
+| `qa46` | 46 | 7,268,251 | 1,709,227 | 0.7648 | 6 | 3/3 |
+| `talk80` | 80 | 22,476,648 | 3,040,661 | 0.8647 | 11 | 3/3 |
+
+These are not the README demonstration figures: those need the mock server and a
+loopback listener, count with the development tokenizer and include retries and
+auxiliary requests, so they are not pinned here. When a change is meant to move
+the numbers, refresh the file and this table:
+
+```sh
+KITZUR_UPDATE_GOLDEN=1 npm test -- dist/test/bench/published-numbers.test.js
+```
+
+The refresh is refused when `CI=true`.
+
 ## Historical Gobstopper comparison
 
 These older `qa46-ref` 100k/32k figures were transcribed from the pre-release
