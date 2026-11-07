@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { main, type CliIO } from '../../src/cli.js';
@@ -65,3 +65,44 @@ test('benchEntry points at the built benchmark runner', () => {
   assert.equal(basename(p), 'run-all.js');
   assert.ok(existsSync(p), p);
 });
+
+test('replay picks the model profile from each request, with a --model override', () =>
+  withTmp(async (dir) => {
+    writeFileSync(join(dir, 'kitzur.json'), JSON.stringify({ budget: { window: 100000 }, models: { 'org/small': { budget: { window: 50000 } } } }));
+    mkdirSync(join(dir, 'reqs'));
+    const messages = [{ role: 'user', content: 'hello there' }];
+    writeFileSync(join(dir, 'reqs', 'a.json'), JSON.stringify({ model: 'org/small', max_tokens: 100, messages }));
+    writeFileSync(join(dir, 'reqs', 'b.json'), JSON.stringify({ model: 'other', max_tokens: 100, messages }));
+    writeFileSync(join(dir, 'reqs', 'c.json'), JSON.stringify({ max_tokens: 100, messages }));
+    const replay = async (...extra: string[]) => {
+      const r = await run(['replay', 'reqs', '--config', 'kitzur.json', '--json', '--state-dir', dir, ...extra], dir);
+      assert.equal(r.code, 0, r.err);
+      return (JSON.parse(r.out) as { requests: Array<Record<string, unknown>> }).requests.map((q) => [q['profile'], q['budget'], q['trigger']]);
+    };
+    const rows = await replay();
+    assert.deepEqual(rows.map((q) => q[0]), ['org/small', 'root', 'root']);
+    assert.notEqual(rows[0]![1], rows[1]![1], 'budget differs by profile');
+    assert.notEqual(rows[0]![2], rows[1]![2], 'trigger differs by profile');
+    assert.deepEqual(rows[1], rows[2]);
+    const forced = await replay('--model', 'org/small');
+    assert.deepEqual(forced, [rows[0], rows[0], rows[0]]);
+    const text = await run(['replay', join('reqs', 'a.json'), '--config', 'kitzur.json', '--no-fresh', '--state-dir', dir], dir);
+    assert.equal(text.code, 0, text.err);
+    assert.match(text.out, / {2}profile\n[^\n]+ {2}org\/small\n/);
+    const bad = await run(['replay', 'reqs', '--config', 'kitzur.json', '--model', 'nope', '--state-dir', dir], dir);
+    assert.equal(bad.code, 2);
+    assert.match(bad.err, /--model nope: no configured profile for this model \(configured: org\/small\)/);
+  }));
+
+test('replay without model profiles reports root and prints the same table', () =>
+  withTmp(async (dir) => {
+    writeFileSync(join(dir, 'r.json'), JSON.stringify({ model: 'm', max_tokens: 100, messages: [{ role: 'user', content: 'hi' }] }));
+    const j = await run(['replay', 'r.json', '--json', '--no-fresh', '--state-dir', dir], dir);
+    assert.equal((JSON.parse(j.out) as { requests: Array<Record<string, unknown>> }).requests[0]!['profile'], 'root');
+    const t = await run(['replay', 'r.json', '--no-fresh', '--state-dir', dir], dir);
+    assert.match(t.out, /max_tok {2}det\n/);
+    assert.ok(!t.out.includes('profile'), t.out);
+    const bad = await run(['replay', 'r.json', '--model', 'm', '--state-dir', dir], dir);
+    assert.equal(bad.code, 2);
+    assert.match(bad.err, /\(configured: none\)/);
+  }));
