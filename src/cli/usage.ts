@@ -6,9 +6,11 @@ export const USAGE = `usage: kitzur <command> [options]
   serve                         run the proxy (logs the bound address to a file)
   replay <file|dir>...          run captured request bodies through the engine offline; sizes only,
                                 plus a live-vs-fresh determinism check; --explain shows content-free retention outcomes
+                                [--explain-limit N] (default 20; 0 shows all); [--model ID] picks the profile
+                                instead of each request's model field
   redact <file|dir>... [--out DIR|-]  copy request bodies with every text replaced by same-length filler
                                 (default: <name>.redacted.json next to the input)
-  count <request.json>          exact token count of a request (per message, no content)
+  count <request.json> [--model ID]  exact token count of a request (per message, no content)
   status [--url URL] [--json]   Show a running instance’s status
   doctor [--model ID] [--client-config PATH] [--json] [--check-upstream] [--timeout-ms N]  read-only setup diagnostics
   tls-probe [origin] [--ca-file FILE] [--json] [--timeout-ms N]  inspect the TLS chain
