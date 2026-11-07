@@ -1,12 +1,33 @@
 // How the proxy relays upstream rate limits (429), gateway errors (502/503) and streams that end early:
 // status, Retry-After and the error body reach the client unchanged, nothing is learned from them, and no
 // extra upstream request is made.
+import http from 'node:http';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { FakeEngine, passthroughEngine, result } from './fake-engine.js';
 import { chatBody, chunk, fakeUpstream, jsonRes, request, startProxy, waitRecords, type ProxyFixture } from './harness.js';
 
 const rateLimitBody = { error: { message: 'Rate limit reached for requests', type: 'rate_limit_error', code: 'rate_limit_exceeded' } };
+
+/** A streaming request that keeps the bytes received before the response ended or broke. */
+function streamRequest(port: number, body: object): Promise<{ status: number; received: string; broken: boolean }> {
+  const payload = JSON.stringify(body);
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      host: '127.0.0.1', port, method: 'POST', path: '/v1/chat/completions', agent: false,
+      headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(payload)) },
+    });
+    req.on('error', reject);
+    req.on('response', (res) => {
+      let received = '';
+      res.setEncoding('utf8');
+      res.on('data', (d: string) => { received += d; });
+      res.on('error', () => {});
+      res.on('close', () => resolve({ status: res.statusCode ?? 0, received, broken: !res.complete }));
+    });
+    req.end(payload);
+  });
+}
 
 /** Nothing learned: no state entry and no engine update. */
 function assertNothingLearned(f: ProxyFixture, engine: FakeEngine): void {
@@ -81,15 +102,11 @@ for (const how of ['ends cleanly', 'drops the socket'] as const) {
     const engine = passthroughEngine();
     const f = await startProxy(t, up, engine, { log: (_l, m) => logs.push(m) });
     try {
-      let received = '';
-      const r = await request(f.port, { body: chatBody('hello', { stream: true }) }).then(
-        (res) => { received = res.text(); return res.status; },
-        (e: NodeJS.ErrnoException) => e.code,
-      );
-      if (how === 'ends cleanly') {
-        assert.equal(r, 200);
-        assert.equal(received, sent);
-      } else assert.ok(r === 200 || r === 'ECONNRESET', `client saw ${String(r)}`); // headers were sent: the client sees the stream break
+      const r = await streamRequest(f.port, chatBody('hello', { stream: true }));
+      assert.equal(r.status, 200);
+      assert.equal(r.received, sent, 'the chunks relayed before the end reach the client');
+      // headers were already sent: a dropped upstream socket breaks the client stream instead of ending it cleanly
+      assert.equal(r.broken, how === 'drops the socket');
       const [rec] = await waitRecords(f, 1);
       assert.equal(up.hits.length, 1, 'no retry once bytes were relayed');
       assert.equal(rec!.upstream_incomplete, true, JSON.stringify(rec));
