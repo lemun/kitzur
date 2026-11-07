@@ -8,6 +8,7 @@ All notable changes to Kitzur are recorded here. The format follows
 
 ### Added
 
+- `deploy/verify-bundle.mjs`, shipped in the offline bundle and the Windows ZIP, verifies an extracted bundle on the target with Node.js alone: Node version, archive and per-file checksums, no unlisted or forbidden files, resolvable imports and a CLI smoke test.
 - `kitzur doctor` warns when the running Node.js is older than 22 (`runtime.node`), and the README has a compatibility table for Node.js, Windows, macOS and Linux.
 - `kitzur doctor` on Windows checks, without administrator rights, whether `listen.port` is in an excluded TCP port range (`windows.port`), whether state, log or config paths sit in a synced folder such as OneDrive (`windows.synced_folder`), and whether the autostart shortcut is installed (`windows.autostart`).
 - [docs/JSON-OUTPUT.md](docs/JSON-OUTPUT.md) documents which `--json` keys of `status`, `doctor`, `count`, `state show`, `config validate`, `config show` and `tls-probe` are stable.
