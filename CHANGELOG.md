@@ -6,10 +6,6 @@ All notable changes to Kitzur are recorded here. The format follows
 
 ## [Unreleased]
 
-### Changed
-
-- Model profile validation now suggests allowed keys, explains global settings, and warns about empty or nearly duplicate IDs.
-
 ### Added
 
 - `kitzur replay` and `kitzur count` use the model profile selected by each request's `model` field, as `serve` does, report it as `profile`, and accept `--model ID` to choose a profile.
@@ -44,8 +40,30 @@ All notable changes to Kitzur are recorded here. The format follows
   32k and 64k windows), reported beside the compression ratio.
 - `docs/GOBSTOPPER-INTEROP.md` and a synthetic fixture describe importing Kitzur's stats into Gobstopper's
   legacy importer.
+- `config show` and `config validate` report every model profile (`--model ID` shows one, and validation
+  errors name their model); `/status` lists the profiles and stats records carry a `profile` field.
+- Stats records include content-free `retention` counts (`verbatim`, `excerpted`, `summarized`, `dropped`).
+- `kitzur redact` copies captured request bodies with every text replaced by same-length filler, so a bug
+  report keeps the request's shape and size without its content.
+- Opt-in `debug.capture` writes a bounded number of raw upstream responses and the shape of each request
+  (authorization redacted) to a new `0600` file, and stops at its request or size budget.
+- `kitzur autostart install|remove|status|run` starts Kitzur at Windows login without administrator rights,
+  using a Startup-folder shortcut, and refuses to start when the port is already in use.
+- `serve` and `doctor` report the upstream's TLS chain and the failing link when verification fails.
+- `/status` and `doctor` show the stats writer's dropped-record and write-failure counters (`stats.writer`).
+- A documentation site built from the repository docs, with home, benchmarks and compare pages.
+- `docs/TROUBLESHOOTING.md` maps symptoms to `doctor` checks and fixes, `docs/UPSTREAM-ROTATION.md` shows an
+  external key rotator in front of the upstream, `docs/SETUPS.md` covers solo, shared-server and CI setups,
+  and `docs/INTRANET.md` is a checklist for intranet operators.
+- Each release ships a CycloneDX SBOM (`npm run sbom`) and `SHA256SUMS` beside the bundles; a version tag
+  builds a draft release that a maintainer reviews before publishing.
+- Benchmarks: a parallel-streams latency class (does a heavy compaction stall other streams?) and more
+  coding-retention fixtures with per-arm pass rates.
 
 ### Changed
+
+- Model profile validation now suggests allowed keys, explains global settings, and warns about empty or nearly duplicate IDs.
+- `kitzur replay --explain` prints a readable table instead of raw JSON.
 
 - `kitzur report` streams the stats file instead of loading it whole, so large logs stay within bounded
   memory. Its coverage section states when history completeness and the dropped-record total are unknown
@@ -59,6 +77,13 @@ All notable changes to Kitzur are recorded here. The format follows
   compaction point is accepted, and a 401 or 403 from `/v1/models` counts as reachable. Set
   `KITZUR_PROBE_TOKEN` to send a key with the upstream check only.
 - The README's Node.js badge said 20 or newer; it now matches the required Node.js 22.
+- An upstream error body is read with a deadline and a 64 KiB cap, so a slow or huge error response cannot
+  hold a request open or exhaust memory.
+- The stats writer holds at most 1,024 records or 4 MiB while its output is blocked, and counts what it drops.
+- A truncated, corrupt or newer-version plan store file no longer breaks startup: damaged records are skipped
+  with a warning and the file is left unchanged.
+- The warning for a model with no discovered window is remembered for at most 100 model IDs.
+- Kitzur's own `x-kitzur-*` response headers can no longer be overridden by headers from the upstream.
 
 ## [0.2.1] — 2026-10-19
 
