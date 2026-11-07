@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, sep } from 'node:path';
 import { ROOT } from '../helpers.js';
@@ -62,6 +62,16 @@ test('verify-bundle.mjs fails a tampered file and an unlisted file', () => {
   const res = verify(dir);
   assert.equal(res.status, 1);
   assert.match(res.stdout, /^FAIL bundle manifest: changed dist\/src\/util\.js; not in the manifest: extra\.txt$/m);
+});
+
+test('verify-bundle.mjs does not run a tampered CLI', () => {
+  const dir = fakeBundle();
+  const marker = join(dir, 'ran.txt');
+  writeFileSync(join(dir, 'dist/src/cli.js'), `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran');\n`);
+  const res = verify(dir);
+  assert.equal(res.status, 1);
+  assert.match(res.stdout, /^FAIL bundled CLI runs: skipped, an earlier check failed$/m);
+  assert.equal(existsSync(marker), false);
 });
 
 test('verify-bundle.mjs fails a missing import target', () => {

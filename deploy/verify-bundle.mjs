@@ -117,7 +117,9 @@ check('no forbidden files', () => files.flatMap((f) => {
   return hit ? [`${hit[1]}: ${f}`] : [];
 }));
 
+// Never run the bundled code once the bundle failed a check: it may have been tampered with.
 check('bundled CLI runs', () => {
+  if (failed) return ['skipped, an earlier check failed'];
   const keep = new Set(['PATH', 'SYSTEMROOT', 'TEMP', 'TMP']);
   const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => keep.has(k.toUpperCase())));
   const problems = [];
