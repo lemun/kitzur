@@ -33,6 +33,7 @@ chmod +x "$stage/dist/src/cli.js"
 cp -R presets LICENSES "$stage/"
 mkdir -p "$stage/deploy/windows"
 cp deploy/README.md deploy/kitzur.service deploy/com.github.lemun.kitzur.plist "$stage/deploy/"
+cp deploy/verify-bundle.mjs "$stage/deploy/"
 cp deploy/windows/*.ps1 deploy/windows/manage.mjs deploy/windows/*.md deploy/windows/opencode.template.json deploy/windows/profile.example.json "$stage/deploy/windows/"
 cp package.json "$stage/"
 missing=()
