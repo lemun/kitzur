@@ -275,6 +275,11 @@ export function compact(env: FoldEnv, planIn: Plan, b: number, h: number, cEv: E
   const { cfg, cnt, msgs } = env;
   const bud = env.bud;
   const units = unitsOf(msgs, h, b);
+  // The latest user message is never summarized while no assistant message follows it: it then lies in the
+  // mandatory units [s, b), where only R4 (images) and R8 (truncation, when the mandatory units alone exceed the
+  // budget) may change it. Once the agent has answered it (a tool loop: assistant, tool results, …), it is an older
+  // unit like any other, kept verbatim only while the cut walk fits it under target, and otherwise summarized into the
+  // ledger, or dropped when the ledger keeps no facts from it (a "Continue" nudge). In the head, the head policy applies.
   const s = keptStart(units, 1, h); // mandatory units start
   const ka = keptStart(units, cfg.compaction.keepRecent, h); // kept-always units start
   const V = msgs.slice(0, b);
