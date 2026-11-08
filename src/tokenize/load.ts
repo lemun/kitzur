@@ -38,7 +38,11 @@ export function describeTokenizerLoadError(path: string, err: unknown): string {
     const at = pos === null ? '' : ((lc) => ` (line ${lc.line}, column ${lc.col})`)(lineCol(text, pos));
     return `is not valid JSON${at}; ${PASS}`;
   }
-  const detail = err instanceof TokenizerUnsupportedError ? ` (${err.message})` : '';
+  // messages that interpolate tokenizer.json values keep only their fixed prefix
+  const safe = err instanceof TokenizerUnsupportedError
+    ? (/^(normalizer|added token options|merge token out of vocab|bad merge line \d+|unknown Unicode property|group syntax|brace|escape|class escape|\(\?i:\) literal)\b/.exec(err.message)?.[1] ?? err.message)
+    : null;
+  const detail = safe === null ? '' : ` (${safe})`;
   return `is valid JSON but not a supported tokenizer.json${detail}: Kitzur reads the Hugging Face tokenizer.json with model.type BPE (tokenizer_config.json, tokenizer.model and vocab files are not tokenizers it can load)`;
 }
 
