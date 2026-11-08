@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { escapeRe, mkdirs } from '../src/util.js';
@@ -16,8 +16,10 @@ test('escapeRe: a literal under every flag set, including u inside and outside c
   assert.equal(new RegExp(['<|fim-pre|>', '<|im_end|>'].map(escapeRe).join('|'), 'gu').exec('x<|fim-pre|>')?.[0], '<|fim-pre|>');
 });
 
-test('mkdirs: creates every missing level, idempotent', () => {
-  const d = join(mkdtempSync(join(tmpdir(), 'kitzur-util-')), 'a', 'b', 'c');
+test('mkdirs: creates every missing level, idempotent', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'kitzur-util-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const d = join(root, 'a', 'b', 'c');
   mkdirs(d);
   mkdirs(d);
   assert.ok(existsSync(d));

@@ -10,7 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -81,6 +81,7 @@ process.on('SIGTERM', () => process.exit(0));
 test(`proxy overhead on 300 KB bodies, pass-through engine (p50/p99 over ${N} requests)`, async (t) => {
   const { body, messages } = history300k();
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-latency-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
   const up = await spawnListening(['-e', UPSTREAM_JS]);
   const px = await spawnListening([join(HERE, 'proxy-child.js'), `http://127.0.0.1:${up.port}`, dir]);
   const agentDirect = new http.Agent({ keepAlive: true });

@@ -229,11 +229,12 @@ test(' at the ladder level: every error kind on an unsafe-integer body sends exa
 
 test('TLS: a self-signed upstream fails verification (probe reports tlsError); caFile and insecureTls connect', async (t) => {
   const { spawnSync } = await import('node:child_process');
-  const { mkdtempSync, readFileSync } = await import('node:fs');
+  const { mkdtempSync, readFileSync, rmSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const https = (await import('node:https')).default;
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-tls-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
   const gen = spawnSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', join(dir, 'key.pem'), '-out', join(dir, 'cert.pem'),
     '-days', '2', '-subj', '/CN=localhost', '-addext', 'subjectAltName=IP:127.0.0.1,DNS:localhost'], { stdio: 'ignore' });
   if (gen.status !== 0) {
