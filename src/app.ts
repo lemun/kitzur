@@ -24,7 +24,7 @@ import { createHash } from 'node:crypto';
 import type { Config } from './config/schema.js';
 import { stateDirOf, packageInfo } from './config/paths.js';
 import { counterFromConfig, type Counter } from './tokenize/counter.js';
-import { loadTokenizerCached, type LoadedTokenizer } from './tokenize/load.js';
+import { describeTokenizerLoadError, loadTokenizerCached, type LoadedTokenizer } from './tokenize/load.js';
 import { remoteFromConfig, type RemoteTokenizer } from './tokenize/remote.js';
 import type { Engine, PlanStore } from './types.js';
 import type { Summarizer, ToolRules } from './engine/contracts.js';
@@ -182,10 +182,15 @@ export function eagerTokenizer(config: Config, root: Config, shared: Map<string,
   if (config.tokenizer.mode === 'estimate') return { tokenizer: null, sourceBytes: 0, reason: "tokenizer.mode is 'estimate'" };
   if (!path) return { tokenizer: null, sourceBytes: 0, reason: 'tokenizer.path is not set' };
   let sourceBytes = 0;
+  let source: Buffer;
   try {
     sourceBytes = statSync(path).size;
     if (sourceBytes > MAX_TOKENIZER_SOURCE_BYTES) return { tokenizer: null, sourceBytes, reason: `tokenizer source is ${sourceBytes} bytes; limit is ${MAX_TOKENIZER_SOURCE_BYTES} bytes` };
-    const source = readFileSync(path);
+    source = readFileSync(path);
+  } catch (error) {
+    return { tokenizer: null, sourceBytes, reason: `tokenizer ${path} failed to load: ${describeTokenizerLoadError(path, error)}` };
+  }
+  try {
     const sha = createHash('sha256').update(source).digest('hex');
     const cached = shared.get(sha);
     if (cached) return { ...cached, reason: null };
@@ -197,6 +202,7 @@ export function eagerTokenizer(config: Config, root: Config, shared: Map<string,
     shared.set(sha, loaded);
     return { ...loaded, reason: null };
   } catch (error) {
+    // loadTokenizerCached already words its errors with describeTokenizerLoadError
     return { tokenizer: null, sourceBytes, reason: `tokenizer ${path} failed to load: ${(error as Error).message}` };
   }
 }
