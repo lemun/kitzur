@@ -9,7 +9,8 @@ import { parseNoEcho } from './format.js';
 export const CHAT_BODY_HINT = 'pass a captured Chat Completions body: JSON with a messages array';
 
 export function readRequestFile(path: string): unknown[] {
-  const text = readFileSync(path, 'utf8');
+  // Notepad and PowerShell Out-File write a UTF-8 byte-order mark; JSON.parse rejects it.
+  const text = readFileSync(path, 'utf8').replace(/^\uFEFF/, '');
   if (path.endsWith('.jsonl')) {
     return text.split('\n').flatMap((l, i) => (l.trim() ? [parseNoEcho(l, i + 1)] : []));
   }
