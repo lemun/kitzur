@@ -5,6 +5,7 @@ import { stateDirOf } from '../../config/paths.js';
 import { UsageError, type CliIO } from '../io.js';
 import { CONFIG_OPTS, MODEL_OPT, checkModelOverride, loadFromArgs, parseArgs, selectProfile } from '../args.js';
 import { CHAT_BODY_HINT, collectRequests } from '../requests.js';
+import { TemplateError } from '../../tokenize/template.js';
 
 export async function cmdCount(argv: string[], io: CliIO): Promise<number> {
   const p = parseArgs(argv, { ...CONFIG_OPTS, ...MODEL_OPT, estimate: { type: 'boolean' }, json: { type: 'boolean' } });
@@ -16,6 +17,8 @@ export async function cmdCount(argv: string[], io: CliIO): Promise<number> {
   const req = reqs[0]?.req;
   if (!req) throw new UsageError(`${p.positionals[0]}: not a chat request (no messages array); ${CHAT_BODY_HINT}`);
   if (!req.messages.length) throw new UsageError(`${p.positionals[0]}: the request has no messages; pass a captured Chat Completions body with at least one message`);
+  const bad = req.messages.findIndex((x: unknown) => typeof x !== 'object' || x === null || typeof (x as { role?: unknown }).role !== 'string');
+  if (bad >= 0) throw new UsageError(`${p.positionals[0]}: messages[${bad}] is not a message object (expected {role, content}); fix or remove it`);
   const { profile, config: cfg } = selectProfile(l, modelArg, req.model);
   // a warning only: what-if windows still get their numbers
   for (const e of validateConfig(cfg, { provenance: l.provenance, checkFiles: true }).errors) io.stderr(`kitzur: warn: config would be refused by serve: ${e}\n`);
@@ -24,7 +27,14 @@ export async function cmdCount(argv: string[], io: CliIO): Promise<number> {
     io.stderr(`kitzur: no exact count: ${cs.estimateReason}. Pass --tokenizer FILE, or --estimate for the per-class estimate.\n`);
     return 2;
   }
-  const m = cs.counter.measure(req);
+  let m: ReturnType<typeof cs.counter.measure>;
+  try {
+    m = cs.counter.measure(req);
+  } catch (e) {
+    if (!(e instanceof TemplateError)) throw e;
+    const at = e.index === null ? '' : `messages[${e.index}]: `;
+    throw new UsageError(`${p.positionals[0]}: ${at}${e.message} The model's chat template rejects this request, so a server running it would answer 400 and Kitzur would forward the original unchanged; fix that message's role or content.`);
+  }
   const tReq = requestMaxTokens(req, cfg);
   const b = computeBudget(cfg, { tReq });
   const out = {
