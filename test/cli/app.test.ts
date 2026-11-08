@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildApp, buildEngine, createLogger, setupCounter, type AppModules } from '../../src/app.js';
+import { buildApp, buildEngine, createLogger, eagerTokenizer, setupCounter, type AppModules } from '../../src/app.js';
 import { loadConfig } from '../../src/config/load.js';
 import { stateDirOf } from '../../src/config/paths.js';
 import type { Engine, LearnedEntry, PlanStore } from '../../src/types.js';
@@ -33,6 +33,23 @@ test('setupCounter: estimate without a tokenizer, exact with one, estimate with 
       assert.equal(ex.estimateReason, null);
       assert.ok(ex.tokenizer?.sha256 && ex.counter.id.includes(ex.tokenizer.sha256));
     }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('eagerTokenizer: a folder or an empty file is named as the cause, without the file content', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-app-'));
+  try {
+    const reasonOf = (path: string) => { const c = cfgOf(`tokenizer.path=${path}`); return eagerTokenizer(c, c, new Map()).reason ?? ''; };
+    mkdirSync(join(dir, 'folder'));
+    assert.match(reasonOf(join(dir, 'folder')), /failed to load: is a folder, not a file/);
+    writeFileSync(join(dir, 'empty.json'), '');
+    assert.match(reasonOf(join(dir, 'empty.json')), /failed to load: is empty/);
+    writeFileSync(join(dir, 'text.json'), 'SECRET_CONTENT');
+    const text = reasonOf(join(dir, 'text.json'));
+    assert.match(text, /failed to load: is not valid JSON/);
+    assert.doesNotMatch(text, /SECRET_CONTENT/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

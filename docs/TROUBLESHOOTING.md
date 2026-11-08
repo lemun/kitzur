@@ -48,6 +48,7 @@ Use `kitzur doctor --snapshot support.json` to write a shareable support snapsho
 ## Wrong tokenizer or template
 - Codes: `tokenizer.mode`, `tokenizer.path`, `tokenizer.load`, `tokenizer.count`, `tokenizer.template`, `model.<model>.tokenizer`, `model.<model>.template`.
 - Cause: estimate mode, a missing or unsupported tokenizer.json, or a template that does not match the tokenizer.
+- `tokenizer.load` names why the file failed: not found, a folder, unreadable, empty, not valid JSON, or valid JSON that is not a BPE tokenizer.json (such as tokenizer_config.json).
 - Fix: set `tokenizer.mode` to auto and `tokenizer.path` to the served model's tokenizer.json; pick the template that matches it.
 
 ## Learned window mismatch
