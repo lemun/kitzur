@@ -26,6 +26,7 @@ export const USAGE = `usage: kitzur <command> [options]
   state show [--key K] [--json]         learned entries in the state dir
   state reset [--key K] [--plans]       remove learned entries (and the plan store)
   bench [args...]                       run the benchmark suite (dist/bench/run-all.js)
+  completions bash|zsh|fish             print a shell completion script
   version
 
 config options (serve, replay, count, status, doctor, config show|validate, state):
@@ -40,10 +41,10 @@ Precedence: defaults < preset < config file < KITZUR_* env < command line. Every
 `;
 
 /** Commands that answer --help / -h with their usage (bench forwards help flags to the suite only after `--`). */
-export const HELP_COMMANDS = new Set(['autostart', 'serve', 'replay', 'count', 'status', 'doctor', 'tls-probe', 'report', 'config', 'state', 'bench', 'redact', 'version']);
+export const HELP_COMMANDS = new Set(['autostart', 'serve', 'replay', 'count', 'status', 'doctor', 'tls-probe', 'report', 'config', 'state', 'bench', 'redact', 'completions', 'version']);
 
 /** Commands that read no config, so their usage leaves out the config options. */
-export const NO_CONFIG_COMMANDS = new Set(['report', 'bench', 'redact', 'version']);
+export const NO_CONFIG_COMMANDS = new Set(['report', 'bench', 'redact', 'completions', 'version']);
 
 /** One command's USAGE lines (with their continuation lines), plus the config options unless it reads no config. */
 export function usageOf(cmd: string): string {

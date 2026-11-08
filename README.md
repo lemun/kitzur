@@ -296,9 +296,13 @@ kitzur tls-probe [origin]            inspect the TLS chain
 kitzur autostart install|remove|status  per-user Windows login startup
 kitzur state show|reset              inspect or clear learned limits
 kitzur bench [--quick]               run benchmarks from a development checkout
+kitzur completions bash|zsh|fish     print a shell completion script
 kitzur version                       print the installed version
 kitzur help <command>                print one command's usage
 ```
+
+Shell completion: `source <(kitzur completions bash)` (or `zsh`), or
+`kitzur completions fish | source`.
 
 Status is available at `/status` and `/kitzur/status`. State defaults to
 `~/.local/state/kitzur` (or `$XDG_STATE_HOME/kitzur`).
