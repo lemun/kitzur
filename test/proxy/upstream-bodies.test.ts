@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ServerResponse } from 'node:http';
 import { passthroughEngine } from './fake-engine.js';
-import { chatBody, fakeUpstream, jsonRes, okCompletion, request, startProxy, waitRecords, type ClientResponse, type ProxyFixture } from './harness.js';
+import { chatBody, fakeUpstream, jsonRes, okCompletion, request, sleep, startProxy, waitRecords, type ClientResponse, type ProxyFixture } from './harness.js';
 
 // Odd non-stream upstream answers: the first upstream hit gets `odd`, later hits an ordinary completion.
 // Each case checks what the client sees, then that the proxy still serves and logged no error.
@@ -16,6 +16,8 @@ async function oddAnswer(t: Parameters<typeof startProxy>[0], odd: (res: ServerR
   try {
     const r = await request(f.port, { body: chatBody('hi') }).catch((e: Error) => e);
     await waitRecords(f, 1);
+    // The chat log line can land a tick after the stats record (seen on an aborted body): wait for it, bounded.
+    for (let i = 0; i < 50 && !logs.some(l => l.includes(' outcome=')); i++) await sleep(10);
     await check(r, f, logs);
     const again = await request(f.port, { body: chatBody('again') });
     assert.equal(again.status, 200);
