@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Socket } from 'node:net';
 import { Upstream, UpstreamError, forwardRequestHeaders, forwardResponseHeaders, readBody } from '../../src/proxy/upstream.js';
-import { fakeUpstream, jsonRes, sleep, testConfig } from './harness.js';
+import { fakeUpstream, jsonRes, request, sleep, startProxy, testConfig } from './harness.js';
+import { passthroughEngine } from './fake-engine.js';
 
 const upCfg = (origin: string, over: Partial<ReturnType<typeof testConfig>['upstream']> = {}) => ({ ...testConfig().upstream, origin, ...over });
 
@@ -10,6 +11,7 @@ test('request headers: hop-by-hop and Connection-named dropped, identity encodin
   const raw = [
     'Host', 'proxy:1', 'Connection', 'keep-alive, X-Hop', 'X-Hop', 'secret-hop', 'Keep-Alive', 'timeout=5', 'Transfer-Encoding', 'chunked',
     'Content-Length', '10', 'Expect', '100-continue', 'Accept-Encoding', 'gzip, br', 'TE', 'trailers', 'Upgrade', 'h2c', 'Proxy-Connection', 'x',
+    'Proxy-Authorization', 'Basic abc',
     'Authorization', 'Bearer t', 'x-sim-step', '7', 'X-Session-Id', 'ses_1', 'X-Custom.Dot', 'v', 'Accept', 'a', 'Accept', 'b', 'Trailer', 'x',
   ];
   const h = forwardRequestHeaders(raw, { 'X-Gateway-Key': 'k', authorization: 'Bearer override' });
@@ -20,9 +22,31 @@ test('request headers: hop-by-hop and Connection-named dropped, identity encodin
 });
 
 test('response headers: hop-by-hop and Connection-named dropped; content-length dropped on request', () => {
-  const raw = ['Content-Type', 'text/event-stream', 'Connection', 'close, X-Internal', 'X-Internal', '1', 'Transfer-Encoding', 'chunked', 'Content-Length', '5', 'X-Up', 'yes'];
+  const raw = ['Content-Type', 'text/event-stream', 'Connection', 'close, X-Internal', 'X-Internal', '1', 'Transfer-Encoding', 'chunked', 'Content-Length', '5', 'X-Up', 'yes', 'Proxy-Authenticate', 'Basic realm="corp"'];
   assert.deepEqual(forwardResponseHeaders(raw), ['Content-Type', 'text/event-stream', 'Content-Length', '5', 'X-Up', 'yes']);
   assert.deepEqual(forwardResponseHeaders(raw, { dropContentLength: true }), ['Content-Type', 'text/event-stream', 'X-Up', 'yes']);
+});
+
+test('end to end: the upstream never sees proxy-authorization, the client never sees proxy-authenticate', async (t) => {
+  const up = await fakeUpstream((_h, res) => {
+    res.setHeader('Proxy-Authenticate', 'Basic realm="gateway"');
+    res.setHeader('Set-Cookie', ['a=1', 'b=2']);
+    jsonRes(res, 200, { data: [] });
+  });
+  const f = await startProxy(t, up, passthroughEngine());
+  try {
+    const r = await request(f.port, { method: 'GET', path: '/v1/models', headers: { 'proxy-authorization': 'Basic abc', authorization: 'Bearer t', 'x-session-id': 'ses_1' } });
+    assert.equal(r.status, 200);
+    const h = up.hits[0]!;
+    assert.equal(h.headers['proxy-authorization'], undefined);
+    assert.equal(h.headers.authorization, 'Bearer t');
+    assert.equal(h.headers['x-session-id'], 'ses_1');
+    assert.equal(r.headers['proxy-authenticate'], undefined);
+    assert.deepEqual(r.headers['set-cookie'], ['a=1', 'b=2']);
+  } finally {
+    await f.close();
+    await up.close();
+  }
 });
 
 test('content-length framing, never chunked; the origin path prefix is kept; keep-alive reuse', async () => {
