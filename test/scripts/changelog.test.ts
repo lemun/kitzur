@@ -22,3 +22,13 @@ test('the drafted Unreleased section prints as Added, Changed and Fixed bullet l
     for (const line of body) assert.match(line, /^(- |  \S)/, `${name}: ${JSON.stringify(line)}`);
   }
 });
+
+test('the Unreleased section mentions the CLI, proxy and docs changes merged after the 0.2.1 tag', () => {
+  const res = spawnSync(process.execPath, [join(ROOT, 'scripts', 'release-notes.mjs'), 'Unreleased', join(ROOT, 'CHANGELOG.md')], {
+    encoding: 'utf8',
+  });
+  assert.equal(res.status, 0, res.stderr);
+  for (const needle of ['kitzur help', 'docs/CLIENTS.md', 'Proxy-Authorization', 'log.directory', '--drain-ms', 'verify-bundle']) {
+    assert.ok(res.stdout.includes(needle), `Unreleased does not mention ${needle}`);
+  }
+});

@@ -1,11 +1,13 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { StateStore, freshLearnedEntry } from '../../src/proxy/state.js';
 
-const temp = (): string => mkdtempSync(join(tmpdir(), 'kitzur-model-state-'));
+const dirs: string[] = [];
+const temp = (): string => { const d = mkdtempSync(join(tmpdir(), 'kitzur-model-state-')); dirs.push(d); return d; };
+after(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
 const identities: Record<string, { configuredWindow: number; counterId: string }> = {
   'gateway|a': { configuredWindow: 128_000, counterId: 'counter-a' },
   'gateway|b': { configuredWindow: 200_000, counterId: 'counter-b' },

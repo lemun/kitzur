@@ -52,9 +52,9 @@ export function stripJsonc(text: string): string {
  * message lets us find it, the 0-based position of the failure.
  */
 export function jsonErrorInfo(message: string, text: string): { reason: string; pos: number | null } {
-  const msg = message.split('\n')[0]!;
-  // V8: GetErrorMessageWithEllipses (10 characters of context on each side; the whole input when <= 21 chars)
-  const m = /^Unexpected token '([\s\S])', ([\s\S]*) is not valid JSON$/.exec(msg);
+  // V8: GetErrorMessageWithEllipses (10 characters of context on each side; the whole input when <= 21 chars).
+  // The quoted context can span line breaks, so match the whole message, not its first line.
+  const m = /^Unexpected token '([\s\S])', ([\s\S]*) is not valid JSON$/.exec(message);
   if (m) {
     let snip = m[2]!;
     const lead = snip.startsWith('...');
@@ -67,9 +67,10 @@ export function jsonErrorInfo(message: string, text: string): { reason: string; 
     if (at >= 0) pos = lead ? at + 10 : trail ? at + snip.length - 10 : Math.max(0, text.indexOf(m[1]!));
     return { reason: 'unexpected character', pos };
   }
+  // every other V8 / Node 20 message is content-free; drop everything from a double quote on all the same
+  const msg = message.replace(/"[\s\S]*$/, '…').split('\n')[0]!;
   const p = /position (\d+)/.exec(msg);
-  // every other V8 / Node 20 message is content-free; drop any double-quoted span all the same
-  const reason = msg.replace(/\s*\(line \d+ column \d+\)/, '').replace(/ (?:in JSON )?at position \d+/, '').replace(/"[\s\S]*"/, '…').trim();
+  const reason = msg.replace(/\s*\(line \d+ column \d+\)/, '').replace(/ (?:in JSON )?at position \d+/, '').trim();
   return { reason: reason || 'invalid JSON', pos: p ? Number(p[1]) : null };
 }
 

@@ -3,24 +3,26 @@
 export const USAGE = `usage: kitzur <command> [options]
 
   autostart install|remove|status|run [--config FILE]  per-user Windows login startup
-  serve                         run the proxy (logs the bound address to a file)
+  serve [--drain-ms N]          run the proxy (logs the bound address to a file); --drain-ms: shutdown drain (default 30000)
   replay <file|dir>...          run captured request bodies through the engine offline; sizes only,
-                                plus a live-vs-fresh determinism check; --explain shows content-free retention outcomes
+                                plus a live-vs-fresh determinism check ([--no-fresh] skips it); [--json];
+                                --explain shows content-free retention outcomes
                                 [--explain-limit N] (default 20; 0 shows all); [--model ID] picks the profile
                                 instead of each request's model field
   redact <file|dir>... [--out DIR|-]  copy request bodies with every text replaced by same-length filler
                                 (default: <name>.redacted.json next to the input)
-  count <request.json> [--model ID]  exact token count of a request (per message, no content)
-  status [--url URL] [--json]   Show a running instance’s status
-  doctor [--model ID] [--client-config PATH] [--json] [--check-upstream] [--timeout-ms N]  read-only setup diagnostics
+  count <request.json> [--model ID] [--estimate] [--json]  exact token count of a request (per message, no content)
+  status [--url URL] [--json] [--timeout-ms N]  show a running instance's status
+  doctor [--model ID] [--client-config PATH] [--json] [--snapshot FILE|-] [--force] [--check-upstream] [--timeout-ms N]  read-only setup diagnostics
   tls-probe [origin] [--ca-file FILE] [--json] [--timeout-ms N]  inspect the TLS chain
   report <stats.jsonl> [--json]  aggregate request stats; sizes only
-  config init [--preset 100k] [--upstream URL] [--tokenizer FILE] [--out FILE|-] [--force]
-  config show [--changed] [--json]      effective config with the source of every value
-  config validate [--json]              errors and startup warnings
+  config init [--preset 100k] [--upstream URL] [--tokenizer FILE] [--model ID[=WINDOW]]... [--out FILE|-] [--force] [--dry-run]
+  config show [--model ID] [--changed] [--full] [--json]  effective config with the source of every value
+  config validate [--model ID] [--json]  errors and startup warnings
   config import-eval <dir|file>... [--out FILE] [--merge FILE] [--provenance FILE] [--dry-run]
-  config export-opencode --model ID [--small-model ID] [--provider NAME] [--key-env NAME]
                      [--force-keys a.b,c] [--allow-pack-version N] [--json-report] [--port N] [--force]
+                     [--tokenizer FILE [--template NAME]]
+  config export-opencode --model ID [--small-model ID] [--provider NAME] [--key-env NAME]
   state show [--key K] [--json]         learned entries in the state dir
   state reset [--key K] [--plans]       remove learned entries (and the plan store)
   bench [args...]                       run the benchmark suite (dist/bench/run-all.js)

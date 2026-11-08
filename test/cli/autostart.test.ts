@@ -12,10 +12,21 @@ import { runAutostart, shortcutArguments, shortcutScript, windowsQuote } from '.
 
 test('autostart help and invalid actions', async () => {
   let out = '';
-  const io: CliIO = { stdout: s => { out += s; }, stderr: () => {}, cwd: process.cwd(), env: {}, onSignal: () => {} };
+  let err = '';
+  const io: CliIO = { stdout: s => { out += s; }, stderr: s => { err += s; }, cwd: process.cwd(), env: {}, onSignal: () => {} };
   assert.equal(await main(['autostart', '--help'], io), 0);
   assert.match(out, /install\|remove\|status\|run/);
-  assert.equal(await main(['autostart', 'unknown'], io), 2);
+  const cases: [string[], RegExp][] = [
+    [['autostart'], /kitzur: autostart needs install, remove, status or run\n/],
+    [['autostart', 'unknown'], /kitzur: unknown autostart command 'unknown' \(install, remove, status, run\)\n/],
+    [['autostart', 'status', 'extra', 'more'], /kitzur: autostart takes no extra arguments \(got extra more\)\n/],
+  ];
+  for (const [argv, msg] of cases) {
+    err = '';
+    assert.equal(await main(argv, io), 2);
+    assert.match(err, msg);
+    assert.match(err, /run 'kitzur help' for usage/);
+  }
 });
 
 test('Windows argument and PowerShell quoting handle spaces, quotes and apostrophes', () => {

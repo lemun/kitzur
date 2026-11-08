@@ -7,7 +7,7 @@ import { listenTokenWarning, validateConfig } from '../config/validate.js';
 import { computeBudget } from '../config/derived.js';
 import type { Config, ModelProfiles } from '../config/schema.js';
 import { stateDirOf } from '../config/paths.js';
-import { loadTokenizerCached } from '../tokenize/load.js';
+import { describeTokenizerLoadError, loadTokenizerCached } from '../tokenize/load.js';
 import { loadTokenizer } from '../tokenize/tokenizer.js';
 import { templateTokenizerWarning } from '../tokenize/template.js';
 import { parseJsonc } from '../config/jsonc.js';
@@ -15,6 +15,7 @@ import { clientConfigChecks } from './client-config.js';
 import { Upstream } from '../proxy/upstream.js';
 import { formatPaths } from '../proxy/status.js';
 import { inspectTlsChain, renderTlsChain } from './tls-chain.js';
+import { windowsChecks, type WindowsDeps } from './windows.js';
 
 export interface DoctorCheck { code: string; status: 'ok' | 'warn' | 'error'; message: string; fix?: string }
 export interface DoctorResult { checks: DoctorCheck[]; exitCode: number }
@@ -81,7 +82,7 @@ function nearestExistingDirectory(path: string): { path: string; blocked: boolea
 }
 
 /** Read-only local diagnostics. Network access is opt-in and uses the small models endpoint probe. */
-export async function doctor(config: Config, opts: { env?: Record<string, string | undefined>; upstreamCheck?: boolean; timeoutMs?: number; configPath?: string; clientConfigPath?: string; models?: ModelProfiles; model?: string } = {}): Promise<DoctorResult> {
+export async function doctor(config: Config, opts: { env?: Record<string, string | undefined>; upstreamCheck?: boolean; timeoutMs?: number; configPath?: string; clientConfigPath?: string; models?: ModelProfiles; model?: string; windows?: WindowsDeps; nodeVersion?: string } = {}): Promise<DoctorResult> {
   const checks: DoctorCheck[] = [];
   const add = (code: string, status: DoctorCheck['status'], message: string, fix?: string): void => { checks.push({ code, status, message, ...(fix ? { fix } : {}) }); };
 
@@ -93,6 +94,9 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
   } catch {
     add('config.valid', 'error', 'Configuration could not be validated safely.', 'Run `kitzur config validate` and correct the reported settings.');
   }
+  const nodeVersion = opts.nodeVersion ?? process.versions.node;
+  if (Number(nodeVersion.split('.')[0]) >= 22) add('runtime.node', 'ok', `Node.js ${nodeVersion} is supported.`);
+  else add('runtime.node', 'warn', `Node.js ${nodeVersion} is too old: Kitzur supports Node.js 22 or later.`, 'Install Node.js 22 or later; with the offline bundle, install the version its README names.');
   if (listenTokenWarning(config)) add('listen.token', 'warn', 'upstream.headers is set without listen.token: every local process can use those credentials through the proxy.', 'Set listen.token and give it to the agent as its API key.');
 
   let b: ReturnType<typeof computeBudget> | null = null;
@@ -140,8 +144,26 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
   }
 
   if (opts.clientConfigPath) {
-    try { checks.push(...clientConfigChecks(config, parseJsonc(readFileSync(opts.clientConfigPath, 'utf8')), opts.models)); }
-    catch { add('client.config', 'error', 'Client configuration could not be read as JSON/JSONC.'); }
+    // never echo the path or the file contents: only the error code or the parse position
+    let text: string | null = null;
+    try { text = readFileSync(opts.clientConfigPath, 'utf8'); }
+    catch (error) {
+      const errno = (error as NodeJS.ErrnoException).code;
+      if (errno === 'ENOENT') add('client.config', 'error', 'Client configuration file was not found.', 'Check the path given to --client-config.');
+      else add('client.config', 'error', `Client configuration file could not be read (${errno && /^[A-Z][A-Z0-9_]{0,63}$/.test(errno) ? errno : 'UNKNOWN'}).`, 'Check that the path given to --client-config is a readable file.');
+    }
+    if (text !== null) {
+      let parsed: unknown;
+      try { parsed = parseJsonc(text, 'client'); }
+      catch (error) {
+        const at = /^client:(\d+):(\d+):/.exec((error as Error).message);
+        add('client.config', 'error', `Client configuration is not valid JSON/JSONC${at ? ` (line ${at[1]}, column ${at[2]})` : ''}.`, 'Open the file in an editor that validates JSON/JSONC and fix the syntax.');
+      }
+      if (parsed !== undefined) {
+        try { checks.push(...clientConfigChecks(config, parsed, opts.models)); }
+        catch { add('client.config', 'error', 'Client configuration could not be checked.'); }
+      }
+    }
   }
 
   if (config.tokenizer.mode === 'estimate') add('tokenizer.mode', 'warn', 'Tokenizer mode is estimate; token counts use the configured character ratios.', 'Set tokenizer.mode to auto and configure tokenizer.path for exact local counts.');
@@ -154,8 +176,8 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
       if (warning) add('tokenizer.template', 'warn', warning);
       const n = tok.count('kitzur diagnostic');
       add(n > 0 ? 'tokenizer.load' : 'tokenizer.count', n > 0 ? 'ok' : 'error', n > 0 ? 'Tokenizer loaded and counted a sample locally.' : 'Tokenizer returned an empty count for a non-empty sample.', n > 0 ? undefined : 'Check tokenizer.json and use a supported tokenizer.');
-    } catch {
-      add('tokenizer.load', 'error', 'Tokenizer file could not be loaded or counted.', 'Check tokenizer.path and use a supported tokenizer.json file.');
+    } catch (error) {
+      add('tokenizer.load', 'error', `Tokenizer file could not be loaded: ${describeTokenizerLoadError(config.tokenizer.path, error)}.`, 'Check tokenizer.path and use a supported tokenizer.json file.');
     }
   }
 
@@ -177,8 +199,11 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
     } catch { add(code, 'warn', `${label} directory is not accessible.`, 'Check directory permissions and configured path.'); }
   };
   const statePath = stateDirOf(config, opts.env);
-  add('paths', 'ok', formatPaths({ config: opts.configPath ?? null, state_dir: statePath, log_file: config.log.file ?? join(statePath, 'logs', `kitzur-${new Date().toISOString().slice(0, 10)}.log`) }));
+  const logFile = config.log.file ?? join(statePath, 'logs', `kitzur-${new Date().toISOString().slice(0, 10)}.log`);
+  add('paths', 'ok', formatPaths({ config: opts.configPath ?? null, state_dir: statePath, log_file: logFile }));
   pathCheck('state.directory', statePath, 'State');
+  pathCheck('log.directory', dirname(logFile), 'Log');
+  checks.push(...await windowsChecks({ port: config.listen.port, stateDir: statePath, logFile, configPath: opts.configPath }, { env: opts.env, ...opts.windows }));
   if (config.stats.path) {
     try {
       const parent = dirname(config.stats.path);

@@ -45,10 +45,18 @@ Commands:
 
 | Command | What it does |
 |---|---|
-| `kitzur config init [--preset 100k] [--upstream URL] [--tokenizer FILE] [--out FILE\|-]` | writes a commented starting config (`kitzur.config.jsonc`), with `upstream.origin` and `tokenizer.path` filled in when given (a relative `--tokenizer` is resolved against the working directory) |
+| `kitzur config init [--preset 100k] [--upstream URL] [--tokenizer FILE] [--model ID[=WINDOW]]… [--out FILE\|-] [--force] [--dry-run]` | writes a commented starting config (`kitzur.config.jsonc`), with `upstream.origin` and `tokenizer.path` filled in when given (a relative `--tokenizer` is resolved against the working directory). Each `--model` adds an entry under [`models`](#model-profiles) for that exact wire model ID, with `budget.window` when `=WINDOW` is given (a positive integer, `32_000` is fine; the window follows the last `=`, so end an ID that contains `=` with a trailing `=`, as in `--model org/m=1=` or `--model m==` for ID `m=`, to keep the root window; `--model m=` is an empty window and is refused); a repeated ID, an empty ID or a window that would not validate is refused. `--dry-run` creates nothing: it prints `would write <path> (new)` (or `(exists: refused without --force)` / `(exists: would overwrite, --force)`), the config text and the `next:` lines, and exits 1 when the real run would refuse |
 | `kitzur config show [--changed] [--json]` | the effective value of every key with its source (`default`, `preset:32k`, `file:…`, `env:KITZUR_WINDOW`, `cli:--set`), plus the derived budget; header values are masked |
 | `kitzur config validate [--json]` | errors (exit 2) and startup warnings; also checks that `upstream.caFile` exists |
 | `kitzur config import-eval <results…>` | gateway probe results → config + provenance sidecar ([below](#gateway-probes-import)) |
+
+**Stopping Kitzur.** `kitzur serve --drain-ms N` sets how long a stop waits for in-flight requests (default
+`30000`; a negative or non-numeric value is refused with `--drain-ms must be a number of milliseconds`, exit 2).
+On the first SIGINT or SIGTERM Kitzur stops accepting connections and logs
+`stopping; draining in-flight requests (up to N ms)`; when the last request finishes, or N ms pass, it closes
+the remaining connections, flushes its state and exits 0 (1 if the shutdown fails).
+`--drain-ms 0` does not wait: in-flight requests are cut off at once. A second signal during the drain logs
+`exiting without waiting for the drain` and exits 130.
 
 **Validation** rejects: a wrong type or out-of-range value for any key; an invalid regex (`ledger.*Cues`,
 `ledger.labelPattern`, `rules.test.commands`, `errors.custom[].match`, `errors.exclusions[].match`); an
@@ -653,9 +661,27 @@ own profile, otherwise root defaults. Kitzur does not rewrite model IDs.
 
 Preset and file model leaves merge in layer order. Each profile inherits the
 **final** root: a late `--set budget.window=200000` changes inheriting profiles,
-while the explicit windows above stay 252000 and 131071. Model leaves are edited
-in files; bracket addressing through `--set` is deferred. Nullable leaves can be
+while the explicit windows above stay 252000 and 131071. Nullable leaves can be
 cleared with `null`; arrays and model-local presets are not supported.
+
+`--set` and `KITZUR_SET` address one model's leaf with a bracket:
+`models["<id>"].budget.window=64000`. The bracket holds one JSON string literal,
+so IDs with dots, slashes, colons, `;` or `\"` work; the profile is created if the
+file has none. Precedence is file < `KITZUR_SET` < `--set`, over the final root.
+The same leaf rules apply; errors name the path, never the value. `config show
+--json` reports the source under `provenance` as `models["<id>"].budget.window`.
+
+```sh
+# POSIX shells
+kitzur serve --set 'models["org/qwen.v1"].budget.window=64000'
+KITZUR_SET='models["org/qwen.v1"].budget.window=64000;budget.window=100000' kitzur serve
+```
+
+```bat
+:: Windows cmd: escape the inner quotes of an argument as \"
+kitzur serve --set models[\"org/qwen.v1\"].budget.window=64000
+set "KITZUR_SET=models["org/qwen.v1"].budget.window=64000"
+```
 
 Allowed profile leaves (validated with the root leaf specs):
 
@@ -707,3 +733,19 @@ figures are derived, engine, and proxy budgets for their respective profiles. Op
 If the model emits output equal to its context window, the client must advertise a
 smaller output limit (here 32,000); enable `maxTokensClamp` for strict-total servers.
 Phase 1 uses the shared root tokenizer: select estimate mode for foreign models.
+
+### Export an OpenCode config
+
+`kitzur config export-opencode --model ID` prints an OpenCode config to stdout; it
+never writes files. Every profile in `models` becomes a model of one provider with
+its context window and output limit; the base URL is the proxy's listen address.
+
+```sh
+kitzur config export-opencode --model org/qwen.v1 --small-model org/gpt-oss > opencode.json
+```
+
+`--small-model ID` sets `small_model` (default: the `--model` ID), `--provider NAME`
+names the provider (default `kitzur`) and `--key-env NAME` names the API key
+variable (default `OPENAI_API_KEY`). The export is refused when `--model` or
+`--small-model` has no configured profile, or when profiles have conflicting
+explicit output reservations (`client.reservedTokens`).

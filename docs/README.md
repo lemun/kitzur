@@ -1,10 +1,13 @@
 # Documentation by task
 - Connect OpenCode: [quick start](../README.md#quick-start).
-- Fit a served window/tokenizer: [configuration](../CONFIG.md).
+- Connect another OpenAI-compatible client (curl, the OpenAI SDKs): [clients](CLIENTS.md).
+- Fit a served window/tokenizer: [configuration](../CONFIG.md); start from a [config example](https://github.com/lemun/kitzur/tree/main/examples/config).
 - Deploy offline on Linux or Windows: [deployment](../deploy/README.md).
 - Operate a locked-down Windows intranet install: [intranet checklist](INTRANET.md).
 - Choose a solo, shared-server or automation setup: [pick your setup](SETUPS.md).
 - Diagnose overflow or passthrough: [diagnostics](DIAGNOSTICS.md).
 - Fix a symptom or a doctor code: [troubleshooting](TROUBLESHOOTING.md).
+- Parse `--json` output in scripts: [JSON output contract](JSON-OUTPUT.md).
 - Understand retention: [design](../DESIGN.md#mechanical-summary).
+- Vet Kitzur before it enters an internal network: [security review checklist](SECURITY-REVIEW.md).
 - Review data handling: [security](../SECURITY.md); evaluate: [benchmarks](../bench/README.md).

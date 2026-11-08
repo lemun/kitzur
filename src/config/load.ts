@@ -7,8 +7,9 @@
 // directory; paths from env or CLI are relative to the working directory. A leading '~/' means $HOME.
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, resolve } from 'node:path';
-import { buildModelProfiles, takeModelLayer, type ModelOverrides } from './models.js';
+import { dirname, posix, resolve, win32 } from 'node:path';
+import { buildModelProfiles, modelLeafError, takeModelLayer, validModelId, type ModelOverrides } from './models.js';
+import { checkLeaf } from './validate.js';
 import { enableAutoWindow } from './window.js';
 import { DEFAULT_CONFIG, type Config } from './schema.js';
 import { parseJsonc } from './jsonc.js';
@@ -96,23 +97,45 @@ export function defaultConfig(): Config {
   return structuredClone(DEFAULT_CONFIG);
 }
 
-/** Parses "a.b=v" into a SetOp. Throws on a missing '='. */
+const MODEL_BRACKET = /^\s*models\[/;
+
+/** For `models["<id>"]…`: the index just past ']' (0 without the prefix, -1 when the JSON string literal is unterminated). */
+function modelBracketEnd(s: string): number {
+  const m = MODEL_BRACKET.exec(s);
+  if (!m) return 0;
+  let i = m[0].length;
+  if (s[i] !== '"') return -1;
+  for (i++; i < s.length; i++) {
+    if (s[i] === '\\') i++;
+    else if (s[i] === '"') return s[i + 1] === ']' ? i + 2 : -1;
+  }
+  return -1;
+}
+
+/** Parses "a.b=v" (or `models["<id>"].a.b=v`) into a SetOp. Throws on a missing '='. */
 export function parseSetArg(arg: string, source = 'cli:--set'): SetOp {
-  const eq = arg.indexOf('=');
+  const end = modelBracketEnd(arg);
+  if (end < 0) throw new ConfigError([`${source}: models[…]: malformed model ID (text not shown); write models["<id>"].budget.window=value with the ID as one JSON string`]);
+  const eq = arg.indexOf('=', end);
   // `upstream.headers.Authorization:Bearer …` (a typo for '='): the rest of the argument is a credential
   const shown = /^\s*upstream\.headers\b/i.test(arg) ? '"upstream.headers…" (value not shown)'
-    : /^\s*listen\.token\b/i.test(arg) ? '"listen.token…" (value not shown)' : JSON.stringify(arg);
-  if (eq <= 0) throw new ConfigError([`${source}: expected path=value, got ${shown}`]);
+    : /^\s*listen\.token\b/i.test(arg) ? '"listen.token…" (value not shown)'
+    : end > 0 ? '"models[…" (value not shown)' : JSON.stringify(arg);
+  if (eq <= 0) throw new ConfigError([`${source}: expected path=value, got ${shown}; write it as key=value (kitzur config show --full lists the keys)`]);
   return { path: arg.slice(0, eq).trim(), raw: arg.slice(eq + 1), source };
 }
 
-/** Splits KITZUR_SET "a.b=v;c.d=w" (';' inside a value is written '\;'). */
+/** Splits KITZUR_SET "a.b=v;c.d=w" (';' inside a value is written '\;'; inside a models["<id>"] string it is literal). */
 export function splitEnvSet(value: string): string[] {
   const out: string[] = [];
   let cur = '';
   for (let i = 0; i < value.length; i++) {
     const c = value[i]!;
-    if (c === '\\' && value[i + 1] === ';') {
+    const end = cur.trim() === '' ? modelBracketEnd(value.slice(i)) : 0;
+    if (end > 0) {
+      cur += value.slice(i, i + end);
+      i += end - 1;
+    } else if (c === '\\' && value[i + 1] === ';') {
       cur += ';';
       i++;
     } else if (c === ';') {
@@ -172,14 +195,47 @@ export function parseRawValue(spec: LeafSpec, raw: string): unknown {
   }
 }
 
-function expandPath(p: unknown, base: string): unknown {
+/** '~' and '~/x' are the home directory; on Windows '~\\x' too (on POSIX it is a legal relative name). */
+export function expandPath(p: unknown, base: string, platform: NodeJS.Platform = process.platform, home: string = homedir()): unknown {
   if (typeof p !== 'string' || p === '') return p;
-  if (p === '~' || p.startsWith('~/')) return resolve(homedir(), p.slice(2));
-  return isAbsolute(p) ? p : resolve(base, p);
+  const path = platform === 'win32' ? win32 : posix;
+  if (p === '~' || p.startsWith('~/') || (platform === 'win32' && p.startsWith('~\\'))) return path.resolve(home, p.slice(2));
+  return path.isAbsolute(p) ? p : path.resolve(base, p);
 }
 
-/** Applies one assignment to `cfg`, recording provenance. Throws a message on an unknown path or bad value. */
-function applySet(cfg: Record<string, unknown>, prov: Provenance, op: SetOp, base: string): void {
+/**
+ * Applies `models["<id>"].leaf=v` to the model overrides, recording provenance under the quoted path.
+ * Messages name the path but never the value (values can be secrets).
+ */
+function applyModelSet(models: ModelOverrides, prov: Provenance, op: SetOp, base: string): void {
+  const end = modelBracketEnd(op.path);
+  let id: unknown;
+  try {
+    if (end > 0 && op.path[end] === '.') id = JSON.parse(op.path.slice(op.path.indexOf('[') + 1, end - 1));
+  } catch { /* reported below */ }
+  if (typeof id !== 'string') throw new Error(`${op.source}: ${op.path}: malformed model path; write models["<id>"].budget.window=value with the ID as one JSON string`);
+  const where = `${op.source}: models[${JSON.stringify(id)}]`;
+  if (!validModelId(id)) throw new Error(`${where}: invalid model ID (non-empty, at most 256 characters, no controls or prototype keys)`);
+  const leaf = op.path.slice(end + 1);
+  const error = modelLeafError(where, id, leaf);
+  if (error) throw new Error(error);
+  const spec = LEAF_SPECS[leaf]!;
+  let value: unknown;
+  let ok = false;
+  try {
+    value = parseRawValue(spec, op.raw);
+    ok = checkLeaf(leaf, spec, value) === null;
+  } catch { /* reported below */ }
+  if (!ok) throw new Error(`${where}.${leaf}: invalid value (value not shown); expected ${describeSpec(spec)}`);
+  const leaves = models.get(id) ?? new Map<string, unknown>();
+  models.set(id, leaves);
+  leaves.set(leaf, PATH_LEAVES.has(leaf) ? expandPath(value, base) : value);
+  prov[`models[${JSON.stringify(id)}].${leaf}`] = op.source;
+}
+
+/** Applies one assignment to `cfg` (or to `models`), recording provenance. Throws a message on an unknown path or bad value. */
+function applySet(cfg: Record<string, unknown>, prov: Provenance, op: SetOp, base: string, models: ModelOverrides): void {
+  if (MODEL_BRACKET.test(op.path)) return applyModelSet(models, prov, op, base);
   const owner = ownerLeaf(op.path);
   if (owner === null) {
     const hint = suggestLeaf(op.path);
@@ -269,14 +325,16 @@ export function loadConfig(opts: LoadOptions = {}): LoadedConfig {
     fileSource = 'object';
   } else if (cfgPathRaw) {
     configPath = resolve(cwd, cfgPathRaw);
-    if (!existsSync(configPath)) throw new ConfigError([`config file not found: ${configPath}`]);
+    if (!existsSync(configPath)) throw new ConfigError([`config file not found: ${configPath}; create one with kitzur config init --out ${configPath}`]);
     let parsed: unknown;
     try {
       parsed = parseJsonc(readFileSync(configPath, 'utf8'), configPath);
     } catch (e) {
       throw new ConfigError([(e as Error).message]);
     }
-    if (!isPlainObject(parsed)) throw new ConfigError([`${configPath}: the config must be a JSON object`]);
+    if (!isPlainObject(parsed)) {
+      throw new ConfigError([`${configPath}: the config must be a JSON object ({ ... }); kitzur config init --out - prints a starting file`]);
+    }
     fileLayer = { ...parsed };
     fileSource = `file:${configPath}`;
     fileBase = dirname(configPath);
@@ -338,7 +396,7 @@ export function loadConfig(opts: LoadOptions = {}): LoadedConfig {
   }
   for (const op of envOps) {
     try {
-      applySet(cfg, prov, op, cwd);
+      applySet(cfg, prov, op, cwd, modelOverrides);
       if (!layers.includes(op.source)) layers.push(op.source);
     } catch (e) {
       issues.push((e as Error).message);
@@ -349,7 +407,7 @@ export function loadConfig(opts: LoadOptions = {}): LoadedConfig {
   for (const s of opts.sets ?? []) {
     try {
       const op = typeof s === 'string' ? parseSetArg(s) : s;
-      applySet(cfg, prov, op, cwd);
+      applySet(cfg, prov, op, cwd, modelOverrides);
       if (!layers.includes(op.source)) layers.push(op.source);
     } catch (e) {
       issues.push(e instanceof ConfigError ? e.issues.join('; ') : (e as Error).message);

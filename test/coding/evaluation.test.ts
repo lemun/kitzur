@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { evaluate, grade, type EvalOptions, type Run } from '../../bench/coding/runner.js';
@@ -90,11 +90,13 @@ test('timeout preserves dispatched attempts and retry accounting covers rejected
     const lateProxy=laterTimeout.runs.find(r=>r.arm==='kitzur')!;
     assert.equal(lateProxy.outcome,'timeout');assert.ok(lateProxy.compactions!>0,'preserve compactions before timeout');
 });
-test('private grader rejects incorrect exports and symlink task files', () => {
+test('private grader rejects incorrect exports and symlink task files', t => {
     const root = mkdtempSync(join(tmpdir(), 'kitzur-grader-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
     writeFileSync(join(root, 'solution.mjs'), 'export function solve(xs){return xs;}');
     assert.ok(grade(root, TASKS[0]!).passed < 3);
     const other = mkdtempSync(join(tmpdir(), 'kitzur-grader-link-'));
+    t.after(() => rmSync(other, { recursive: true, force: true }));
     symlinkSync(join(root, 'solution.mjs'), join(other, 'solution.mjs'));
     assert.throws(() => grade(other, TASKS[0]!));
 });

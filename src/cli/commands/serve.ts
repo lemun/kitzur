@@ -8,6 +8,22 @@ import { CONFIG_OPTS, loadFromArgs, parseArgs } from '../args.js';
 import { fmtHost } from '../format.js';
 import { inspectTlsChain, renderTlsChain } from '../../diagnostics/tls-chain.js';
 
+/** One line naming the listen address and what to change, or null for errors without a known fix. */
+export function listenErrorHint(code: string | undefined, host: string, port: number, message: string): string | null {
+  const at = `port ${port} on ${host}`;
+  switch (code) {
+    case 'EADDRINUSE':
+      return `${at} is already in use; another kitzur may be running (kitzur status --url http://${fmtHost(host)}:${port}), or pick another port with --port N or listen.port (${message})`;
+    case 'EACCES':
+      return `${at} needs privileges; ports below 1024 usually do, use a higher --port N or listen.port (${message})`;
+    case 'EADDRNOTAVAIL':
+    case 'ENOTFOUND':
+      return `cannot listen on ${at}; listen.host (--host) must be an address of this machine (127.0.0.1 or ::1 for local only) (${message})`;
+    default:
+      return null;
+  }
+}
+
 export async function cmdServe(argv: string[], io: CliIO): Promise<number> {
   const p = parseArgs(argv, { ...CONFIG_OPTS, 'drain-ms': { type: 'string' } });
   if (p.positionals.length) throw new UsageError(`serve takes no arguments (got ${p.positionals.join(' ')})`);
@@ -20,7 +36,7 @@ export async function cmdServe(argv: string[], io: CliIO): Promise<number> {
   for (const w of [...l.warnings, ...v.warnings.filter((x) => !/^upstream\.origin is not set/.test(x))]) log.warn(w);
   if (v.errors.length || !cfg.upstream.origin) {
     for (const e of v.errors) io.stderr(`kitzur: config error: ${e}\n`);
-    if (!cfg.upstream.origin) io.stderr('kitzur: config error: upstream.origin is required (--upstream http://gateway:8000, KITZUR_UPSTREAM_ORIGIN or the config file)\n');
+    if (!cfg.upstream.origin) io.stderr('kitzur: config error: upstream.origin is required (--upstream http://gateway:8000, KITZUR_UPSTREAM_ORIGIN, or write a config file with kitzur config init)\n');
     await log.close();
     return 2;
   }
@@ -29,7 +45,12 @@ export async function cmdServe(argv: string[], io: CliIO): Promise<number> {
   const app = await buildApp(cfg, { log, modules: io.modules, env: io.env, models: l.models, configPath: l.configPath });
   let addr: { host: string; port: number };
   try { addr = await app.listen(); }
-  catch (e) { await app.close(0); throw e; }
+  catch (e) {
+    await app.close(0);
+    const err = e as NodeJS.ErrnoException;
+    const hint = listenErrorHint(err?.code, cfg.listen.host, cfg.listen.port, err?.message ?? String(e));
+    throw hint ? new Error(hint, { cause: e }) : e;
+  }
   // startup probe: a certificate failure exits non-zero; an unreachable upstream only logs
   const probe = await app.probe(Math.min(10_000, cfg.upstream.timeoutMs));
   if (probe.tlsError) {

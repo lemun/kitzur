@@ -66,6 +66,40 @@ nonempty session ID. A zero count with missing IDs is not evidence of zero sessi
 The byte-stream API `reportStream` and string convenience API `report` use the
 same limits; the CLI uses streaming and never loads the entire file.
 
+## Reading kitzur status
+
+`kitzur status` asks a running instance for `/status` and prints it in groups separated by blank lines: the header
+and paths, active warnings, the budget (one line per model profile, at most 8), request counts with the last
+compaction, stats writer problems (only when a counter is non-zero), and the last five requests. Fields the server
+does not report are left out. Only names, counts and sizes appear, never prompt text or credentials. `--json` prints
+the full `/status` body instead (see [JSON-OUTPUT.md](JSON-OUTPUT.md)).
+
+```text
+kitzur 1.2.3 — uptime 2h 14m
+Paths: config=/etc/kitzur/kitzur.jsonc; state_dir=/var/lib/kitzur; log_file=/var/log/kitzur.log
+
+Warnings:
+  output_allowance: Upstream p99 completion_tokens 9000 exceeds allowance 7000; increase client.outputAllowanceTokens, especially for reasoning models. (x3)
+
+Budget: window 32768; budget 30000; trigger 24000; target 12000
+  "big-model": window 131072; trigger 127072; counter estimate
+
+Chat requests: 12; actions: compact=2, passthrough=10
+Last compaction: 2026-01-01T11:55:00.000Z (5m 0s ago) — 26000 -> 9000 tokens (trigger 24000)
+
+Stats writer: dropped 4
+
+Recent requests: 1/64 (in memory; reset on restart)
+  compact 26000 -> 9000 tokens; model="big-model"; 812ms
+```
+
+When nothing answers, status exits 1 and names the host:port it tried and the next step:
+
+```text
+kitzur: cannot reach http://127.0.0.1:8080/status: connect ECONNREFUSED 127.0.0.1:8080
+kitzur: nothing answered at 127.0.0.1:8080; is it running? start it with: kitzur serve --config <path> (or kitzur autostart status on Windows)
+```
+
 ## Sharing a reproducible report
 
 `kitzur redact <request.json|dir>... [--out DIR|-]` copies captured chat-completions request bodies with every

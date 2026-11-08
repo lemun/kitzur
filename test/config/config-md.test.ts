@@ -91,6 +91,13 @@ test('CONFIG.md worked examples derive their stated compaction and oversize limi
   }
 });
 
+test('CONFIG.md documents kitzur serve --drain-ms and the shutdown signals', () => {
+  assert.ok(md.includes('**Stopping Kitzur.**'));
+  assert.ok(md.includes('`kitzur serve --drain-ms N`'));
+  assert.ok(md.includes('default\n`30000`') || md.includes('default `30000`'));
+  for (const s of ['SIGINT', 'SIGTERM', '`--drain-ms 0`', 'exits 130']) assert.ok(md.includes(s), s);
+});
+
 test('models metadata stays outside the default knob table and is documented separately', () => {
   assert.equal(Object.hasOwn(DEFAULT_CONFIG, 'models'), false);
   assert.equal(DEFAULT_LEAVES.some((p) => p === 'models' || p.startsWith('models.')), false);

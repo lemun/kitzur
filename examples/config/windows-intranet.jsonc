@@ -1,0 +1,19 @@
+// A Windows intranet install: the gateway uses the company CA, kitzur listens on loopback only and
+// keeps its log and state in a local folder (not OneDrive). Save as C:\Kitzur\kitzur.jsonc and pass the
+// path explicitly, e.g. kitzur autostart install --config "C:\Kitzur\kitzur.jsonc", then replace the
+// gateway host and the <placeholder> folder with your own.
+{
+  "upstream": {
+    "origin": "https://llm.intranet.example.com",
+    "caFile": "C:\\Kitzur\\ca.pem" // the company root CA (PEM), added to Node's roots
+  },
+  "server": { "type": "vllm" },
+  "budget": { "window": 128000 },
+  "listen": { "host": "127.0.0.1", "port": 8270 }, // loopback only: not reachable from other hosts
+  "stateDir": "C:\\<local-folder>\\Kitzur\\state",
+  "log": { "file": "C:\\<local-folder>\\Kitzur\\logs\\kitzur.log" },
+  "debug": {
+    // off: set a path such as "C:\\<local-folder>\\Kitzur\\capture.jsonl" to opt in; it writes model output to disk
+    "capture": { "path": null }
+  }
+}

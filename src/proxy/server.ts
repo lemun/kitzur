@@ -158,7 +158,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     if (inflight >= cfg.listen.maxConcurrentRequests) {
       status.requests++;
       concurrencyRejected++;
-      rejectUpload(req, res, 503, 'too many concurrent requests', 'server_busy', { 'retry-after': '1' });
+      rejectUpload(req, res, 503, 'too many concurrent requests, retry shortly or raise listen.maxConcurrentRequests', 'server_busy', { 'retry-after': '1' });
       return;
     }
     // in flight until the response is done *and* its stats/calibration ran (the drain waits for both)
@@ -234,7 +234,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     const clientAuthorization = cfg.listen.token === null ? req.headers.authorization : undefined;
     const length = req.headers['content-length'];
     if (length !== undefined && BigInt(length) > BigInt(cfg.listen.maxRequestBytes)) {
-      rejectUpload(req, res, 413, 'request body too large', 'request_too_large');
+      rejectUpload(req, res, 413, 'request body too large, shrink the request or raise listen.maxRequestBytes', 'request_too_large');
       return;
     }
     const url = req.url ?? '/';
@@ -290,7 +290,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       const onData = (d: Buffer): void => {
         size += d.length;
         if (size > cfg.listen.maxRequestBytes) {
-          rejectUpload(req, res, 413, 'request body too large', 'request_too_large');
+          rejectUpload(req, res, 413, 'request body too large, shrink the request or raise listen.maxRequestBytes', 'request_too_large');
           done(null);
         } else chunks.push(d);
       };
@@ -877,7 +877,10 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     if (r.first?.sessionKey) status.session(r.first.sessionKey);
     if (r.originalResent) status.originalResent++;
     if (r.final.type === 'aborted') status.aborted++;
-    const incomplete = r.final.type === 'relayed' && r.sent !== null && isStreaming(r.sent.req) && !r.complete;
+    // a stream that ended without [DONE]/finish_reason, or whose upstream failed after bytes reached the client
+    const lastReq = r.attempts.at(-1)?.attempt.req;
+    const incomplete = (r.final.type === 'relayed' && r.sent !== null && isStreaming(r.sent.req) && !r.complete) ||
+      (r.final.type === 'unavailable' && r.final.committed && lastReq !== undefined && isStreaming(lastReq));
     if (incomplete) status.upstreamIncomplete++;
 
     // calibration: usage of the attempt that reached the client, else the tokenize endpoint

@@ -1,12 +1,60 @@
 // `kitzur config init`: a commented starting config (JSON with comments, read by load.ts).
 import { PRESET_TABLE } from './presets.js';
 import { DEFAULT_CONFIG } from './schema.js';
+import { validModelId } from './models.js';
 
 /** Values `config init` can fill in from the command line (written as given; null in the file when absent). */
 export interface InitValues {
   upstream?: string;
   /** written as given: an absolute path, or one starting with `~/` (the config loader expands it); the CLI makes other paths absolute first */
   tokenizer?: string;
+  /** model profiles to list under "models", in order (from `--model ID[=WINDOW]`) */
+  models?: InitModel[];
+}
+
+export interface InitModel {
+  id: string;
+  window?: number;
+}
+
+/**
+ * Parses repeated `--model ID[=WINDOW]` values; the window follows the last `=`, and a trailing `=` means none
+ * (so `--model a=b=` is ID `a=b` with the root window); a trailing `=` on an ID without `=` (`--model m=`) is an
+ * empty window and is refused. Throws a message naming the flag on an empty, invalid or repeated ID or a bad window.
+ */
+export function parseInitModels(args: readonly string[]): InitModel[] {
+  const out: InitModel[] = [];
+  for (const arg of args) {
+    const eq = arg.lastIndexOf('=');
+    const id = eq < 0 ? arg : arg.slice(0, eq);
+    const raw = eq < 0 || eq === arg.length - 1 ? undefined : arg.slice(eq + 1);
+    if (id.trim() === '') throw new Error(`--model ${JSON.stringify(arg)}: empty model ID; pass the exact wire model ID, for example --model org/model-name=32000`);
+    if (!validModelId(id)) throw new Error(`--model ${JSON.stringify(id)}: invalid model ID (non-empty, at most 256 characters, no controls or prototype keys)`);
+    if (out.some((m) => m.id === id)) throw new Error(`--model ${JSON.stringify(id)}: given twice; pass each model ID once`);
+    if (eq === arg.length - 1 && !id.includes('=')) throw new Error(`--model ${JSON.stringify(arg)}: empty window; write --model ${id}=32000, or --model ${id} to inherit the root window`);
+    if (raw === undefined) {
+      out.push({ id });
+      continue;
+    }
+    const window = /^\d+(_\d+)*$/.test(raw) ? Number(raw.replaceAll('_', '')) : NaN;
+    if (!Number.isSafeInteger(window) || window <= 0) throw new Error(`--model ${JSON.stringify(arg)}: the window must be a positive integer such as 32000 or 32_000; write --model ${id}=32000, or --model ${id} to inherit the root window`);
+    out.push({ id, window });
+  }
+  return out;
+}
+
+/** The "models" block appended after "listen" ('' without models, so the text stays as before). */
+function renderModels(models: readonly InitModel[] = []): string {
+  if (!models.length) return '';
+  const entries = models.map((m) => `    ${JSON.stringify(m.id)}: ${m.window === undefined ? '{}' : `{ "budget": { "window": ${m.window} } }`}`);
+  return `,
+
+  // Model profiles (CONFIG.md "Model profiles"): each key is an exact wire model ID, the request's "model"
+  // field. An entry may set the per-model groups budget, client and tokenizer over the values above:
+  //   "budget": { "window": 64000 }, "client": { "compactionPointTokens": 50000 }, "tokenizer": { "path": null }
+  "models": {
+${entries.join(',\n')}
+  }`;
 }
 
 /** The starting config text for a preset (default 100k). Throws on an unknown preset name. */
@@ -47,7 +95,7 @@ export function renderInitConfig(preset = '100k', values: InitValues = {}): stri
     "template": { "name": "qwen3" }
   },
 
-  "listen": { "host": "127.0.0.1", "port": ${port} }
+  "listen": { "host": "127.0.0.1", "port": ${port} }${renderModels(values.models)}
 
   // After the gateway-probes has run:  kitzur config import-eval <results dir> --merge <this file>
 }

@@ -12,6 +12,7 @@ import {
   DONE, bodyTokens, charCounter, chatBody, chunk, fakeUpstream, jsonRes, okCompletion, rawRequest, request, sleep, sseRes, startProxy,
   testConfig, usageChunk, waitRecords, type FakeUpstream, type ProxyFixture,
 } from './harness.js';
+import { waitFor } from './helpers.js';
 
 async function withProxy(t: TestContext, up: FakeUpstream, engine: FakeEngine, fn: (f: ProxyFixture) => Promise<void>, opts: Parameters<typeof startProxy>[3] = {}): Promise<void> {
   const f = await startProxy(t, up, engine, opts);
@@ -657,18 +658,20 @@ test('calibration from usage: accepted samples move the correction, checkpointed
     const body = { model: 'm1', messages: [{ role: 'user', content: 'x'.repeat(40_000) }], max_tokens: 100 };
     for (let i = 0; i < 3; i++) await request(f.port, { body });
     await waitRecords(f, 3);
-    await sleep(30);
     const key = learnedKey(up.origin, 'm1');
+    await waitFor(() => f.state.entry(key).samples === 3);
     await f.state.flush();
-    const disk = readLearnedState(join(f.stateDir, 'learned.json')).state.entries[key]!;
+    // a debounced checkpoint may still be landing when flush returns: poll the file
+    const onDisk = () => readLearnedState(join(f.stateDir, 'learned.json')).state.entries[key];
+    await waitFor(() => onDisk()?.samples === 3);
+    const disk = onDisk()!;
     assert.equal(disk.correction, 1.3);
     assert.equal(disk.samples, 3);
     await request(f.port, { body });
     assert.equal(engine.calls[3]!.opts.learned?.correction, 1.3, 'the next request plans with it');
     const tiny = { model: 'm1', messages: [{ role: 'user', content: 'x' }] };
     await request(f.port, { body: tiny });
-    await waitRecords(f, 5);
-    await sleep(30);
+    await waitRecords(f, 5); // the hook judges the usage sample before it writes the record
     assert.equal(f.state.entry(key).samples, 4, 'tiny requests are filtered');
     // an out-of-band sample is a usage_mismatch, never learned
     up.responder = (hit, res) => jsonRes(res, 200, okCompletion(bodyTokens(hit.json) * 5));
@@ -697,7 +700,8 @@ test('calibration from the tokenize endpoint when no usage comes back (a calibra
     for (let i = 0; i < 3; i++) {
       await request(f.port, { body });
       await waitRecords(f, i + 1);
-      await sleep(20);
+      // the endpoint sample is applied after the record, when the count resolves
+      await waitFor(() => f.state.entry(learnedKey(up.origin, 'm1')).samples === i + 1);
     }
     assert.equal(calls, 3);
     const e = f.state.entry(learnedKey(up.origin, 'm1'));

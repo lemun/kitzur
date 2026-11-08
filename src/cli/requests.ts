@@ -5,8 +5,12 @@ import type { ChatRequest } from '../types.js';
 import { UsageError } from './io.js';
 import { parseNoEcho } from './format.js';
 
+/** The next step for a request file that is missing or holds no chat request. */
+export const CHAT_BODY_HINT = 'pass a captured Chat Completions body: JSON with a messages array';
+
 export function readRequestFile(path: string): unknown[] {
-  const text = readFileSync(path, 'utf8');
+  // Notepad and PowerShell Out-File write a UTF-8 byte-order mark; JSON.parse rejects it.
+  const text = readFileSync(path, 'utf8').replace(/^\uFEFF/, '');
   if (path.endsWith('.jsonl')) {
     return text.split('\n').flatMap((l, i) => (l.trim() ? [parseNoEcho(l, i + 1)] : []));
   }
@@ -33,7 +37,7 @@ export function collectRequests(paths: string[], cwd: string): Array<{ label: st
   const collator = new Intl.Collator('en', { numeric: true });
   for (const p0 of paths) {
     const p = resolve(cwd, p0);
-    if (!existsSync(p)) throw new UsageError(`not found: ${p0}`);
+    if (!existsSync(p)) throw new UsageError(`not found: ${p0}; ${CHAT_BODY_HINT}`);
     const files = statSync(p).isDirectory()
       ? readdirSync(p).filter((f) => f.endsWith('.json') || f.endsWith('.jsonl')).sort(collator.compare).map((f) => join(p, f))
       : [p];

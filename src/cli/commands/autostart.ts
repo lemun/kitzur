@@ -7,11 +7,11 @@ import { UsageError, type CliIO } from '../io.js';
 export async function cmdAutostart(argv: string[], io: CliIO): Promise<number> {
   const [action, ...rest] = argv;
   if (action !== 'install' && action !== 'remove' && action !== 'status' && action !== 'run') {
-    throw new UsageError('autostart needs install, remove, status or run');
+    throw new UsageError(action ? `unknown autostart command '${action}' (install, remove, status, run)` : 'autostart needs install, remove, status or run');
   }
   // Only persist the config path: transient CLI overrides disappear at next login.
   const p = parseArgs(rest, CONFIG_OPTS);
-  if (p.positionals.length) throw new UsageError('unexpected autostart arguments');
+  if (p.positionals.length) throw new UsageError(`autostart takes no extra arguments (got ${p.positionals.join(' ')})`);
   const loaded = loadFromArgs(p, io);
   const path = loaded.configPath ? resolve(io.cwd, loaded.configPath) : null;
   const dir = resolve(io.cwd, stateDirOf(loaded.config, io.env));

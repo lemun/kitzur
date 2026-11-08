@@ -25,6 +25,42 @@ test('usageOf: replay and count document --model', () => {
   for (const cmd of ['replay', 'count']) assert.match(usageOf(cmd), /\[--model ID\]/, cmd);
 });
 
+test('usageOf: every flag a command parses is listed', () => {
+  const flags: Record<string, RegExp[]> = {
+    config: [/config init .*\[--model ID\[=WINDOW\]\]\.\.\. .*\[--dry-run\]/, /config show \[--model ID\] \[--changed\] \[--full\] \[--json\]/, /config validate \[--model ID\] \[--json\]/],
+    count: [/count <request\.json> \[--model ID\] \[--estimate\] \[--json\]/],
+    replay: [/\[--json\]/, /\[--no-fresh\]/],
+    serve: [/serve \[--drain-ms N\]/],
+    status: [/ {2}status \[--url URL\] \[--json\] \[--timeout-ms N\] {2}show a running instance's status\n/],
+  };
+  for (const [cmd, res] of Object.entries(flags)) for (const re of res) assert.match(usageOf(cmd), re, cmd);
+  assert.match(USAGE, /^[\x00-\x7f]*$/, 'USAGE is plain ASCII');
+});
+
+test('usageOf: every flag a config subcommand lists is one it parses', () => {
+  const accepts: Record<string, string[]> = {
+    init: ['preset', 'out', 'force', 'upstream', 'tokenizer', 'model', 'dry-run'],
+    show: ['model', 'changed', 'full', 'json'],
+    validate: ['model', 'json'],
+    'import-eval': ['out', 'merge', 'provenance', 'dry-run', 'force-keys', 'allow-pack-version', 'json-report', 'port', 'tokenizer', 'template', 'force'],
+    'export-opencode': ['model', 'small-model', 'provider', 'key-env'],
+  };
+  const own: Record<string, string> = {};
+  let sub = '';
+  for (const l of usageOf('config').split('\n')) {
+    if (l.startsWith('config options')) break;
+    const m = /^ {2}config (\S+)/.exec(l);
+    if (m) sub = m[1]!;
+    if (sub) own[sub] = (own[sub] ?? '') + l + '\n';
+  }
+  assert.deepEqual(Object.keys(own).sort(), Object.keys(accepts).sort());
+  for (const [s, text] of Object.entries(own)) {
+    for (const [, f] of text.matchAll(/--([a-z][a-z-]*)/g)) assert.ok(accepts[s]!.includes(f!), `config ${s} lists --${f}`);
+  }
+  assert.doesNotMatch(own['export-opencode']!, /--force-keys/);
+  assert.match(own['import-eval']!, /--force-keys a\.b,c/);
+});
+
 test('wantsHelp: --help or -h before `--` only', () => {
   assert.equal(wantsHelp(['--help']), true);
   assert.equal(wantsHelp(['x', '-h']), true);

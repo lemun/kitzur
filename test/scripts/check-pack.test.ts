@@ -1,13 +1,14 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ROOT } from '../helpers.js';
 
 // a throwaway npm cache keeps the run independent of the user's cache
 const env = { ...process.env, npm_config_cache: mkdtempSync(join(tmpdir(), 'kitzur-npm-cache-')) };
+after(() => rmSync(env.npm_config_cache, { recursive: true, force: true }));
 const checkPack = (dir: string) =>
   spawnSync(process.execPath, [join(ROOT, 'scripts', 'check-pack.mjs'), dir], { encoding: 'utf8', env });
 
@@ -17,8 +18,9 @@ test('check-pack.mjs passes on the built package', () => {
   assert.match(res.stdout, /^check-pack: ok, \d+ files/);
 });
 
-test('check-pack.mjs lists every violation in a broken package', () => {
+test('check-pack.mjs lists every violation in a broken package', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-check-pack-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
   mkdirSync(join(dir, 'lib'));
   mkdirSync(join(dir, 'test'));
   writeFileSync(join(dir, 'package.json'), JSON.stringify({

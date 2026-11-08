@@ -5,7 +5,7 @@ import { Readable } from 'node:stream';
 import { EventEmitter } from 'node:events';
 import { syncBuiltinESMExports } from 'node:module';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -52,6 +52,15 @@ test('doctor reports missing and invalid tokenizer with sanitized messages', asy
     const invalid = await doctor(cfg);
     assert.ok(invalid.checks.some((c) => c.code === 'tokenizer.load' && c.status === 'error'));
     assert.doesNotMatch(renderDoctor(invalid), /not a tokenizer|TOKEN_SECRET_PATH/);
+    // each cause gets its own message, and none quotes the file
+    const messages = new Set<string>();
+    for (const body of ['', 'SECRET_BODY', '{"SECRET_BODY":1}', null]) {
+      if (body === null) { rmSync(cfg.tokenizer.path); fs.mkdirSync(cfg.tokenizer.path); } else writeFileSync(cfg.tokenizer.path, body);
+      const result = await doctor(cfg);
+      assert.doesNotMatch(renderDoctor(result), /SECRET_BODY|TOKEN_SECRET_PATH/);
+      messages.add(result.checks.find((c) => c.code === 'tokenizer.load')?.message ?? '');
+    }
+    assert.equal(messages.size, 4, [...messages].join('\n'));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -107,6 +116,27 @@ test('doctor detects a regular file blocking a state directory without modifying
     assert.ok(result.checks.some((c) => c.code === 'state.directory' && c.status === 'error'));
     assert.ok(result.checks.some((c) => c.code === 'stats.path' && c.status === 'error'));
     assert.equal((await import('node:fs')).readFileSync(blocker, 'utf8'), before);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('doctor checks the log file folder: default under the state dir, a missing folder, a blocked folder, a read-only folder', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-doctor-log-'));
+  const logCheck = async (file: string | null) => {
+    const cfg = defaultConfig(); cfg.stateDir = join(dir, 'state'); cfg.log.file = file;
+    return (await doctor(cfg)).checks.find((c) => c.code === 'log.directory');
+  };
+  try {
+    assert.equal((await logCheck(null))?.status, 'ok');
+    assert.equal((await logCheck(join(dir, 'new', 'logs', 'x.log')))?.status, 'ok');
+    const blocker = join(dir, 'regular-file'); writeFileSync(blocker, 'sentinel');
+    const blocked = await logCheck(join(blocker, 'x.log'));
+    assert.equal(blocked?.status, 'error');
+    assert.match(blocked?.message ?? '', /^Log path is not a directory/);
+    if (process.platform !== 'win32' && process.getuid?.() !== 0) {
+      const ro = join(dir, 'ro'); fs.mkdirSync(ro, { mode: 0o555 });
+      try { assert.equal((await logCheck(join(ro, 'x.log')))?.status, 'warn'); }
+      finally { fs.chmodSync(ro, 0o755); }
+    }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -210,6 +240,40 @@ test('doctor reads an OpenCode JSONC file and handles unreadable files safely', 
   assert.equal(missing.exitCode, 1);
   assert.ok(missing.checks.some((c) => c.code === 'client.config'));
   assert.doesNotMatch(renderDoctor(missing), /SECRET_MISSING_FILE/);
+  const notFound = missing.checks.find((c) => c.code === 'client.config');
+  assert.equal(notFound?.status, 'error');
+  assert.match(notFound?.message ?? '', /not found/);
+  assert.match(notFound?.fix ?? '', /--client-config/);
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-client-config-'));
+  try {
+    const unreadable = await doctor(cfg, { clientConfigPath: dir });
+    assert.equal(unreadable.exitCode, 1);
+    const read = unreadable.checks.find((c) => c.code === 'client.config');
+    assert.equal(read?.status, 'error');
+    assert.match(read?.message ?? '', /could not be read \(EISDIR\)/);
+    assert.ok(!renderDoctor(unreadable).includes(dir));
+    const broken = join(dir, 'broken.json');
+    writeFileSync(broken, '{\n  "provider": {\n    "authorization": Bearer SK-FAKE-SECRET-123\n  }\n}\n');
+    const invalid = await doctor(cfg, { clientConfigPath: broken });
+    assert.equal(invalid.exitCode, 1);
+    const syntax = invalid.checks.find((c) => c.code === 'client.config');
+    assert.equal(syntax?.status, 'error');
+    assert.match(syntax?.message ?? '', /not valid JSON\/JSONC \(line 3, column \d+\)/);
+    assert.match(syntax?.fix ?? '', /editor/);
+    assert.doesNotMatch(renderDoctor(invalid), /SK-FAKE-SECRET|Bearer|authorization|broken\.json/);
+    for (const [code, shown] of [['UNKNOWN', 'UNKNOWN'], ['ERR_FS_FILE_TOO_LARGE', 'ERR_FS_FILE_TOO_LARGE'], ['bad code SK-FAKE', 'UNKNOWN'], [undefined, 'UNKNOWN']] as const) {
+      mock.method(fs, 'readFileSync', () => { throw Object.assign(new Error(`read failed SK-FAKE-SECRET ${broken}`), { code }); });
+      syncBuiltinESMExports();
+      try {
+        const other = await doctor(cfg, { clientConfigPath: broken });
+        assert.equal(other.exitCode, 1);
+        const failed = other.checks.find((c) => c.code === 'client.config');
+        assert.equal(failed?.status, 'error');
+        assert.equal(failed?.message, `Client configuration file could not be read (${shown}).`);
+        assert.doesNotMatch(renderDoctor(other), /SK-FAKE|broken\.json/);
+      } finally { mock.restoreAll(); syncBuiltinESMExports(); }
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('doctor warns when upstream.headers is set without listen.token, without printing secrets', async () => {

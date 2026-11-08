@@ -20,7 +20,9 @@ async function withTmp(f: (dir: string) => Promise<void>): Promise<void> {
 
 test('serve, count and status keep their usage-error contract through main', () =>
   withTmp(async (dir) => {
-    for (const argv of [['serve', '--frob'], ['serve', 'extra'], ['count'], ['count', 'a.json', 'b.json'], ['status', '--frob']]) {
+    for (const argv of [['serve', '--frob'], ['serve', 'extra'], ['count'], ['count', 'a.json', 'b.json'], ['status', '--frob'],
+      ['status', '--timeout-ms', 'abc'], ['status', '--timeout-ms', '-5'], ['status', '--timeout-ms', '10001'],
+      ['status', '--url', 'not a url'], ['status', '--url', 'notaurl'], ['status', '--url', 'ftp://u:secret@h/status']]) {
       const r = await run(argv, dir);
       assert.equal(r.code, 2, argv.join(' '));
       assert.match(r.err, /^kitzur: /, argv.join(' '));
@@ -32,10 +34,10 @@ test('serve, count and status keep their usage-error contract through main', () 
     const notChat = await run(['count', 'nope.json', '--state-dir', dir], dir);
     assert.equal(notChat.code, 2);
     assert.match(notChat.err, /nope\.json: not a chat request/);
-    // an unparseable --url is a runtime failure (exit 1), not a usage error
-    const badUrl = await run(['status', '--url', 'not a url'], dir);
-    assert.equal(badUrl.code, 1);
-    assert.match(badUrl.err, /^kitzur: cannot reach not a url: /);
+    assert.match((await run(['status', '--timeout-ms', 'abc'], dir)).err, /--timeout-ms must be an integer from 1 to 10000\n/);
+    const badUrl = await run(['status', '--url', 'ftp://u:secret@h/status'], dir);
+    assert.match(badUrl.err, /--url must be an http\(s\) URL such as http:\/\/127\.0\.0\.1:8270\/status\n/);
+    assert.doesNotMatch(badUrl.err, /secret|cannot reach|nothing answered/);
   }));
 
 test('serve loads the runtime log from its new directory and exits 2 without an upstream origin', () =>
@@ -92,4 +94,47 @@ test('count without model profiles reports root in JSON and text', () =>
     assert.equal((JSON.parse(j.out) as { profile: string }).profile, 'root');
     const t = await run(['count', 'r.json', '--estimate', '--state-dir', dir], dir);
     assert.match(t.out, /^r\.json: \d+ tokens \(estimate, template [^,)]+, profile root\)\n/);
+  }));
+
+test('count rejects a request with an empty messages array as a usage error', () =>
+  withTmp(async (dir) => {
+    writeFileSync(join(dir, 'empty.json'), JSON.stringify({ messages: [] }));
+    const r = await run(['count', 'empty.json', '--estimate', '--state-dir', dir], dir);
+    assert.equal(r.code, 2);
+    assert.equal(r.out, '');
+    assert.match(r.err, /^kitzur: .*empty\.json: the request has no messages; pass a captured Chat Completions body with at least one message\n/);
+  }));
+
+test('count names the message the chat template rejects, as a usage error', () =>
+  withTmp(async (dir) => {
+    const cases: [unknown[], number, RegExp][] = [
+      [[{ role: 'user', content: 'hi' }, { role: 'bogus', content: 'x' }], 1, /Unexpected message role\. The model's chat template rejects this request/],
+      [[{ role: 'user', content: 12 }], 0, /Unexpected content type\. The model's chat template rejects this request/],
+      [[null, 'str'], 0, /is not a message object \(expected \{role, content\}\); fix or remove it/],
+    ];
+    for (const [messages, i, msg] of cases) {
+      writeFileSync(join(dir, 'bad.json'), JSON.stringify({ messages }));
+      const r = await run(['count', 'bad.json', '--estimate', '--state-dir', dir], dir);
+      assert.equal(r.code, 2, r.err);
+      assert.equal(r.out, '');
+      assert.match(r.err, new RegExp(`^kitzur: .*bad\\.json: messages\\[${i}\\]`));
+      assert.match(r.err, msg);
+      assert.doesNotMatch(r.err, /Cannot read properties/);
+    }
+  }));
+
+test('count warns when the config would be refused by serve but keeps its result', () =>
+  withTmp(async (dir) => {
+    writeFileSync(join(dir, 'kitzur.json'), JSON.stringify({ budget: { window: 300 } }));
+    writeFileSync(join(dir, 'r.json'), JSON.stringify({ max_tokens: 100, messages: [{ role: 'user', content: 'hi' }] }));
+    const j = await run(['count', 'r.json', '--config', 'kitzur.json', '--estimate', '--json', '--state-dir', dir], dir);
+    assert.equal(j.code, 0, j.err);
+    assert.ok((JSON.parse(j.out) as { budget: number }).budget < 0);
+    assert.match(j.err, /kitzur: warn: config would be refused by serve: no room for the prompt: budget = window 300/);
+    const ok = await run(['count', 'r.json', '--estimate', '--state-dir', dir], dir);
+    assert.doesNotMatch(ok.err, /would be refused/);
+    writeFileSync(join(dir, 'ca.json'), JSON.stringify({ upstream: { caFile: 'missing-ca.pem' } }));
+    const ca = await run(['count', 'r.json', '--config', 'ca.json', '--estimate', '--state-dir', dir], dir);
+    assert.equal(ca.code, 0, ca.err);
+    assert.match(ca.err, /kitzur: warn: config would be refused by serve: upstream\.caFile: file not found: /);
   }));

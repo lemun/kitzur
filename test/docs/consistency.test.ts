@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT } from '../helpers.js';
+import { USAGE } from '../../src/cli/usage.js';
 
 const readme = readFileSync(join(ROOT, 'README.md'), 'utf8');
 const { engines } = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
@@ -26,6 +27,20 @@ test('README relative links resolve to existing files', () => {
     if (/^[a-z][a-z\d+.-]*:/i.test(target!) || target!.startsWith('#')) continue;
     const path = decodeURIComponent(target!.split(/[?#]/)[0]!);
     assert.ok(existsSync(join(ROOT, path)), `README.md: ${target}`);
+  }
+});
+
+test('README Commands block lists every command in kitzur --help', () => {
+  const block = /### Commands[\s\S]*?```text\n([\s\S]*?)```/.exec(readme)?.[1];
+  assert.ok(block, 'README must have a Commands text block');
+  const commands = USAGE.split('\n\n')[1]!.split('\n').flatMap((l) => {
+    const m = /^ {2}(\S+)(?: (init|show|validate|import-eval|export-opencode)\b)?/.exec(l);
+    return m ? [m[2] ? `${m[1]} ${m[2]}` : m[1]!] : [];
+  });
+  for (const cmd of new Set([...commands, 'help'])) {
+    const [name, sub] = cmd.split(' ');
+    const re = new RegExp(sub ? `^kitzur ${name} \\S*\\b${sub}\\b` : `^kitzur ${name}\\b`, 'm');
+    assert.match(block, re, `README Commands block must list kitzur ${cmd}`);
   }
 });
 

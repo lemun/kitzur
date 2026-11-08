@@ -2,7 +2,8 @@
 // compilation, the trigger/target rules, the budget-mode conflict, an unusable budget, and the
 // startup warnings (clamp unreachable, one snapshot per epoch, T_plan below the client's
 // output, a window that does not match its preset). Pure; file checks are opt-in (`checkFiles`).
-import { existsSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, statSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { loadTokenizerCached } from '../tokenize/load.js';
 import { stateDirOf } from './paths.js';
 import { templateTokenizerWarning } from '../tokenize/template.js';
@@ -349,11 +350,32 @@ export function validateConfig(cfg: Config, opts: ValidateOptions = {}): Validat
         const warning = templateTokenizerWarning(cfg.tokenizer.template.name, loadTokenizerCached(cfg.tokenizer.path, cfg.tokenizer.cachePath, { stateDir: stateDirOf(cfg) }));
         if (warning) warnings.push(warning);
       } catch {
-        warnings.push('tokenizer.path: file could not be loaded as a supported tokenizer; counting falls back to the estimate');
+        warnings.push(
+          `tokenizer.path: ${cfg.tokenizer.path} could not be loaded as a supported tokenizer${src(prov, 'tokenizer.path')}; counting falls back to the estimate ` +
+            "(point --tokenizer or tokenizer.path at the model's tokenizer.json)",
+        );
       }
+    }
+    // the effective dir: a first run with no stateDir set still writes to the default one
+    const stateDir = stateDirOf(cfg);
+    if (!writableDir(stateDir)) {
+      warnings.push(`stateDir: ${stateDir} is not writable${src(prov, 'stateDir')}; learned limits are not kept. Pass --state-dir DIR or set stateDir to a writable directory`);
     }
   }
   return { errors, warnings };
+}
+
+/** A directory that exists and is writable, or can be created below its nearest existing ancestor. */
+function writableDir(dir: string): boolean {
+  let p = dir;
+  while (!existsSync(p) && dirname(p) !== p) p = dirname(p);
+  try {
+    if (!statSync(p).isDirectory()) return false;
+    accessSync(p, constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function nearestPreset(window: number): string {

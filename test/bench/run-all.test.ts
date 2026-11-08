@@ -2,6 +2,9 @@
 // never reported), G7 / G9 from B2's latency.json / fuzz.json, the benchmark contract sweep selection.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { join } from 'node:path';
+import { ROOT } from '../helpers.js';
 import { parseArgs, quickFilter } from '../../bench/run-all.js';
 import { applyManifest, buildReport, gateG7, gateG9, sweepRows } from '../../bench/report.js';
 import type { Cell } from '../../bench/matrix.js';
@@ -17,6 +20,41 @@ test('run-all flags', () => {
   assert.ok(!o.phases.includes('crosscheck'));
   assert.deepEqual(parseArgs([]).phases, ['crosscheck', 'matrix', 'ablations', 'sweep', 'fuzz', 'latency', 'report']);
   assert.throws(() => parseArgs(['--phases', 'nope']), /unknown phase/);
+});
+
+test('run-all rejects a misspelled flag, a bad --workers or --tier and a flag without its value', () => {
+  const ok = ['--quick', '--tier', 'T1,T2', '--only', 'kitzur/*/100k', '--resume', '--workers', '2', '--keep-bodies',
+    '--phases', 'matrix,report', '--no-crosscheck', '--snapshot', '--prune', '--results-dir', 'r', '--raw-dir', 'w'];
+  const o = parseArgs(ok);
+  assert.equal(o.workers, 2);
+  assert.equal(o.keepBodies, true);
+  assert.equal(o.snapshot, true);
+  assert.equal(o.prune, true);
+  assert.equal(o.resultsDir, 'r');
+  assert.equal(o.rawDir, 'w');
+  assert.deepEqual(o.phases, ['matrix', 'report']);
+  assert.throws(() => parseArgs(['--quik']), /unknown flag --quik .*--quick --tier --only --resume --workers --keep-bodies --phases --no-crosscheck --snapshot --prune --results-dir --raw-dir/);
+  assert.throws(() => parseArgs(['extra']), /unknown flag extra/);
+  for (const w of ['abc', '0', '-1', '1.5', '2x', '9007199254740993', '1' + '0'.repeat(400)]) assert.throws(() => parseArgs(['--workers', w]), /--workers must be a positive integer/, w);
+  assert.throws(() => parseArgs(['--tier', 'T9']), /unknown tier T9/);
+  assert.throws(() => parseArgs(['--tier', 'T1,']), /unknown tier/);
+  for (const f of ['--tier', '--only', '--workers', '--phases', '--results-dir', '--raw-dir']) {
+    assert.throws(() => parseArgs([f]), new RegExp(`${f} needs a value`));
+    assert.throws(() => parseArgs([f, '--quick']), new RegExp(`${f} needs a value`));
+  }
+});
+
+test('kitzur bench prints one line, not a stack: exit 2 on a bad flag, 1 without a tokenizer', () => {
+  const entry = join(ROOT, 'dist', 'bench', 'run-all.js');
+  const bad = spawnSync(process.execPath, [entry, '--quik'], { encoding: 'utf8', timeout: 15_000 });
+  assert.equal(bad.status, 2, bad.stderr);
+  assert.match(bad.stderr, /^kitzur bench: unknown flag --quik/);
+  assert.ok(!/^ {4}at /m.test(bad.stderr), bad.stderr);
+  const env = { ...process.env, KITZUR_BENCH_TOKENIZER: join(ROOT, 'bench', '.cache', 'no-such-tokenizer.json') };
+  const tok = spawnSync(process.execPath, [entry, '--phases', 'report'], { encoding: 'utf8', timeout: 15_000, env });
+  assert.equal(tok.status, 1, tok.stderr);
+  assert.match(tok.stderr, /no tokenizer\.json/);
+  assert.ok(!/^ {4}at /m.test(tok.stderr), tok.stderr);
 });
 
 test('--quick: kitzur at 100k, comparators on the reference variants, G8 on qa46 at 32k/64k', () => {

@@ -178,6 +178,12 @@ history is available even without a stats file and resets on restart.
 |---|---|---|
 | OpenAI Chat Completions only | OpenCode example; any compatible client | Local or intranet model with a known served window |
 
+| Platform | Supported | Notes |
+|---|---|---|
+| Node.js | 22, 24, 26 | Tested in CI on Linux and Windows; `kitzur doctor` warns on older versions |
+| Windows | 10, 11 | No administrator rights needed |
+| macOS, Linux | Yes | |
+
 Anthropic Messages and OpenAI Responses are unsupported. Choose Kitzur when the
 server's actual context limit matters more than broader protocol coverage.
 
@@ -282,11 +288,16 @@ kitzur doctor [--json]               diagnose setup (--check-upstream for a smal
 kitzur report stats.jsonl [--json]   summarize request reduction, retries and timing
 kitzur config init|show|validate      create or inspect configuration
 kitzur config import-eval DIR        import gateway probe results as configuration
+kitzur config export-opencode --model ID  print an OpenCode config for the model profiles
 kitzur replay FILE|DIR               replay captured request bodies locally
 kitzur count request.json            count a request
+kitzur redact FILE|DIR               copy request bodies with text replaced by same-length filler
+kitzur tls-probe [origin]            inspect the TLS chain
+kitzur autostart install|remove|status  per-user Windows login startup
 kitzur state show|reset              inspect or clear learned limits
 kitzur bench [--quick]               run benchmarks from a development checkout
 kitzur version                       print the installed version
+kitzur help <command>                print one command's usage
 ```
 
 Status is available at `/status` and `/kitzur/status`. State defaults to

@@ -5,8 +5,9 @@ import type { EngineResult } from '../../types.js';
 import { UsageError, type CliIO } from '../io.js';
 import { CONFIG_OPTS, MODEL_OPT, checkModelOverride, loadFromArgs, parseArgs, selectProfile } from '../args.js';
 import type { Config } from '../../config/schema.js';
-import { collectRequests } from '../requests.js';
+import { CHAT_BODY_HINT, collectRequests } from '../requests.js';
 import { renderRetention } from '../explain.js';
+import { validateConfig } from '../../config/validate.js';
 
 export async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
   const p = parseArgs(argv, { ...CONFIG_OPTS, ...MODEL_OPT, json: { type: 'boolean' }, explain: { type: 'boolean' }, 'explain-limit': { type: 'string' }, 'no-fresh': { type: 'boolean' } });
@@ -18,6 +19,9 @@ export async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
   const cfg = l.config;
   const log = createLogger(cfg.logLevel === 'debug' ? 'debug' : 'warn', io.stderr);
   const reqs = collectRequests(p.positionals, io.cwd);
+  if (!reqs.length) throw new UsageError(`no request files found in ${p.positionals.join(' ')}; pass a captured Chat Completions body or a directory of .json/.jsonl captures`);
+  // replay still runs, but say so when serve would refuse this config
+  for (const e of validateConfig(cfg, { provenance: l.provenance, checkFiles: true }).errors) io.stderr(`kitzur: warn: config would be refused by serve: ${e}\n`);
   const modelArg = p.values['model'] as string | undefined;
   checkModelOverride(l, modelArg);
   const live = await buildEngine(cfg, { log, modules: io.modules, env: io.env });
@@ -40,7 +44,7 @@ export async function cmdReplay(argv: string[], io: CliIO): Promise<number> {
   const fingerprint = (r: EngineResult): string => canonicalJSON({ request: r.request, maxTokens: r.maxTokens, error: r.error ?? null });
   for (const [i, { label, req }] of reqs.entries()) {
     if (!req) {
-      rows.push({ i: i + 1, file: label, error: 'not a chat request' });
+      rows.push({ i: i + 1, file: label, error: `not a chat request; ${CHAT_BODY_HINT}` });
       failures++;
       continue;
     }

@@ -24,11 +24,16 @@ Copy `kitzur-<version>-offline.tar.gz` and `SHA256SUMS` to the deployment host, 
 sha256sum -c --ignore-missing SHA256SUMS
 mkdir -p ~/.local/lib && tar -xzf kitzur-<version>-offline.tar.gz -C ~/.local/lib
 mv ~/.local/lib/kitzur-<version> ~/.local/lib/kitzur        # the unit expects this path
-(cd ~/.local/lib/kitzur && sha256sum -c SHA256SUMS)          # every file of the bundle
-node --version                                                # v20 or newer
+node ~/.local/lib/kitzur/deploy/verify-bundle.mjs ~/.local/lib/kitzur   # every file, Node version, CLI smoke test
 mkdir -p ~/.local/bin && ln -sf ~/.local/lib/kitzur/dist/src/cli.js ~/.local/bin/kitzur
 kitzur version
 ```
+
+To verify an extracted bundle, run `node deploy/verify-bundle.mjs <folder>`. It needs only Node.js 22 (no
+shell, no network, Windows paths work), prints one PASS or FAIL line per check (Node version, every file
+against the bundle's `SHA256SUMS`, no unlisted or forbidden files, imports, the bundled CLI runs) and exits 0
+only when all pass. `--archive FILE --sums SHA256SUMS` also checks the archive, e.g. for the Windows ZIP:
+`node C:\Kitzur\deploy\verify-bundle.mjs C:\Kitzur --archive kitzur-<version>-windows.zip --sums kitzur-<version>-windows.zip.sha256`.
 
 `~/.local/bin` must be on your `PATH` for the `kitzur` command; otherwise run
 `node ~/.local/lib/kitzur/dist/src/cli.js`.

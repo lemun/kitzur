@@ -1,13 +1,16 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { validateConfig } from '../../config/validate.js';
 import { computeBudget } from '../../config/derived.js';
 import { DEFAULT_LEAVES, getPath } from '../../config/spec.js';
-import { renderInitConfig } from '../../config/init.js';
+import { parseInitModels, renderInitConfig, type InitModel } from '../../config/init.js';
+import { ConfigError, loadConfig } from '../../config/load.js';
+import { parseJsonc } from '../../config/jsonc.js';
 import { packageInfo } from '../../config/paths.js';
 import { exportOpenCode } from '../../config/export-opencode.js';
 import { UsageError, type CliIO } from '../io.js';
-import { CONFIG_OPTS, loadFromArgs, parseArgs } from '../args.js';
+import { CONFIG_OPTS, checkModelOverride, loadFromArgs, parseArgs } from '../args.js';
 import { derivedLines, display, maskedConfig } from '../format.js';
 import { cmdImportEval } from './import-eval.js';
 import { isAutoWindow } from '../../config/window.js';
@@ -20,32 +23,62 @@ export async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
       const model = p.values['model'];
       if (typeof model !== 'string' || !model) throw new UsageError('config export-opencode needs --model ID');
       const l = loadFromArgs(p, io);
+      checkModelOverride(l, model);
+      checkModelOverride(l, p.values['small-model'] as string | undefined);
       io.stdout(exportOpenCode(l.config, l.models, { model, smallModel: p.values['small-model'] as string | undefined, provider: p.values['provider'] as string | undefined, keyEnv: p.values['key-env'] as string | undefined }));
       return 0;
     }
     case 'init': {
-      const p = parseArgs(rest, { preset: { type: 'string', short: 'p' }, out: { type: 'string', short: 'o' }, force: { type: 'boolean' }, upstream: { type: 'string' }, tokenizer: { type: 'string' } });
+      const p = parseArgs(rest, { preset: { type: 'string', short: 'p' }, out: { type: 'string', short: 'o' }, force: { type: 'boolean' }, upstream: { type: 'string' }, tokenizer: { type: 'string' }, model: { type: 'string', multiple: true }, 'dry-run': { type: 'boolean' } });
       const tokenizerArg = p.values['tokenizer'] as string | undefined;
+      let models: InitModel[];
+      try {
+        models = parseInitModels((p.values['model'] as string[] | undefined) ?? []);
+      } catch (e) {
+        throw new UsageError(`config init: ${(e as Error).message}`);
+      }
       const text = renderInitConfig((p.values['preset'] as string | undefined) ?? '100k', {
         upstream: p.values['upstream'] as string | undefined,
         // a `~/` path is kept for the config loader; others are relative to the shell's directory, not to the written file's
         tokenizer: tokenizerArg === undefined || tokenizerArg === '' ? undefined : tokenizerArg.startsWith('~/') ? tokenizerArg : resolve(io.cwd, tokenizerArg),
+        models,
       });
-      const out = (p.values['out'] as string | undefined) ?? 'kitzur.config.jsonc';
+      if (models.length) {
+        // a window the preset cannot hold (no room for the prompt) is refused here, not by a later config validate
+        let bad: string[];
+        try {
+          const l = loadConfig({ object: parseJsonc(text) as Record<string, unknown>, env: {}, cwd: io.cwd });
+          bad = models.flatMap((m) => validateConfig(l.models[m.id]!).errors.map((e) => `models[${JSON.stringify(m.id)}]: ${e}`));
+        } catch (e) {
+          if (!(e instanceof ConfigError)) throw e;
+          bad = e.issues;
+        }
+        if (bad.length) throw new UsageError(`config init --model: ${bad.join('; ')}; pass a larger window, or omit =WINDOW to inherit the preset's`);
+      }
+      let out = (p.values['out'] as string | undefined) ?? 'kitzur.config.jsonc';
+      // PowerShell and cmd pass a leading ~ through unexpanded (as does a quoted ~ in any shell)
+      if (out === '~' || out.startsWith('~/') || (process.platform === 'win32' && out.startsWith('~\\'))) out = resolve(homedir(), out.slice(2));
       if (out === '-') {
         io.stdout(text);
         return 0;
       }
       const path = resolve(io.cwd, out);
-      if (existsSync(path) && !p.values['force']) {
+      const exists = existsSync(path);
+      const todo = [p.values['upstream'] ? '' : 'upstream.origin', tokenizerArg ? '' : 'tokenizer.path'].filter(Boolean);
+      const next = `next: ${todo.length ? `set ${todo.join(' and ')}, then: ` : ''}kitzur config validate --config ${out}\n`;
+      if (p.values['dry-run']) {
+        const state = !exists ? 'new' : p.values['force'] ? 'exists: would overwrite, --force' : 'exists: refused without --force';
+        io.stdout(`would write ${path} (${state})\n${text}${next}`);
+        return exists && !p.values['force'] ? 1 : 0;
+      }
+      if (exists && !p.values['force']) {
         io.stderr(`kitzur: ${path} exists (use --force to overwrite)\n`);
         return 1;
       }
       // the README's `--out ~/.config/kitzur/kitzur.jsonc` on a fresh host: the directory does not exist yet
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, text);
-      const todo = [p.values['upstream'] ? '' : 'upstream.origin', tokenizerArg ? '' : 'tokenizer.path'].filter(Boolean);
-      io.stdout(`wrote ${path}\nnext: ${todo.length ? `set ${todo.join(' and ')}, then: ` : ''}kitzur config validate --config ${out}\n`);
+      io.stdout(`wrote ${path}\n${next}`);
       return 0;
     }
     case 'show': {
@@ -75,6 +108,10 @@ export async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
       for (const id of profiles) {
         const cfg = l.models[id]!;
         io.stdout(`\n# model ${id}${isAutoWindow(cfg) ? ` (auto (fallback ${cfg.budget.window}))` : ''}\n` + derivedLines(cfg).slice(1).join('\n') + '\n');
+        const prefix = `models[${JSON.stringify(id)}].`;
+        for (const k of Object.keys(l.provenance).filter((k) => k.startsWith(prefix)).sort()) {
+          io.stdout(`${k} = ${display(k.slice(prefix.length), getPath(cfg, k.slice(prefix.length)), p.values['full'] === true)}   (${l.provenance[k]})\n`);
+        }
       }
       for (const x of [...l.warnings, ...v.warnings]) io.stdout(`# warning: ${x}\n`);
       for (const x of v.errors) io.stdout(`# ERROR: ${x}\n`);
@@ -83,9 +120,11 @@ export async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
     case 'validate': {
       const p = parseArgs(rest, { ...CONFIG_OPTS, model: { type: 'string' }, json: { type: 'boolean' } });
       const l = loadFromArgs(p, io);
+      const selected = p.values['model'] as string | undefined;
+      checkModelOverride(l, selected);
       const v = validateConfig(l.config, { provenance: l.provenance, checkFiles: true });
       const warnings = [...l.warnings, ...v.warnings];
-      const errors = Object.keys(l.models).flatMap((id) => validateConfig(l.models[id]!, { checkFiles: true }).errors.map((e) => `models[${JSON.stringify(id)}]: ${e}`));
+      const errors = (selected === undefined ? Object.keys(l.models) : [selected]).flatMap((id) => validateConfig(l.models[id]!, { checkFiles: true }).errors.map((e) => `models[${JSON.stringify(id)}]: ${e}`));
       if (p.values['json']) io.stdout(JSON.stringify({ ok: errors.length === 0 && v.errors.length === 0, errors: [...v.errors, ...errors], warnings }, null, 1) + '\n');
       else {
         for (const e of v.errors) io.stdout(`error: ${e}\n`);
