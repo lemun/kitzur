@@ -172,20 +172,20 @@ test('presets: the shipped names', () => {
 });
 
 test('expandPath: ~ and ~/ are home on both platforms; ~\\ only on Windows', () => {
-  assert.equal(expandPath('~', '/cfg', 'linux', '/home/u'), '/home/u');
-  assert.equal(expandPath('~/a', '/cfg', 'linux', '/home/u'), '/home/u/a');
-  assert.equal(expandPath('~\\a', '/cfg', 'linux', '/home/u'), '/cfg/~\\a', 'a legal relative name on POSIX');
-  assert.equal(expandPath('~', 'C:\\cfg', 'win32', 'C:\\Users\\u'), 'C:\\Users\\u');
-  assert.equal(expandPath('~/a', 'C:\\cfg', 'win32', 'C:\\Users\\u'), 'C:\\Users\\u\\a');
-  assert.equal(expandPath('~\\Kitzur\\ca.pem', 'C:\\cfg', 'win32', 'C:\\Users\\u'), 'C:\\Users\\u\\Kitzur\\ca.pem');
+  assert.equal(expandPath('~', '/cfg', 'linux', '/home/user'), '/home/user');
+  assert.equal(expandPath('~/a', '/cfg', 'linux', '/home/user'), '/home/user/a');
+  assert.equal(expandPath('~\\a', '/cfg', 'linux', '/home/user'), '/cfg/~\\a', 'a legal relative name on POSIX');
+  assert.equal(expandPath('~', 'C:\\cfg', 'win32', 'C:\\Users\\user'), 'C:\\Users\\user');
+  assert.equal(expandPath('~/a', 'C:\\cfg', 'win32', 'C:\\Users\\user'), 'C:\\Users\\user\\a');
+  assert.equal(expandPath('~\\Kitzur\\ca.pem', 'C:\\cfg', 'win32', 'C:\\Users\\user'), 'C:\\Users\\user\\Kitzur\\ca.pem');
 });
 
 test('expandPath: absolute kept, relative joined to the base, empty and non-strings untouched', () => {
-  assert.equal(expandPath('/etc/ca.pem', '/cfg', 'linux', '/home/u'), '/etc/ca.pem');
-  assert.equal(expandPath('certs/ca.pem', '/cfg', 'linux', '/home/u'), '/cfg/certs/ca.pem');
-  assert.equal(expandPath('D:\\ca.pem', 'C:\\cfg', 'win32', 'C:\\Users\\u'), 'D:\\ca.pem');
-  assert.equal(expandPath('certs\\ca.pem', 'C:\\cfg', 'win32', 'C:\\Users\\u'), 'C:\\cfg\\certs\\ca.pem');
-  assert.equal(expandPath('', '/cfg', 'linux', '/home/u'), '');
-  assert.equal(expandPath(42, '/cfg', 'win32', 'C:\\Users\\u'), 42);
-  assert.equal(expandPath(null, '/cfg', 'linux', '/home/u'), null);
+  assert.equal(expandPath('/etc/ca.pem', '/cfg', 'linux', '/home/user'), '/etc/ca.pem');
+  assert.equal(expandPath('certs/ca.pem', '/cfg', 'linux', '/home/user'), '/cfg/certs/ca.pem');
+  assert.equal(expandPath('D:\\ca.pem', 'C:\\cfg', 'win32', 'C:\\Users\\user'), 'D:\\ca.pem');
+  assert.equal(expandPath('certs\\ca.pem', 'C:\\cfg', 'win32', 'C:\\Users\\user'), 'C:\\cfg\\certs\\ca.pem');
+  assert.equal(expandPath('', '/cfg', 'linux', '/home/user'), '');
+  assert.equal(expandPath(42, '/cfg', 'win32', 'C:\\Users\\user'), 42);
+  assert.equal(expandPath(null, '/cfg', 'linux', '/home/user'), null);
 });
