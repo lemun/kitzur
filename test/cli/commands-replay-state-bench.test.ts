@@ -38,6 +38,32 @@ test('replay over a tiny synthetic request prints sizes only and exits 0', () =>
     assert.match((await run(['replay'], dir)).err, /replay needs a file or directory/);
   }));
 
+test('replay of an empty directory or an empty array file is a usage error', () =>
+  withTmp(async (dir) => {
+    mkdirSync(join(dir, 'empty'));
+    writeFileSync(join(dir, 'empty.json'), '[]');
+    for (const target of ['empty', 'empty.json']) {
+      for (const extra of [[], ['--json']]) {
+        const r = await run(['replay', target, '--state-dir', dir, ...extra], dir);
+        assert.equal(r.code, 2, r.err);
+        assert.equal(r.out, '');
+        assert.match(r.err, new RegExp(`no request files found in ${target}; pass a captured Chat Completions body or a directory of \\.json/\\.jsonl captures`));
+      }
+    }
+  }));
+
+test('replay warns when serve would refuse the config, without changing the result', () =>
+  withTmp(async (dir) => {
+    writeFileSync(join(dir, 'r.json'), JSON.stringify({ model: 'm', max_tokens: 100, messages: [{ role: 'user', content: 'hi' }] }));
+    writeFileSync(join(dir, 'kitzur.json'), JSON.stringify({ budget: { window: 300 } }));
+    const r = await run(['replay', 'r.json', '--config', 'kitzur.json', '--json', '--no-fresh', '--state-dir', dir], dir);
+    assert.match(r.err, /kitzur: warn: config would be refused by serve: .*no room for the prompt/);
+    assert.equal(JSON.parse(r.out).requests.length, 1);
+    const ok = await run(['replay', 'r.json', '--json', '--no-fresh', '--state-dir', dir], dir);
+    assert.ok(!ok.err.includes('would be refused'), ok.err);
+    assert.equal(r.code, ok.code);
+  }));
+
 test('state show and reset on an empty state directory', () =>
   withTmp(async (dir) => {
     const show = await run(['state', 'show', '--state-dir', dir], dir);
