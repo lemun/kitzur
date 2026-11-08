@@ -11,6 +11,9 @@ export async function cmdState(argv: string[], io: CliIO): Promise<number> {
     throw new UsageError(sub ? `unknown state command '${sub}' (show, reset)` : 'state needs a subcommand: show, reset');
   }
   const p = parseArgs(rest, { ...CONFIG_OPTS, key: { type: 'string' }, json: { type: 'boolean' }, plans: { type: 'boolean' } });
+  if (p.positionals.length) {
+    throw new UsageError(`state ${sub} takes no arguments (got ${p.positionals.join(' ')}); use --key K to select one entry`);
+  }
   const cfg = loadFromArgs(p, io).config;
   const dir = stateDirOf(cfg, io.env);
   const st = await importState();
