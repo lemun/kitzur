@@ -7,7 +7,7 @@
 // directory; paths from env or CLI are relative to the working directory. A leading '~/' means $HOME.
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { dirname, posix, resolve, win32 } from 'node:path';
 import { buildModelProfiles, modelLeafError, takeModelLayer, validModelId, type ModelOverrides } from './models.js';
 import { checkLeaf } from './validate.js';
 import { enableAutoWindow } from './window.js';
@@ -195,10 +195,12 @@ export function parseRawValue(spec: LeafSpec, raw: string): unknown {
   }
 }
 
-function expandPath(p: unknown, base: string): unknown {
+/** '~' and '~/x' are the home directory; on Windows '~\\x' too (on POSIX it is a legal relative name). */
+export function expandPath(p: unknown, base: string, platform: NodeJS.Platform = process.platform, home: string = homedir()): unknown {
   if (typeof p !== 'string' || p === '') return p;
-  if (p === '~' || p.startsWith('~/')) return resolve(homedir(), p.slice(2));
-  return isAbsolute(p) ? p : resolve(base, p);
+  const path = platform === 'win32' ? win32 : posix;
+  if (p === '~' || p.startsWith('~/') || (platform === 'win32' && p.startsWith('~\\'))) return path.resolve(home, p.slice(2));
+  return path.isAbsolute(p) ? p : path.resolve(base, p);
 }
 
 /**
