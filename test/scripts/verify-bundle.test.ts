@@ -1,13 +1,21 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, sep } from 'node:path';
 import { ROOT } from '../helpers.js';
 
-const sha = (data: string | Buffer) => createHash('sha256').update(data).digest('hex');
+const temps: string[] = [];
+after(() => { for (const d of temps) rmSync(d, { recursive: true, force: true }); });
+function tempDir(prefix: string) {
+  const d = mkdtempSync(join(tmpdir(), prefix));
+  temps.push(d);
+  return d;
+}
+
+const sha =(data: string | Buffer) => createHash('sha256').update(data).digest('hex');
 const verify = (...args: string[]) =>
   spawnSync(process.execPath, [join(ROOT, 'deploy', 'verify-bundle.mjs'), ...args], { encoding: 'utf8' });
 
@@ -23,7 +31,7 @@ function writeManifest(dir: string) {
 }
 
 function fakeBundle(extra: (dir: string) => void = () => {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'kitzur-verify-bundle-'));
+  const dir = tempDir('kitzur-verify-bundle-');
   put(dir, 'package.json', JSON.stringify({ name: 'kitzur', engines: { node: '>=22' }, devDependencies: { typescript: '*' } }));
   put(dir, 'dist/src/cli.js', "#!/usr/bin/env node\nimport { run } from './cli/run.js';\nprocess.exit(run(process.argv.slice(2)));\n");
   put(dir, 'dist/src/cli/run.js', "import '../util.js';\nexport const run = (a) => (a[0] === 'version' || a[0] === 'config' ? 0 : 3);\n");
@@ -36,7 +44,7 @@ function fakeBundle(extra: (dir: string) => void = () => {}) {
 
 test('verify-bundle.mjs passes a complete bundle and its archive checksum', () => {
   const dir = fakeBundle();
-  const out = mkdtempSync(join(tmpdir(), 'kitzur-verify-archive-'));
+  const out = tempDir('kitzur-verify-archive-');
   writeFileSync(join(out, 'kitzur-1.0.0-offline.tar.gz'), 'archive');
   writeFileSync(join(out, 'SHA256SUMS'), `${sha('other')}  kitzur-1.0.0.tgz\n${sha('archive')} *kitzur-1.0.0-offline.tar.gz\n`);
   const res = verify(dir, '--archive', join(out, 'kitzur-1.0.0-offline.tar.gz'), '--sums', join(out, 'SHA256SUMS'));
@@ -47,7 +55,7 @@ test('verify-bundle.mjs passes a complete bundle and its archive checksum', () =
 
 test('verify-bundle.mjs fails a wrong archive checksum', () => {
   const dir = fakeBundle();
-  const out = mkdtempSync(join(tmpdir(), 'kitzur-verify-archive-'));
+  const out = tempDir('kitzur-verify-archive-');
   writeFileSync(join(out, 'kitzur-1.0.0-offline.tar.gz'), 'tampered');
   writeFileSync(join(out, 'SHA256SUMS'), `${sha('archive')}  kitzur-1.0.0-offline.tar.gz\n`);
   const res = verify(dir, '--archive', join(out, 'kitzur-1.0.0-offline.tar.gz'), '--sums', join(out, 'SHA256SUMS'));
@@ -95,4 +103,47 @@ test('verify-bundle.mjs exits 2 on a usage error', () => {
   const res = verify(fakeBundle(), '--bogus');
   assert.equal(res.status, 2);
   assert.match(res.stderr, /^usage: node verify-bundle\.mjs/m);
+});
+
+const noSymlinks = process.platform === 'win32' && 'creating a symlink needs privileges on Windows';
+
+test('verify-bundle.mjs fails a symlinked file without following it', { skip: noSymlinks }, () => {
+  const dir = fakeBundle();
+  symlinkSync('/etc/hosts', join(dir, 'evil-link'));
+  const res = verify(dir);
+  assert.equal(res.status, 1, res.stdout + res.stderr);
+  assert.match(res.stdout, /^FAIL bundle manifest: not a regular file: evil-link$/m);
+  assert.doesNotMatch(res.stdout, /all checks passed/);
+});
+
+test('verify-bundle.mjs fails a symlinked folder without recursing into it', { skip: noSymlinks }, () => {
+  const dir = fakeBundle();
+  const target = tempDir('kitzur-verify-archive-');
+  writeFileSync(join(target, 'secret.txt'), 'x');
+  symlinkSync(target, join(dir, 'dist/src/linkdir'), 'dir');
+  const res = verify(dir);
+  assert.equal(res.status, 1, res.stdout + res.stderr);
+  assert.match(res.stdout, /^FAIL bundle manifest: not a regular file: dist\/src\/linkdir$/m);
+  assert.doesNotMatch(res.stdout, /secret\.txt/);
+  assert.doesNotMatch(res.stderr, /node:fs/);
+});
+
+test('verify-bundle.mjs explains a missing SHA256SUMS', () => {
+  const dir = fakeBundle();
+  rmSync(join(dir, 'SHA256SUMS'));
+  const res = verify(dir);
+  assert.equal(res.status, 1);
+  assert.match(res.stdout, /^FAIL bundle manifest: SHA256SUMS is missing from the bundle folder: the bundle is incomplete or was not extracted whole; download it again$/m);
+  assert.doesNotMatch(res.stdout, /ENOENT/);
+});
+
+test('verify-bundle.mjs explains a missing archive', () => {
+  const dir = fakeBundle();
+  const out = tempDir('kitzur-verify-archive-');
+  const archive = join(out, 'kitzur-1.0.0-offline.tar.gz');
+  writeFileSync(join(out, 'SHA256SUMS'), `${sha('archive')}  kitzur-1.0.0-offline.tar.gz\n`);
+  const res = verify(dir, '--archive', archive, '--sums', join(out, 'SHA256SUMS'));
+  assert.equal(res.status, 1);
+  assert.equal(res.stdout.split('\n').find((l) => l.startsWith('FAIL archive checksum')),
+    `FAIL archive checksum: cannot read ${archive}: no such file; check the --archive and --sums paths`);
 });

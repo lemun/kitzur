@@ -44,11 +44,24 @@ if (!existsSync(dir) || !statSync(dir).isDirectory()) usage(`${dir} is not a fol
 
 const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
 const toPosix = (p) => p.split(sep).join('/');
+// Walks the bundle without following links: release bundles hold regular files only, so a symlink
+// (or any other entry that is not a file or folder) is recorded as irregular and never read or recursed into.
+const irregular = [];
 function listFiles(root) {
   const out = [];
-  for (const e of readdirSync(root, { withFileTypes: true, recursive: true }))
-    if (e.isFile()) out.push(toPosix(relative(dir, join(e.parentPath ?? e.path, e.name))));
+  for (const e of readdirSync(root, { withFileTypes: true })) {
+    const full = join(root, e.name);
+    if (e.isDirectory()) out.push(...listFiles(full));
+    else if (e.isFile()) out.push(toPosix(relative(dir, full)));
+    else irregular.push(toPosix(relative(dir, full)));
+  }
   return out.sort();
+}
+function readArg(file) {
+  try { return readFileSync(file); } catch (err) {
+    const reason = err.code === 'ENOENT' ? 'no such file' : err.code === 'EISDIR' ? 'it is a folder' : err.message;
+    throw new Error(`cannot read ${file}: ${reason}; check the --archive and --sums paths`);
+  }
 }
 
 let failed = 0;
@@ -62,7 +75,12 @@ function check(name, fn) {
 }
 
 const files = listFiles(dir);
-const readPkg = () => JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+irregular.sort();
+const present = new Set(files);
+const readPkg = () => {
+  if (irregular.includes('package.json')) throw new Error('not a regular file: package.json');
+  return JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
+};
 
 check('node version', () => {
   const engine = readPkg().engines?.node ?? '';
@@ -74,22 +92,30 @@ check('node version', () => {
 
 if (archive) check('archive checksum', () => {
   const name = basename(archive);
-  const line = readFileSync(sums, 'utf8').split(/\r?\n/)
+  const line = readArg(sums).toString('utf8').split(/\r?\n/)
     .map((l) => /^([0-9a-fA-F]{64}) [ *](.+)$/.exec(l)).find((m) => m && basename(m[2]) === name);
   if (!line) return [`${name} is not listed in ${sums}`];
-  return sha256(archive) === line[1].toLowerCase() ? [] : [`${name} does not match its SHA256SUMS line`];
+  const digest = createHash('sha256').update(readArg(archive)).digest('hex');
+  return digest === line[1].toLowerCase() ? [] : [`${name} does not match its SHA256SUMS line`];
 });
 
 check('bundle manifest', () => {
-  const problems = [];
+  const problems = irregular.map((f) => `not a regular file: ${f}`);
+  if (!present.has('SHA256SUMS')) {
+    if (!irregular.includes('SHA256SUMS'))
+      problems.push('SHA256SUMS is missing from the bundle folder: the bundle is incomplete or was not extracted whole; download it again');
+    return problems;
+  }
   const listed = new Set();
+  const underIrregular = (f) => irregular.some((i) => f === i || f.startsWith(`${i}/`));
   for (const l of readFileSync(join(dir, 'SHA256SUMS'), 'utf8').split(/\r?\n/)) {
     if (!l) continue;
     const m = /^([0-9a-fA-F]{64}) [ *]\.\/(.+)$/.exec(l);
     if (!m) { problems.push(`unreadable manifest line "${l}"`); continue; }
     listed.add(m[2]);
     const file = join(dir, ...m[2].split('/'));
-    if (!existsSync(file)) problems.push(`missing ${m[2]}`);
+    if (underIrregular(m[2])) continue;
+    if (!present.has(m[2])) problems.push(`missing ${m[2]}`);
     else if (sha256(file) !== m[1].toLowerCase()) problems.push(`changed ${m[2]}`);
   }
   for (const f of files) if (f !== 'SHA256SUMS' && !listed.has(f)) problems.push(`not in the manifest: ${f}`);
@@ -101,7 +127,6 @@ check('package and imports', () => {
   const deps = Object.keys(readPkg().dependencies ?? {});
   if (deps.length) problems.push(`package.json has dependencies: ${deps.join(', ')}`);
   if (!files.includes(BIN)) problems.push(`bin target ${BIN} is missing`);
-  const present = new Set(files);
   for (const f of files.filter((f) => f.startsWith('dist/src/') && f.endsWith('.js'))) {
     const code = readFileSync(join(dir, f), 'utf8');
     for (const [, spec] of code.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)['"](\.{1,2}\/[^'"]+)['"]/g)) {
