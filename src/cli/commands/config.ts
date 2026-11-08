@@ -20,6 +20,7 @@ export async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
   switch (sub) {
     case 'export-opencode': {
       const p = parseArgs(rest, { ...CONFIG_OPTS, model: { type: 'string' }, 'small-model': { type: 'string' }, provider: { type: 'string' }, 'key-env': { type: 'string' } });
+      if (p.positionals.length) throw new UsageError(`config export-opencode takes no arguments (got ${p.positionals.join(' ')})`);
       const model = p.values['model'];
       if (typeof model !== 'string' || !model) throw new UsageError('config export-opencode needs --model ID');
       const l = loadFromArgs(p, io);
@@ -30,6 +31,7 @@ export async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
     }
     case 'init': {
       const p = parseArgs(rest, { preset: { type: 'string', short: 'p' }, out: { type: 'string', short: 'o' }, force: { type: 'boolean' }, upstream: { type: 'string' }, tokenizer: { type: 'string' }, model: { type: 'string', multiple: true }, 'dry-run': { type: 'boolean' } });
+      if (p.positionals.length) throw new UsageError(`config init takes no arguments (got ${p.positionals.join(' ')})`);
       const tokenizerArg = p.values['tokenizer'] as string | undefined;
       let models: InitModel[];
       try {
@@ -83,6 +85,7 @@ export async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
     }
     case 'show': {
       const p = parseArgs(rest, { ...CONFIG_OPTS, model: { type: 'string' }, json: { type: 'boolean' }, changed: { type: 'boolean' }, full: { type: 'boolean' } });
+      if (p.positionals.length) throw new UsageError(`config show takes no arguments (got ${p.positionals.join(' ')})`);
       const l = loadFromArgs(p, io);
       const v = validateConfig(l.config, { provenance: l.provenance });
       const ids = Object.keys(l.models).sort();
@@ -119,6 +122,7 @@ export async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
     }
     case 'validate': {
       const p = parseArgs(rest, { ...CONFIG_OPTS, model: { type: 'string' }, json: { type: 'boolean' } });
+      if (p.positionals.length) throw new UsageError(`config validate takes no arguments (got ${p.positionals.join(' ')})`);
       const l = loadFromArgs(p, io);
       const selected = p.values['model'] as string | undefined;
       checkModelOverride(l, selected);
