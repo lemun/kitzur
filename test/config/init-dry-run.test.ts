@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main, type CliIO } from '../../src/cli.js';
@@ -115,3 +115,24 @@ test('config init --model: duplicate, empty and invalid values are usage errors 
     assert.match(r.err, want);
   }
 });
+
+test('config init --out with a leading ~/ (unexpanded by PowerShell, cmd or quotes) writes under the home directory', () =>
+  withTmp(async (dir) => {
+    const home = join(dir, 'home');
+    const cwd = join(dir, 'cwd');
+    mkdirSync(cwd);
+    const saved = { HOME: process.env['HOME'], USERPROFILE: process.env['USERPROFILE'] };
+    process.env['HOME'] = home;
+    process.env['USERPROFILE'] = home;
+    try {
+      const r = await run(['config', 'init', '--preset', '32k', '--out', '~/.k2/kitzur.jsonc'], cwd);
+      const want = join(home, '.k2', 'kitzur.jsonc');
+      assert.equal(r.code, 0, r.err);
+      assert.ok(existsSync(want));
+      assert.equal(existsSync(join(cwd, '~')), false);
+      assert.ok(r.out.startsWith(`wrote ${want}\n`), r.out);
+      assert.ok(r.out.includes(`kitzur config validate --config ${want}\n`), r.out);
+    } finally {
+      for (const [k, v] of Object.entries(saved)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }));
