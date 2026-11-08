@@ -172,6 +172,8 @@ export class StateStore {
   private dirty = false;
   private scheduledAt = 0;
   private writing: Promise<void> | null = null;
+  /** set by close(): later updates stay in memory and never schedule or write */
+  private closed = false;
   private readonly now: () => Date;
   private readonly identityFor: (key: string) => { configuredWindow: number; counterId: string };
 
@@ -228,8 +230,8 @@ export class StateStore {
   /** Write a pending snapshot asynchronously, waiting for any existing write first. */
   async flush(): Promise<void> {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
-    if (this.writing) await this.writing;
-    if (!this.dirty || !this.path) return;
+    if (this.writing) await this.settle();
+    if (!this.dirty || !this.path || this.closed) return;
     const data = JSON.stringify({ version: 2, entries: Object.fromEntries(this.entriesMap) }, null, 1) + '\n';
     this.dirty = false;
     const writing = writeFileAtomicAsync(this.path, data).then(() => {
@@ -247,11 +249,18 @@ export class StateStore {
 
   async close(): Promise<void> {
     await this.flush();
+    this.closed = true;
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+    if (this.writing) await this.settle(); // a timer flush that raced the final one
+  }
+
+  /** Waits for the in-flight write, and for any newer one another flush starts meanwhile. */
+  private async settle(): Promise<void> {
+    for (let w = this.writing; w; w = this.writing === w ? null : this.writing) await w;
   }
 
   private schedule(urgent = false): void {
-    if (!this.path) return;
+    if (!this.path || this.closed) return;
     const delay = urgent ? Math.min(250, this.o.debounceMs ?? 5000) : this.o.debounceMs ?? 5000;
     const deadline = Date.now() + delay;
     if (this.timer && this.scheduledAt <= deadline) return;
