@@ -69,6 +69,10 @@ All notable changes to Kitzur are recorded here. The format follows
   builds a draft release that a maintainer reviews before publishing.
 - Benchmarks: a parallel-streams latency class (does a heavy compaction stall other streams?) and more
   coding-retention fixtures with per-arm pass rates.
+- `kitzur help <command>` prints that command's usage; an unknown topic is a usage error.
+- [docs/CLIENTS.md](docs/CLIENTS.md) shows how to point any OpenAI-compatible client (curl, the OpenAI Python and Node SDKs, an env-var tool) at Kitzur and confirm it works (#186).
+- `kitzur doctor` checks that the log file can be written (`log.directory`), with the same wording as the state and stats path checks.
+- CONFIG.md documents `kitzur serve --drain-ms` and the SIGINT/SIGTERM drain (a second signal exits with 130).
 
 ### Changed
 
@@ -81,6 +85,14 @@ All notable changes to Kitzur are recorded here. The format follows
   (`historyComplete` and `droppedRecords` are `null`).
 - README and docs restructured: a first-success 32k path up top, a task-routed docs index, and
   compatibility, retention-limit and evidence tables.
+- `kitzur --help` lists every flag each command accepts.
+- `kitzur count` treats an empty messages array, or a message the chat template rejects (`messages[N]`), as a usage error with the fix, and flags a config `serve` would refuse instead of printing a negative budget.
+- `kitzur replay` on a file or folder that holds no requests is a usage error.
+- `kitzur config validate --model` checks the ID, `config export-opencode` names the configured IDs on an unknown `--model`, and `config init --out` expands a leading `~/` (and `~\` on Windows).
+- Tokenizer file problems (missing, a directory, empty, not JSON, not a BPE tokenizer.json) are named in `count`, `serve` and `doctor`.
+- `kitzur doctor --client-config` says whether the file is missing, unreadable or not valid JSON.
+- `kitzur report` and `tls-probe` errors say what went wrong: an unreadable stats file names the path and cause, and an `http://` origin gets an accurate message.
+- `deploy/verify-bundle.mjs` fails a bundle that contains a symlink and explains a missing SHA256SUMS or archive.
 
 ### Fixed
 
@@ -95,6 +107,11 @@ All notable changes to Kitzur are recorded here. The format follows
   with a warning and the file is left unchanged.
 - The warning for a model with no discovered window is remembered for at most 100 model IDs.
 - Kitzur's own `x-kitzur-*` response headers can no longer be overridden by headers from the upstream.
+- `Proxy-Authorization` is no longer forwarded to the upstream, and `Proxy-Authenticate` no longer reaches the client.
+- `count`, `replay` and `redact` read request and capture files that start with a UTF-8 byte-order mark.
+- `kitzur status` rejects a bad `--timeout-ms` or `--url` with a usage error instead of a Node.js internals message.
+- An invalid-JSON config error never prints a fragment of the file.
+- `kitzur --help` listed the `config import-eval` flags under `export-opencode`.
 
 ## [0.2.1] — 2026-10-19
 
