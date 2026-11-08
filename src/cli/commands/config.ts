@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { validateConfig } from '../../config/validate.js';
 import { computeBudget } from '../../config/derived.js';
@@ -9,7 +10,7 @@ import { parseJsonc } from '../../config/jsonc.js';
 import { packageInfo } from '../../config/paths.js';
 import { exportOpenCode } from '../../config/export-opencode.js';
 import { UsageError, type CliIO } from '../io.js';
-import { CONFIG_OPTS, loadFromArgs, parseArgs } from '../args.js';
+import { CONFIG_OPTS, checkModelOverride, loadFromArgs, parseArgs } from '../args.js';
 import { derivedLines, display, maskedConfig } from '../format.js';
 import { cmdImportEval } from './import-eval.js';
 import { isAutoWindow } from '../../config/window.js';
@@ -22,6 +23,8 @@ export async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
       const model = p.values['model'];
       if (typeof model !== 'string' || !model) throw new UsageError('config export-opencode needs --model ID');
       const l = loadFromArgs(p, io);
+      checkModelOverride(l, model);
+      checkModelOverride(l, p.values['small-model'] as string | undefined);
       io.stdout(exportOpenCode(l.config, l.models, { model, smallModel: p.values['small-model'] as string | undefined, provider: p.values['provider'] as string | undefined, keyEnv: p.values['key-env'] as string | undefined }));
       return 0;
     }
@@ -52,7 +55,9 @@ export async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
         }
         if (bad.length) throw new UsageError(`config init --model: ${bad.join('; ')}; pass a larger window, or omit =WINDOW to inherit the preset's`);
       }
-      const out = (p.values['out'] as string | undefined) ?? 'kitzur.config.jsonc';
+      let out = (p.values['out'] as string | undefined) ?? 'kitzur.config.jsonc';
+      // PowerShell and cmd pass a leading ~ through unexpanded (as does a quoted ~ in any shell)
+      if (out === '~' || out.startsWith('~/') || (process.platform === 'win32' && out.startsWith('~\\'))) out = resolve(homedir(), out.slice(2));
       if (out === '-') {
         io.stdout(text);
         return 0;
@@ -115,9 +120,11 @@ export async function cmdConfig(argv: string[], io: CliIO): Promise<number> {
     case 'validate': {
       const p = parseArgs(rest, { ...CONFIG_OPTS, model: { type: 'string' }, json: { type: 'boolean' } });
       const l = loadFromArgs(p, io);
+      const selected = p.values['model'] as string | undefined;
+      checkModelOverride(l, selected);
       const v = validateConfig(l.config, { provenance: l.provenance, checkFiles: true });
       const warnings = [...l.warnings, ...v.warnings];
-      const errors = Object.keys(l.models).flatMap((id) => validateConfig(l.models[id]!, { checkFiles: true }).errors.map((e) => `models[${JSON.stringify(id)}]: ${e}`));
+      const errors = (selected === undefined ? Object.keys(l.models) : [selected]).flatMap((id) => validateConfig(l.models[id]!, { checkFiles: true }).errors.map((e) => `models[${JSON.stringify(id)}]: ${e}`));
       if (p.values['json']) io.stdout(JSON.stringify({ ok: errors.length === 0 && v.errors.length === 0, errors: [...v.errors, ...errors], warnings }, null, 1) + '\n');
       else {
         for (const e of v.errors) io.stdout(`error: ${e}\n`);

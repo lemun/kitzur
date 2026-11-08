@@ -13,9 +13,10 @@ test('config show and validate report each model profile and --model selects it'
   writeFileSync(path, JSON.stringify({ budget: { window: 200000 }, models: { alpha: { budget: { window: 180000 } }, beta: { budget: { window: 150000 } } } }));
   const run = async (args: string[]) => {
     let out = '';
-    const io: CliIO = { stdout: (s) => { out += s; }, stderr: () => {}, env: {}, cwd: process.cwd(), onSignal: () => {} };
+    let err = '';
+    const io: CliIO = { stdout: (s) => { out += s; }, stderr: (s) => { err += s; }, env: {}, cwd: process.cwd(), onSignal: () => {} };
     const code = await main(args, io);
-    return { code, out };
+    return { code, out, err };
   };
   try {
     const show = await run(['config', 'show', '--config', path]);
@@ -43,6 +44,15 @@ test('config show and validate report each model profile and --model selects it'
     assert.equal(text.code, 2);
     assert.match(text.out, /\nerror: models\["beta"\]: upstream\.caFile: file not found:/);
     assert.match(text.out, /\n3 error\(s\)\n$/);
+    const one = await run(['config', 'validate', '--json', '--model', 'beta', '--config', path]);
+    assert.equal(one.code, 2);
+    assert.deepEqual((JSON.parse(one.out).errors as string[]).map((e) => e.split(':')[0]), ['upstream.caFile', 'models["beta"]']);
+    const badModel = [['config', 'validate', '--model', 'nope'], ['config', 'export-opencode', '--model', 'nope'], ['config', 'export-opencode', '--model', 'alpha', '--small-model', 'nope']];
+    for (const args of badModel) {
+      const bad = await run([...args, '--config', path]);
+      assert.equal(bad.code, 2, args.join(' '));
+      assert.match(bad.err, /--model nope: no configured profile for this model \(configured: alpha, beta\); .*add a profile for it under models/);
+    }
 
     writeFileSync(path, JSON.stringify({ models: { auto: { budget: { window: 'auto' } } } }));
     const auto = await run(['config', 'show', '--config', path]);
