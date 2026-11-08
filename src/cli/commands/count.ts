@@ -18,7 +18,7 @@ export async function cmdCount(argv: string[], io: CliIO): Promise<number> {
   if (!req.messages.length) throw new UsageError(`${p.positionals[0]}: the request has no messages; pass a captured Chat Completions body with at least one message`);
   const { profile, config: cfg } = selectProfile(l, modelArg, req.model);
   // a warning only: what-if windows still get their numbers
-  for (const e of validateConfig(cfg, { provenance: l.provenance }).errors) io.stderr(`kitzur: warn: config would be refused by serve: ${e}\n`);
+  for (const e of validateConfig(cfg, { provenance: l.provenance, checkFiles: true }).errors) io.stderr(`kitzur: warn: config would be refused by serve: ${e}\n`);
   const cs = setupCounter(cfg, { stateDir: stateDirOf(cfg, io.env) });
   if (cs.estimateReason && !p.values['estimate']) {
     io.stderr(`kitzur: no exact count: ${cs.estimateReason}. Pass --tokenizer FILE, or --estimate for the per-class estimate.\n`);

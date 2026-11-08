@@ -115,4 +115,8 @@ test('count warns when the config would be refused by serve but keeps its result
     assert.match(j.err, /kitzur: warn: config would be refused by serve: no room for the prompt: budget = window 300/);
     const ok = await run(['count', 'r.json', '--estimate', '--state-dir', dir], dir);
     assert.doesNotMatch(ok.err, /would be refused/);
+    writeFileSync(join(dir, 'ca.json'), JSON.stringify({ upstream: { caFile: 'missing-ca.pem' } }));
+    const ca = await run(['count', 'r.json', '--config', 'ca.json', '--estimate', '--state-dir', dir], dir);
+    assert.equal(ca.code, 0, ca.err);
+    assert.match(ca.err, /kitzur: warn: config would be refused by serve: upstream\.caFile: file not found: /);
   }));
