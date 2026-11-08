@@ -5,9 +5,9 @@ Run `kitzur doctor` (add `--check-upstream`, `--client-config FILE` or `--json` 
 Use `kitzur doctor --snapshot support.json` to write a shareable support snapshot. It omits credentials and masks hosts and home paths; use `--snapshot -` to print it, or `--force` to replace an existing file.
 
 ## The proxy does not start, or the port is taken
-- Codes: `config.valid`, `config.warnings`, `instance.responsive`, `paths`, `state.directory`, `stats.path`.
-- Cause: invalid settings, another service on `listen.port`, or a state/stats path that is blocked or not writable.
-- Fix: run `kitzur config validate`; if `instance.responsive` warns, inspect what answers on the port and change `listen.host`/`listen.port`; point `stateDir` and `stats.path` below an accessible directory.
+- Codes: `config.valid`, `config.warnings`, `instance.responsive`, `paths`, `state.directory`, `log.directory`, `stats.path`.
+- Cause: invalid settings, another service on `listen.port`, or a state/log/stats path that is blocked or not writable.
+- Fix: run `kitzur config validate`; if `instance.responsive` warns, inspect what answers on the port and change `listen.host`/`listen.port`; point `stateDir`, `log.file` and `stats.path` below an accessible directory.
 
 ## Stats records are missing
 - Code: `stats.writer`.

@@ -202,6 +202,7 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
   const logFile = config.log.file ?? join(statePath, 'logs', `kitzur-${new Date().toISOString().slice(0, 10)}.log`);
   add('paths', 'ok', formatPaths({ config: opts.configPath ?? null, state_dir: statePath, log_file: logFile }));
   pathCheck('state.directory', statePath, 'State');
+  pathCheck('log.directory', dirname(logFile), 'Log');
   checks.push(...await windowsChecks({ port: config.listen.port, stateDir: statePath, logFile, configPath: opts.configPath }, { env: opts.env, ...opts.windows }));
   if (config.stats.path) {
     try {
