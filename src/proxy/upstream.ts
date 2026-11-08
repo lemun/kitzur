@@ -3,10 +3,11 @@
 //  - node:http / node:https with keep-alive agents (LIFO reuse); idle pooled sockets close after
 //    upstream.keepAliveIdleMs (uvicorn closes at 5 s, so 4 s avoids racing the server's close);
 //  - every request carries content-length = Buffer.byteLength(body), never chunked;
-//  - request headers: hop-by-hop headers and every header named in `Connection` are dropped, as are
-//    host, content-length and expect; accept-encoding is forced to identity (the tap and the error
-//    classifier need plain text); upstream.headers are added; everything else (authorization,
-//    x-sim-step, X-Session-Id, ...) is forwarded. Response headers lose their hop-by-hop headers;
+//  - request headers: hop-by-hop headers (including the per-hop proxy-authorization) and every header
+//    named in `Connection` are dropped, as are host, content-length and expect; accept-encoding is
+//    forced to identity (the tap and the error classifier need plain text); upstream.headers are added; everything else (authorization,
+//    x-sim-step, X-Session-Id, ...) is forwarded. Response headers lose their hop-by-hop headers
+//    (including the per-hop proxy-authenticate);
 //  - one transparent retry when a *reused* keep-alive socket fails with ECONNRESET/EPIPE before any
 //    response byte (the server closed it while idle; a socket that already received bytes for this
 //    request is never retried). It repeats the same attempt on a fresh connection and teaches nothing;
@@ -23,7 +24,7 @@ import type { IncomingMessage, ClientRequest, OutgoingHttpHeaders } from 'node:h
 import type { Socket } from 'node:net';
 import type { Config } from '../config/schema.js';
 
-export const HOP_BY_HOP: ReadonlySet<string> = new Set(['connection', 'keep-alive', 'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade']);
+export const HOP_BY_HOP: ReadonlySet<string> = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade']);
 const REQUEST_DROP: ReadonlySet<string> = new Set([...HOP_BY_HOP, 'host', 'content-length', 'expect', 'accept-encoding']);
 
 /** Header names listed in Connection header values (lower-cased). */
