@@ -288,11 +288,16 @@ kitzur doctor [--json]               diagnose setup (--check-upstream for a smal
 kitzur report stats.jsonl [--json]   summarize request reduction, retries and timing
 kitzur config init|show|validate      create or inspect configuration
 kitzur config import-eval DIR        import gateway probe results as configuration
+kitzur config export-opencode --model ID  print an OpenCode config for the model profiles
 kitzur replay FILE|DIR               replay captured request bodies locally
 kitzur count request.json            count a request
+kitzur redact FILE|DIR               copy request bodies with text replaced by same-length filler
+kitzur tls-probe [origin]            inspect the TLS chain
+kitzur autostart install|remove|status  per-user Windows login startup
 kitzur state show|reset              inspect or clear learned limits
 kitzur bench [--quick]               run benchmarks from a development checkout
 kitzur version                       print the installed version
+kitzur help <command>                print one command's usage
 ```
 
 Status is available at `/status` and `/kitzur/status`. State defaults to

@@ -733,3 +733,19 @@ figures are derived, engine, and proxy budgets for their respective profiles. Op
 If the model emits output equal to its context window, the client must advertise a
 smaller output limit (here 32,000); enable `maxTokensClamp` for strict-total servers.
 Phase 1 uses the shared root tokenizer: select estimate mode for foreign models.
+
+### Export an OpenCode config
+
+`kitzur config export-opencode --model ID` prints an OpenCode config to stdout; it
+never writes files. Every profile in `models` becomes a model of one provider with
+its context window and output limit; the base URL is the proxy's listen address.
+
+```sh
+kitzur config export-opencode --model org/qwen.v1 --small-model org/gpt-oss > opencode.json
+```
+
+`--small-model ID` sets `small_model` (default: the `--model` ID), `--provider NAME`
+names the provider (default `kitzur`) and `--key-env NAME` names the API key
+variable (default `OPENAI_API_KEY`). The export is refused when `--model` or
+`--small-model` has no configured profile, or when profiles have conflicting
+explicit output reservations (`client.reservedTokens`).
