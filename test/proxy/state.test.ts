@@ -1,6 +1,6 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, unlinkSync, readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, unlinkSync, readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -17,7 +17,10 @@ import { createProfile } from '../../src/tokenize/template.js';
 import { testConfig } from './harness.js';
 import { waitFor } from './helpers.js';
 
-const tmp = (): string => mkdtempSync(join(tmpdir(), 'kitzur-state-'));
+// removed after the whole file: stores keep writing after a test body returns
+const dirs: string[] = [];
+const tmp = (): string => { const d = mkdtempSync(join(tmpdir(), 'kitzur-state-')); dirs.push(d); return d; };
+after(() => { for (const d of dirs) rmSync(d, { recursive: true, force: true }); });
 const NOW = new Date('2026-09-28T12:00:00Z');
 
 test('state dir default and keys', () => {

@@ -1,12 +1,14 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ROOT } from '../helpers.js';
 
-const changelog = join(mkdtempSync(join(tmpdir(), 'kitzur-release-notes-')), 'CHANGELOG.md');
+const dir = mkdtempSync(join(tmpdir(), 'kitzur-release-notes-'));
+after(() => rmSync(dir, { recursive: true, force: true }));
+const changelog = join(dir, 'CHANGELOG.md');
 writeFileSync(changelog, `# Changelog
 
 ## [Unreleased]

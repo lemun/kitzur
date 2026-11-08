@@ -1,13 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ROOT } from '../helpers.js';
 
-test('run-tests.mjs ends with a passed/failed/skipped totals line', () => {
+test('run-tests.mjs ends with a passed/failed/skipped totals line', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-run-tests-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
   writeFileSync(join(dir, 'a.test.js'), "const { test } = require('node:test');\n"
     + "test('ok', () => {});\ntest('bad', () => { throw new Error('x'); });\ntest('later', { skip: true }, () => {});\n");
   const { NODE_TEST_CONTEXT: _, ...env } = process.env; // run as a top-level runner, not a child of this one
@@ -16,8 +17,9 @@ test('run-tests.mjs ends with a passed/failed/skipped totals line', () => {
   assert.match(res.stdout.trimEnd().split('\n').at(-1) ?? '', /^tests: 1 passed, 1 failed, 1 skipped$/);
 });
 
-test('run-tests.mjs fails a run that leaves a tagged kitzur-proxy-test-* dir behind, and removes it', () => {
+test('run-tests.mjs fails a run that leaves a tagged kitzur-proxy-test-* dir behind, and removes it', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-run-tests-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
   writeFileSync(join(dir, 'a.test.js'), "const { test } = require('node:test');\nconst { mkdtempSync } = require('node:fs');\n"
     + "const { join } = require('node:path');\nconst { tmpdir } = require('node:os');\n"
     + "test('leaks', () => { mkdtempSync(join(tmpdir(), `kitzur-proxy-test-${process.env.KITZUR_TEST_RUN}-`)); });\n");
@@ -29,8 +31,9 @@ test('run-tests.mjs fails a run that leaves a tagged kitzur-proxy-test-* dir beh
   assert.equal(readdirSync(tmpdir()).includes(left), false);
 });
 
-test('fetch-tokenizer.sh explains a failed download and never leaves a partial file', { skip: process.platform === 'win32' }, () => {
+test('fetch-tokenizer.sh explains a failed download and never leaves a partial file', { skip: process.platform === 'win32' }, (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-fetch-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
   mkdirSync(join(dir, 'scripts'));
   mkdirSync(join(dir, 'bin'));
   copyFileSync(join(ROOT, 'scripts', 'fetch-tokenizer.sh'), join(dir, 'scripts', 'fetch-tokenizer.sh'));
@@ -52,8 +55,9 @@ function hasGnuTools(): boolean {
     && spawnSync('sha256sum', ['--version'], { encoding: 'utf8' }).status === 0;
 }
 
-test('pack-offline.sh ships the launchd plist and the systemd unit that deploy/README.md tells the installer to use', { skip: !hasGnuTools() }, () => {
+test('pack-offline.sh ships the launchd plist and the systemd unit that deploy/README.md tells the installer to use', { skip: !hasGnuTools() }, (t) => {
   const out = mkdtempSync(join(tmpdir(), 'kitzur-pack-'));
+  t.after(() => rmSync(out, { recursive: true, force: true }));
   const res = spawnSync('bash', [join(ROOT, 'scripts', 'pack-offline.sh'), out], { encoding: 'utf8', cwd: ROOT });
   assert.equal(res.status, 0, res.stderr);
   const bundle = readdirSync(out).find((f) => f.endsWith('-offline.tar.gz'));

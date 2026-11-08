@@ -1,14 +1,16 @@
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ROOT } from '../helpers.js';
 
 // a throwaway npm cache keeps the run independent of the user's cache
-const env: NodeJS.ProcessEnv = { ...process.env, npm_config_cache: mkdtempSync(join(tmpdir(), 'kitzur-npm-cache-')) };
+const npmCache = mkdtempSync(join(tmpdir(), 'kitzur-npm-cache-'));
+after(() => rmSync(npmCache, { recursive: true, force: true }));
+const env: NodeJS.ProcessEnv = { ...process.env, npm_config_cache: npmCache };
 delete env.SOURCE_DATE_EPOCH;
 const sbom = (extra: NodeJS.ProcessEnv = {}, args: string[] = []) => {
   const res = spawnSync(process.execPath, [join(ROOT, 'scripts', 'sbom.mjs'), ...args],
@@ -53,8 +55,10 @@ test('sbom.mjs emits a deterministic CycloneDX 1.5 document for the packed files
   assert.ok(!first.includes(ROOT) && !first.includes(homedir()), 'no absolute or home paths');
 });
 
-test('sbom.mjs takes the timestamp from SOURCE_DATE_EPOCH and writes --out', () => {
-  const out = join(mkdtempSync(join(tmpdir(), 'kitzur-sbom-')), 'sbom.json');
+test('sbom.mjs takes the timestamp from SOURCE_DATE_EPOCH and writes --out', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-sbom-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const out = join(dir, 'sbom.json');
   assert.equal(sbom({ SOURCE_DATE_EPOCH: '1700000000' }, ['--out', out]), '');
   const doc = JSON.parse(readFileSync(out, 'utf8'));
   assert.equal(doc.metadata.timestamp, '2023-11-14T22:13:20Z');

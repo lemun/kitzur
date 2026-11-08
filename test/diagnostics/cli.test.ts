@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main, type CliIO } from '../../src/cli.js';
 
-test('doctor CLI reports missing and bad config as safe machine-readable errors',async()=>{
-  const dir=mkdtempSync(join(tmpdir(),'kitzur-doctor-cli-'));const output:string[]=[];const errors:string[]=[];
+test('doctor CLI reports missing and bad config as safe machine-readable errors',async(t)=>{
+  const dir=mkdtempSync(join(tmpdir(),'kitzur-doctor-cli-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));const output:string[]=[];const errors:string[]=[];
   const io:CliIO={stdout:s=>void output.push(s),stderr:s=>void errors.push(s),env:{},cwd:dir,onSignal:()=>{}};
   for(const file of ['missing.json','bad.json']){
     if(file==='bad.json')writeFileSync(join(dir,file),'{"upstream":{"headers":{"Authorization":"SECRET_VALUE"},} BROKEN');
@@ -18,8 +18,8 @@ test('doctor CLI reports missing and bad config as safe machine-readable errors'
   assert.equal(await main(['doctor','--timeout-ms','Infinity'],io),2);
   assert.equal(await main(['doctor','--upstream','http://127.0.0.1:1','--json'],io),0,'--upstream URL config option does not imply network probe');
 });
-test('doctor CLI forwards --model and limits profile checks to the exact model', async () => {
-  const dir=mkdtempSync(join(tmpdir(),'kitzur-doctor-model-cli-'));let output='';
+test('doctor CLI forwards --model and limits profile checks to the exact model', async (t) => {
+  const dir=mkdtempSync(join(tmpdir(),'kitzur-doctor-model-cli-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));let output='';
   const io:CliIO={stdout:s=>{output+=s;},stderr:()=>{},env:{},cwd:dir,onSignal:()=>{}};
   writeFileSync(join(dir,'config.json'), JSON.stringify({ models: { alpha: { tokenizer: { mode: 'estimate' } }, beta: {} } }));
   assert.equal(await main(['doctor','--config','config.json','--model','alpha','--json'],io),0);
@@ -30,8 +30,8 @@ test('doctor CLI forwards --model and limits profile checks to the exact model',
   assert.equal(await main(['doctor','--config','config.json','--model','missing','--json'],io),0);
   assert.ok((JSON.parse(output).checks as Array<{code:string}>).some(c=>c.code==='model.missing.profile'));
 });
-test('report CLI empty/malformed/unreadable exit codes and JSON shape',async()=>{
-  const dir=mkdtempSync(join(tmpdir(),'kitzur-report-cli-'));let output='';
+test('report CLI empty/malformed/unreadable exit codes and JSON shape',async(t)=>{
+  const dir=mkdtempSync(join(tmpdir(),'kitzur-report-cli-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));let output='';
   const io:CliIO={stdout:s=>{output+=s;},stderr:()=>{},env:{},cwd:dir,onSignal:()=>{}};
   writeFileSync(join(dir,'empty.jsonl'),'');
   assert.equal(await main(['report','empty.jsonl','--json'],io),0);
@@ -42,8 +42,8 @@ test('report CLI empty/malformed/unreadable exit codes and JSON shape',async()=>
   assert.equal(await main(['report','absent.jsonl'],io),1);
   assert.equal(await main(['report'],io),2);
 });
-test('report CLI names the unreadable path and cause',async()=>{
-  const dir=mkdtempSync(join(tmpdir(),'kitzur-report-unreadable-'));let errors='';
+test('report CLI names the unreadable path and cause',async(t)=>{
+  const dir=mkdtempSync(join(tmpdir(),'kitzur-report-unreadable-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));let errors='';
   const io:CliIO={stdout:()=>{},stderr:s=>{errors+=s;},env:{},cwd:dir,onSignal:()=>{}};
   assert.equal(await main(['report','nonexist.jsonl'],io),1);
   assert.equal(errors,'kitzur: report could not read nonexist.jsonl: no such file; pass the file written by stats.path (see kitzur doctor)\n');
