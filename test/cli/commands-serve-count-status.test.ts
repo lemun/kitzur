@@ -95,3 +95,28 @@ test('count without model profiles reports root in JSON and text', () =>
     const t = await run(['count', 'r.json', '--estimate', '--state-dir', dir], dir);
     assert.match(t.out, /^r\.json: \d+ tokens \(estimate, template [^,)]+, profile root\)\n/);
   }));
+
+test('count rejects a request with an empty messages array as a usage error', () =>
+  withTmp(async (dir) => {
+    writeFileSync(join(dir, 'empty.json'), JSON.stringify({ messages: [] }));
+    const r = await run(['count', 'empty.json', '--estimate', '--state-dir', dir], dir);
+    assert.equal(r.code, 2);
+    assert.equal(r.out, '');
+    assert.match(r.err, /^kitzur: .*empty\.json: the request has no messages; pass a captured Chat Completions body with at least one message\n/);
+  }));
+
+test('count warns when the config would be refused by serve but keeps its result', () =>
+  withTmp(async (dir) => {
+    writeFileSync(join(dir, 'kitzur.json'), JSON.stringify({ budget: { window: 300 } }));
+    writeFileSync(join(dir, 'r.json'), JSON.stringify({ max_tokens: 100, messages: [{ role: 'user', content: 'hi' }] }));
+    const j = await run(['count', 'r.json', '--config', 'kitzur.json', '--estimate', '--json', '--state-dir', dir], dir);
+    assert.equal(j.code, 0, j.err);
+    assert.ok((JSON.parse(j.out) as { budget: number }).budget < 0);
+    assert.match(j.err, /kitzur: warn: config would be refused by serve: no room for the prompt: budget = window 300/);
+    const ok = await run(['count', 'r.json', '--estimate', '--state-dir', dir], dir);
+    assert.doesNotMatch(ok.err, /would be refused/);
+    writeFileSync(join(dir, 'ca.json'), JSON.stringify({ upstream: { caFile: 'missing-ca.pem' } }));
+    const ca = await run(['count', 'r.json', '--config', 'ca.json', '--estimate', '--state-dir', dir], dir);
+    assert.equal(ca.code, 0, ca.err);
+    assert.match(ca.err, /kitzur: warn: config would be refused by serve: upstream\.caFile: file not found: /);
+  }));
