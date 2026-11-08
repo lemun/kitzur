@@ -257,3 +257,22 @@ test('concurrent flushes serialize updates and persist the latest snapshot', asy
     assert.equal(readLearnedState(s.path!).state.entries['k']?.samples, 2);
   } finally { await s.close(); }
 });
+
+test('close waits for a write another flush started meanwhile, then nothing writes into a removed dir', async () => {
+  const dir = tmp(); // removed below; the file-level after() covers a failed run
+  const s = new StateStore({ dir, configuredWindow: 100_000, counterId: 'c', debounceMs: 20 });
+  s.set('k', { ...s.entry('k'), samples: 1 });
+  const first = s.flush();
+  s.set('k', { ...s.entry('k'), samples: 2 });
+  const second = s.flush(); // waits for the first write, then starts its own
+  await s.close();
+  assert.equal(s.writes, 2, 'close returned while a write was in flight');
+  assert.equal(readLearnedState(s.path!).state.entries['k']?.samples, 2);
+  await Promise.all([first, second]);
+  rmSync(dir, { recursive: true, force: true });
+  // a late update (a calibration hook after close) stays in memory and never recreates the dir
+  s.set('k', { ...s.entry('k'), samples: 3, correction: 1.2 });
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(s.entry('k').samples, 3);
+  assert.equal(existsSync(dir), false, `${dir} recreated after close`);
+});
