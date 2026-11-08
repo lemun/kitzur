@@ -5,6 +5,7 @@ import { stateDirOf } from '../../config/paths.js';
 import { UsageError, type CliIO } from '../io.js';
 import { CONFIG_OPTS, MODEL_OPT, checkModelOverride, loadFromArgs, parseArgs, selectProfile } from '../args.js';
 import { CHAT_BODY_HINT, collectRequests } from '../requests.js';
+import { TemplateError } from '../../tokenize/template.js';
 
 export async function cmdCount(argv: string[], io: CliIO): Promise<number> {
   const p = parseArgs(argv, { ...CONFIG_OPTS, ...MODEL_OPT, estimate: { type: 'boolean' }, json: { type: 'boolean' } });
@@ -24,7 +25,20 @@ export async function cmdCount(argv: string[], io: CliIO): Promise<number> {
     io.stderr(`kitzur: no exact count: ${cs.estimateReason}. Pass --tokenizer FILE, or --estimate for the per-class estimate.\n`);
     return 2;
   }
-  const m = cs.counter.measure(req);
+  const file = p.positionals[0];
+  req.messages.forEach((msg, i) => {
+    if (typeof msg !== 'object' || msg === null || Array.isArray(msg) || typeof (msg as { role?: unknown }).role !== 'string') {
+      throw new UsageError(`${file}: messages[${i}] is not a message object (expected {role, content}); fix or remove it`);
+    }
+  });
+  let m: ReturnType<typeof cs.counter.measure>;
+  try {
+    m = cs.counter.measure(req);
+  } catch (e) {
+    if (!(e instanceof TemplateError)) throw e;
+    const at = e.index === null ? '' : ` messages[${e.index}] (zero-based, as in the JSON array):`;
+    throw new UsageError(`${file}:${at} ${e.message} The model's chat template rejects this request, so a server running it would answer 400 and Kitzur would forward the original unchanged; fix that message's role or content.`);
+  }
   const tReq = requestMaxTokens(req, cfg);
   const b = computeBudget(cfg, { tReq });
   const out = {

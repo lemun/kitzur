@@ -105,6 +105,24 @@ test('count rejects a request with an empty messages array as a usage error', ()
     assert.match(r.err, /^kitzur: .*empty\.json: the request has no messages; pass a captured Chat Completions body with at least one message\n/);
   }));
 
+test('count names the message the chat template rejects, as a usage error', () =>
+  withTmp(async (dir) => {
+    const cases: [unknown[], number, RegExp][] = [
+      [[{ role: 'user', content: 'hi' }, { role: 'bogus', content: 'x' }], 1, /Unexpected message role\. The model's chat template rejects this request/],
+      [[{ role: 'user', content: 12 }], 0, /Unexpected content type\. The model's chat template rejects this request/],
+      [[null, 'str'], 0, /is not a message object \(expected \{role, content\}\); fix or remove it/],
+    ];
+    for (const [messages, i, msg] of cases) {
+      writeFileSync(join(dir, 'bad.json'), JSON.stringify({ messages }));
+      const r = await run(['count', 'bad.json', '--estimate', '--state-dir', dir], dir);
+      assert.equal(r.code, 2, r.err);
+      assert.equal(r.out, '');
+      assert.match(r.err, new RegExp(`^kitzur: .*bad\\.json: messages\\[${i}\\]`));
+      assert.match(r.err, msg);
+      assert.doesNotMatch(r.err, /Cannot read properties/);
+    }
+  }));
+
 test('count warns when the config would be refused by serve but keeps its result', () =>
   withTmp(async (dir) => {
     writeFileSync(join(dir, 'kitzur.json'), JSON.stringify({ budget: { window: 300 } }));
