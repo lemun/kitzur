@@ -68,6 +68,9 @@ test('loadTokenizerCached: a bad tokenizer file names its cause without quoting 
     assert.equal(cfg.name, 'TokenizerUnsupportedError');
     assert.match(cfg.message, /^is valid JSON but not a supported tokenizer\.json \(model must be BPE\): .*model\.type BPE/);
     assert.doesNotMatch(cfg.message, /SECRET_CONTENT|WordPiece/);
+    const norm = failure(write('norm.json', '{"model":{"type":"BPE"},"normalizer":{"SECRET_CONTENT":1}}'));
+    assert.match(norm.message, /^is valid JSON but not a supported tokenizer\.json \(normalizer\): /);
+    assert.doesNotMatch(norm.message, /SECRET_CONTENT/);
     if (process.platform !== 'win32' && process.getuid?.() !== 0) {
       const locked = write('locked.json', '{}');
       chmodSync(locked, 0o000);
