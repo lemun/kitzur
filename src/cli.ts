@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // The kitzur command line (DESIGN.md):
-//   kitzur serve | replay | redact | status | count | config {init,show,validate,import-eval,export-opencode} | state {show,reset} | bench | version
+//   kitzur serve | replay | redact | status | count | config {init,show,validate,import-eval,export-opencode} | state {show,reset} | bench | completions | version
 // Arguments are parsed here without dependencies. Exit codes: 0 ok, 1 runtime failure, 2 usage or config
 // error; `config import-eval` also returns 10 (a safety-critical knob fell back to a default) and 11
 // (conflicting measurements). Nothing here prints message content: replay and count print sizes only.
 // This file is the entry point only: main dispatches to the modules under src/cli/, which never import it:
 //   io.ts (CliIO, UsageError), args.ts (argument parsing and config loading), usage.ts (help text),
 //   format.ts (config display), requests.ts (request files), http.ts (HTTP and state-module helpers),
-//   commands/ (serve, replay, count, status, diagnostics: doctor/tls-probe/report, redact, config, import-eval, state, bench).
+//   commands/ (serve, replay, count, status, diagnostics: doctor/tls-probe/report, redact, config, import-eval, state, bench, completions).
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { AppModuleError, type Logger } from './app.js';
@@ -24,6 +24,7 @@ import { cmdConfig } from './cli/commands/config.js';
 import { cmdState } from './cli/commands/state.js';
 import { cmdBench } from './cli/commands/bench.js';
 import { cmdRedact } from './cli/commands/redact.js';
+import { cmdCompletions } from './cli/commands/completions.js';
 import { cmdAutostart } from './cli/commands/autostart.js';
 
 // ---------------------------------------------------------------- main
@@ -84,6 +85,8 @@ export async function main(argv: readonly string[], io: CliIO = defaultIO()): Pr
         return cmdBench(rest, io);
       case 'redact':
         return cmdRedact(rest, io);
+      case 'completions':
+        return cmdCompletions(rest, io);
       default:
         throw new UsageError(`unknown command '${cmd}'`);
     }

@@ -23,6 +23,7 @@ const DISPATCH: Record<string, string> = {
   'tls-probe': 'commands/diagnostics.ts', doctor: 'commands/diagnostics.ts', report: 'commands/diagnostics.ts',
   autostart: 'commands/autostart.ts',
   config: 'commands/config.ts', state: 'commands/state.ts', bench: 'commands/bench.ts', redact: 'commands/redact.ts',
+  completions: 'commands/completions.ts',
 };
 
 test('dispatch: every command main dispatches has an entry in the table', () => {
