@@ -42,6 +42,8 @@ export function parseArgs(argv: readonly string[], spec: OptSpec): ParsedArgs {
     } else if (a.length === 2 && a[0] === '-' && a[1] !== '-') {
       name = byShort.get(a[1]!);
       if (!name) throw new UsageError(`unknown option ${a}; kitzur <command> --help lists the options of each command`);
+    } else if (a.length > 2 && a[0] === '-') {
+      throw new UsageError(`unknown option ${a}; short options are one letter followed by a separate value (-p 64k) and long options use two dashes (--preset 64k)`);
     } else {
       positionals.push(a);
       continue;
