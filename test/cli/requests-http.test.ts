@@ -42,6 +42,27 @@ test('collectRequests reads a single file, a directory and a .jsonl file', () =>
   assert.equal(cli.collectRequests, collectRequests);
 });
 
+test('collectRequests reads files that start with a UTF-8 BOM, and CRLF .jsonl', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-bom-'));
+  try {
+    writeFileSync(join(dir, 'bom.json'), '\uFEFF' + JSON.stringify(chat));
+    writeFileSync(join(dir, 'bom.jsonl'), '\uFEFF' + JSON.stringify(chat) + '\n' + JSON.stringify({ body: chat }) + '\n');
+    writeFileSync(join(dir, 'crlf.jsonl'), JSON.stringify(chat) + '\r\n' + JSON.stringify(chat) + '\r\n');
+    writeFileSync(join(dir, 'only.json'), '\uFEFF');
+    assert.deepEqual(collectRequests(['bom.json'], dir), [{ label: 'bom.json', req: chat }]);
+    assert.deepEqual(collectRequests(['bom.jsonl'], dir).map((r) => [r.label, r.req !== null]), [['bom.jsonl:1', true], ['bom.jsonl:2', true]]);
+    assert.deepEqual(collectRequests(['crlf.jsonl'], dir).map((r) => [r.label, r.req !== null]), [['crlf.jsonl:1', true], ['crlf.jsonl:2', true]]);
+    assert.throws(() => collectRequests(['only.json'], dir), (e: Error) => {
+      assert.ok(e instanceof cli.UsageError);
+      assert.match(e.message, /only\.json: not JSON \(/);
+      assert.ok(!e.message.includes('\uFEFF'));
+      return true;
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('httpGet returns status and body, sends the Bearer header and times out', async () => {
   const seen: Array<string | undefined> = [];
   const server = http.createServer((req, res) => {
