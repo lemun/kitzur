@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_CONFIG } from '../../src/config/schema.js';
-import { ConfigError, loadConfig, parseRawValue, parseSetArg, splitEnvSet } from '../../src/config/load.js';
+import { ConfigError, expandPath, loadConfig, parseRawValue, parseSetArg, splitEnvSet } from '../../src/config/load.js';
 import { parseJsonc, stripJsonc } from '../../src/config/jsonc.js';
 import { listPresets } from '../../src/config/presets.js';
 import { DEFAULT_LEAVES, LEAF_SPECS } from '../../src/config/spec.js';
@@ -169,4 +169,23 @@ test('jsonc: comments and trailing commas outside strings only', () => {
 
 test('presets: the shipped names', () => {
   assert.deepEqual(listPresets(), ['32k', '64k', '100k', '128k']);
+});
+
+test('expandPath: ~ and ~/ are home on both platforms; ~\\ only on Windows', () => {
+  assert.equal(expandPath('~', '/cfg', 'linux', '/home/u'), '/home/u');
+  assert.equal(expandPath('~/a', '/cfg', 'linux', '/home/u'), '/home/u/a');
+  assert.equal(expandPath('~\\a', '/cfg', 'linux', '/home/u'), '/cfg/~\\a', 'a legal relative name on POSIX');
+  assert.equal(expandPath('~', 'C:\\cfg', 'win32', 'C:\\Users\\u'), 'C:\\Users\\u');
+  assert.equal(expandPath('~/a', 'C:\\cfg', 'win32', 'C:\\Users\\u'), 'C:\\Users\\u\\a');
+  assert.equal(expandPath('~\\Kitzur\\ca.pem', 'C:\\cfg', 'win32', 'C:\\Users\\u'), 'C:\\Users\\u\\Kitzur\\ca.pem');
+});
+
+test('expandPath: absolute kept, relative joined to the base, empty and non-strings untouched', () => {
+  assert.equal(expandPath('/etc/ca.pem', '/cfg', 'linux', '/home/u'), '/etc/ca.pem');
+  assert.equal(expandPath('certs/ca.pem', '/cfg', 'linux', '/home/u'), '/cfg/certs/ca.pem');
+  assert.equal(expandPath('D:\\ca.pem', 'C:\\cfg', 'win32', 'C:\\Users\\u'), 'D:\\ca.pem');
+  assert.equal(expandPath('certs\\ca.pem', 'C:\\cfg', 'win32', 'C:\\Users\\u'), 'C:\\cfg\\certs\\ca.pem');
+  assert.equal(expandPath('', '/cfg', 'linux', '/home/u'), '');
+  assert.equal(expandPath(42, '/cfg', 'win32', 'C:\\Users\\u'), 42);
+  assert.equal(expandPath(null, '/cfg', 'linux', '/home/u'), null);
 });
