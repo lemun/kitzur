@@ -18,7 +18,7 @@ export function listenErrorHint(code: string | undefined, host: string, port: nu
       return `${at} needs privileges; ports below 1024 usually do, use a higher --port N or listen.port (${message})`;
     case 'EADDRNOTAVAIL':
     case 'ENOTFOUND':
-      return `cannot listen on ${host}; listen.host (--host) must be an address of this machine (127.0.0.1 or ::1 for local only) (${message})`;
+      return `cannot listen on ${at}; listen.host (--host) must be an address of this machine (127.0.0.1 or ::1 for local only) (${message})`;
     default:
       return null;
   }

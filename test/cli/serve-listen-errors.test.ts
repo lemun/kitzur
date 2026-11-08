@@ -33,7 +33,7 @@ test('serve on a host that does not resolve says listen.host must be local', () 
   const r = serve('--host', 'nosuchhost.invalid', '--port', '0');
   assert.equal(r.status, 1, r.stderr);
   assert.equal(r.stdout, '');
-  assert.match(r.stderr, /cannot listen on nosuchhost\.invalid; listen\.host \(--host\) must be an address of this machine \(127\.0\.0\.1 or ::1 for local only\)/);
+  assert.match(r.stderr, /cannot listen on port \d+ on nosuchhost\.invalid; listen\.host \(--host\) must be an address of this machine \(127\.0\.0\.1 or ::1 for local only\)/);
   assert.match(r.stderr, /ENOTFOUND nosuchhost\.invalid/);
 });
 
@@ -41,7 +41,7 @@ test('listenErrorHint covers privileged ports and foreign addresses, and leaves 
   assert.equal(listenErrorHint('EACCES', '127.0.0.1', 80, 'listen EACCES: permission denied 127.0.0.1:80'),
     'port 80 on 127.0.0.1 needs privileges; ports below 1024 usually do, use a higher --port N or listen.port (listen EACCES: permission denied 127.0.0.1:80)');
   assert.match(listenErrorHint('EADDRNOTAVAIL', '192.0.2.1', 8270, 'listen EADDRNOTAVAIL: address not available 192.0.2.1:8270') ?? '',
-    /^cannot listen on 192\.0\.2\.1; listen\.host .*127\.0\.0\.1 or ::1 for local only\) \(listen EADDRNOTAVAIL: address not available 192\.0\.2\.1:8270\)$/);
+    /^cannot listen on port 8270 on 192\.0\.2\.1; listen\.host .*127\.0\.0\.1 or ::1 for local only\) \(listen EADDRNOTAVAIL: address not available 192\.0\.2\.1:8270\)$/);
   assert.match(listenErrorHint('EADDRINUSE', '::1', 8270, 'x') ?? '', /kitzur status --url http:\/\/\[::1\]:8270/);
   assert.equal(listenErrorHint(undefined, '127.0.0.1', 8270, 'listen EADDRINUSE'), null);
   assert.equal(listenErrorHint('EMFILE', '127.0.0.1', 8270, 'too many open files'), null);
