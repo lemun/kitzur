@@ -65,7 +65,7 @@ const timelineRecords = [
 test('report --by day buckets records by UTC day with eligible-only reduction', () => {
   const r = report(timelineRecords.join('\n') + '\n', { by: 'day' });
   assert.equal(r.untimedRequests, 0);
-  assert.equal(r.timelineDroppedBuckets, undefined);
+  assert.equal(r.timelineDroppedRequests, undefined);
   assert.deepEqual(r.timeline, [
     { start: '2026-01-02T00:00:00.000Z', requests: 2, compactions: 1, retries: 1, failures: 1, input: 200, forwarded: 160, reductionPercent: 20 },
     { start: '2026-01-03T00:00:00.000Z', requests: 1, compactions: 0, retries: 0, failures: 0, input: 0, forwarded: 0, reductionPercent: null },
@@ -89,35 +89,37 @@ test('report --by hour splits buckets; untimed records only count in untimedRequ
 test('report without --by has no timeline keys and is unchanged', () => {
   const text = timelineRecords.join('\n') + '\n';
   const r = report(text);
-  assert.ok(!('timeline' in r) && !('untimedRequests' in r) && !('timelineDroppedBuckets' in r));
+  assert.ok(!('timeline' in r) && !('untimedRequests' in r) && !('timelineDroppedRequests' in r));
   assert.deepEqual(r, report(text, {}));
   assert.doesNotMatch(renderReport(r), /Timeline/);
 });
 
-test('report --by keeps the newest 2,000 buckets and counts the dropped ones', () => {
+test('report --by keeps the newest 2,000 buckets and counts the requests in dropped ones', () => {
   const base = Date.parse('2026-01-01T00:00:00Z');
   const lines: string[] = [];
   for (let i = 0; i < 2005; i++) lines.push(JSON.stringify({ seq: i, ts: new Date(base + i * 3_600_000).toISOString(), action: 'passthrough', tokens_in: 1, tokens_out: 1, client_status: 200, attempts: [{ kind: 'ok' }] }));
   for (const order of [lines, [...lines].reverse()]) {
     const r = report(order.join('\n') + '\n', { by: 'hour' });
     assert.equal(r.timeline!.length, 2000);
-    assert.equal(r.timelineDroppedBuckets, 5);
+    assert.equal(r.timelineDroppedRequests, 5);
     assert.equal(r.timeline![0]!.start, new Date(base + 5 * 3_600_000).toISOString());
     assert.equal(r.timeline!.at(-1)!.start, new Date(base + 2004 * 3_600_000).toISOString());
     assert.equal(r.requests, 2005);
   }
 });
 
-test('report --by counts each dropped bucket once even past 100,000 dropped buckets', () => {
+test('report --by counts dropped requests per record, including repeats of an evicted bucket', () => {
   const base = Date.parse('2026-01-01T00:00:00Z');
-  const n = 102_005; const lines: string[] = [];
   const line = (i: number) => JSON.stringify({ seq: i, ts: new Date(base + i * 3_600_000).toISOString(), action: 'passthrough', tokens_in: 1, tokens_out: 1, client_status: 200, attempts: [{ kind: 'ok' }] });
-  for (let i = n - 1; i >= 0; i--) lines.push(line(i));
+  const lines = [line(0), line(0)];
+  for (let i = 2004; i >= 1; i--) lines.push(line(i));
   for (let k = 0; k < 3; k++) lines.push(line(0));
   const r = report(lines.join('\n') + '\n', { by: 'hour' });
   assert.equal(r.timeline!.length, 2000);
-  assert.equal(r.timelineDroppedBuckets, n - 2000);
-  assert.equal(r.requests, n + 3);
+  assert.equal(r.timeline![0]!.start, new Date(base + 5 * 3_600_000).toISOString());
+  // Bucket 0 is evicted with its 2 requests, hours 4..1 are evicted on arrival, then 3 more hour-0 records.
+  assert.equal(r.timelineDroppedRequests, 2 + 4 + 3);
+  assert.equal(r.requests, 2004 + 2 + 3);
 });
 
 test('report CLI --by adds the timeline and rejects other values', async (t) => {

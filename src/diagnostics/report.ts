@@ -15,7 +15,7 @@ export interface ReportResult {
   /** Present only with `by`: UTC buckets sorted by start, at most MAX_TIMELINE_BUCKETS (the newest). */
   timeline?: TimelineBucket[];
   untimedRequests?: number;
-  timelineDroppedBuckets?: number;
+  timelineDroppedRequests?: number;
 }
 
 export interface TimelineBucket { start: string; requests: number; compactions: number; retries: number; failures: number; input: number; forwarded: number; reductionPercent: number | null }
@@ -47,21 +47,20 @@ function accumulator(options: ReportOptions = {}) {
   const buckets = new Map<number, TimelineBucket>();
   const bucketMs = options.by === 'hour' ? 3_600_000 : 86_400_000;
   // Buckets at or below the newest evicted start are already discarded; newer ones are all kept.
-  // Dropped starts are remembered (one number per distinct discarded bucket) so out-of-order files count each one once.
-  let evictedFloor = -Infinity; let untimed = 0; let dropped = 0; const droppedStarts = new Set<number>();
-  const drop = (start: number) => { if (!droppedStarts.has(start)) { dropped++; droppedStarts.add(start); } };
+  // Dropped requests are counted per record, so memory stays O(MAX_TIMELINE_BUCKETS) in any record order.
+  let evictedFloor = -Infinity; let untimed = 0; let dropped = 0;
   function bucketFor(ts: string | null): TimelineBucket | null {
     if (!ts) { untimed++; return null; }
     const start = Math.floor(Date.parse(ts) / bucketMs) * bucketMs;
-    if (start <= evictedFloor) { drop(start); return null; }
+    if (start <= evictedFloor) { dropped++; return null; }
     let b = buckets.get(start);
     if (!b) {
       b = { start: new Date(start).toISOString(), requests: 0, compactions: 0, retries: 0, failures: 0, input: 0, forwarded: 0, reductionPercent: null };
       buckets.set(start, b);
       if (buckets.size > MAX_TIMELINE_BUCKETS) {
         const oldest = Math.min(...buckets.keys());
-        buckets.delete(oldest); evictedFloor = oldest; drop(oldest);
-        if (oldest === start) return null;
+        dropped += buckets.get(oldest)!.requests; buckets.delete(oldest); evictedFloor = oldest;
+        if (oldest === start) { dropped++; return null; }
       }
     }
     return b;
@@ -134,7 +133,7 @@ function accumulator(options: ReportOptions = {}) {
     if (options.by) {
       result.timeline = [...buckets.entries()].sort(([a], [b]) => a - b).map(([, b]) => ({ ...b, reductionPercent: b.input > 0 ? 100 * (b.input - b.forwarded) / b.input : null }));
       result.untimedRequests = untimed;
-      if (dropped > 0) result.timelineDroppedBuckets = dropped;
+      if (dropped > 0) result.timelineDroppedRequests = dropped;
     }
     return result;
   }
@@ -198,7 +197,7 @@ export function renderReport(r: ReportResult): string {
   const pct = (v: number | null) => v === null ? 'n/a' : `${v.toFixed(1)}%`;
   const reduction = pct(t.reductionPercent);
   const timeline = !r.timeline ? [] : [
-    `Timeline (UTC; ${r.untimedRequests ?? 0} requests without a valid ts${r.timelineDroppedBuckets ? `; ${r.timelineDroppedBuckets} older buckets dropped` : ''}):`,
+    `Timeline (UTC; ${r.untimedRequests ?? 0} requests without a valid ts${r.timelineDroppedRequests ? `; ${r.timelineDroppedRequests} requests in older buckets dropped` : ''}):`,
     'start | requests | compactions | input | forwarded | reduction',
     ...r.timeline.map((b) => `${b.start} | ${b.requests} | ${b.compactions} | ${b.input} | ${b.forwarded} | ${pct(b.reductionPercent)}`),
   ];
