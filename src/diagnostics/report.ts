@@ -33,7 +33,6 @@ function validRecord(v: JsonRecord): boolean {
 export const MAX_RECORD_BYTES = 1024 * 1024;
 export const MAX_TRACKED_SESSIONS = 10_000;
 export const MAX_TIMELINE_BUCKETS = 2_000;
-const MAX_DROPPED_BUCKET_STARTS = 100_000;
 
 function accumulator(options: ReportOptions = {}) {
   const coverage: ReportResult['coverage'] = { records: 0, malformed: 0, oversized: 0, partialFinalLine: false, from: null, to: null, historyComplete: null, droppedRecords: null };
@@ -48,9 +47,9 @@ function accumulator(options: ReportOptions = {}) {
   const buckets = new Map<number, TimelineBucket>();
   const bucketMs = options.by === 'hour' ? 3_600_000 : 86_400_000;
   // Buckets at or below the newest evicted start are already discarded; newer ones are all kept.
-  // Dropped starts are remembered (bounded) so out-of-order files still count each one once.
+  // Dropped starts are remembered (one number per distinct discarded bucket) so out-of-order files count each one once.
   let evictedFloor = -Infinity; let untimed = 0; let dropped = 0; const droppedStarts = new Set<number>();
-  const drop = (start: number) => { if (!droppedStarts.has(start)) { dropped++; if (droppedStarts.size < MAX_DROPPED_BUCKET_STARTS) droppedStarts.add(start); } };
+  const drop = (start: number) => { if (!droppedStarts.has(start)) { dropped++; droppedStarts.add(start); } };
   function bucketFor(ts: string | null): TimelineBucket | null {
     if (!ts) { untimed++; return null; }
     const start = Math.floor(Date.parse(ts) / bucketMs) * bucketMs;

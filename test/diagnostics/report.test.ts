@@ -108,6 +108,18 @@ test('report --by keeps the newest 2,000 buckets and counts the dropped ones', (
   }
 });
 
+test('report --by counts each dropped bucket once even past 100,000 dropped buckets', () => {
+  const base = Date.parse('2026-01-01T00:00:00Z');
+  const n = 102_005; const lines: string[] = [];
+  const line = (i: number) => JSON.stringify({ seq: i, ts: new Date(base + i * 3_600_000).toISOString(), action: 'passthrough', tokens_in: 1, tokens_out: 1, client_status: 200, attempts: [{ kind: 'ok' }] });
+  for (let i = n - 1; i >= 0; i--) lines.push(line(i));
+  for (let k = 0; k < 3; k++) lines.push(line(0));
+  const r = report(lines.join('\n') + '\n', { by: 'hour' });
+  assert.equal(r.timeline!.length, 2000);
+  assert.equal(r.timelineDroppedBuckets, n - 2000);
+  assert.equal(r.requests, n + 3);
+});
+
 test('report CLI --by adds the timeline and rejects other values', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-report-by-')); t.after(() => rmSync(dir, { recursive: true, force: true }));
   writeFileSync(join(dir, 'stats.jsonl'), timelineRecords.join('\n') + '\n');
