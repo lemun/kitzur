@@ -119,6 +119,27 @@ test('doctor detects a regular file blocking a state directory without modifying
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('doctor checks the log file folder: default under the state dir, a missing folder, a blocked folder, a read-only folder', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-doctor-log-'));
+  const logCheck = async (file: string | null) => {
+    const cfg = defaultConfig(); cfg.stateDir = join(dir, 'state'); cfg.log.file = file;
+    return (await doctor(cfg)).checks.find((c) => c.code === 'log.directory');
+  };
+  try {
+    assert.equal((await logCheck(null))?.status, 'ok');
+    assert.equal((await logCheck(join(dir, 'new', 'logs', 'x.log')))?.status, 'ok');
+    const blocker = join(dir, 'regular-file'); writeFileSync(blocker, 'sentinel');
+    const blocked = await logCheck(join(blocker, 'x.log'));
+    assert.equal(blocked?.status, 'error');
+    assert.match(blocked?.message ?? '', /^Log path is not a directory/);
+    if (process.platform !== 'win32' && process.getuid?.() !== 0) {
+      const ro = join(dir, 'ro'); fs.mkdirSync(ro, { mode: 0o555 });
+      try { assert.equal((await logCheck(join(ro, 'x.log')))?.status, 'warn'); }
+      finally { fs.chmodSync(ro, 0o755); }
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('doctor treats refused probes and other HTTP services as warnings without restart advice', async () => {
   for (const [status, body] of [[403, 'Host mismatch'], [503, '{}'], [200, 'not json'], [200, '{"name":"other","stats":{"dropped":5,"write_failures":2}}'], [200, 'null']] as const) {
     const server = createServer((_req, res) => { res.writeHead(status); res.end(body); });
