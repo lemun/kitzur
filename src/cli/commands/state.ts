@@ -7,7 +7,9 @@ import { importState } from '../http.js';
 
 export async function cmdState(argv: string[], io: CliIO): Promise<number> {
   const [sub, ...rest] = argv;
-  if (sub !== 'show' && sub !== 'reset') throw new UsageError('state needs a subcommand: show, reset');
+  if (sub !== 'show' && sub !== 'reset') {
+    throw new UsageError(sub ? `unknown state command '${sub}' (show, reset)` : 'state needs a subcommand: show, reset');
+  }
   const p = parseArgs(rest, { ...CONFIG_OPTS, key: { type: 'string' }, json: { type: 'boolean' }, plans: { type: 'boolean' } });
   const cfg = loadFromArgs(p, io).config;
   const dir = stateDirOf(cfg, io.env);

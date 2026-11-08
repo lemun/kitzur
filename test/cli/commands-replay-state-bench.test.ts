@@ -74,7 +74,11 @@ test('state show and reset on an empty state directory', () =>
     assert.equal(reset.out, 'no matching entries\nrestart a running proxy: it keeps its entries in memory and writes them back\n');
     const bad = await run(['state', 'frob'], dir);
     assert.equal(bad.code, 2);
-    assert.match(bad.err, /state needs a subcommand: show, reset/);
+    assert.match(bad.err, /kitzur: unknown state command 'frob' \(show, reset\)\n/);
+    assert.match(bad.err, /run 'kitzur help' for usage/);
+    const none = await run(['state'], dir);
+    assert.equal(none.code, 2);
+    assert.match(none.err, /kitzur: state needs a subcommand: show, reset\n/);
   }));
 
 test('bench answers --help with its usage and does not start the suite', () =>
