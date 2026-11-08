@@ -61,7 +61,7 @@ Use the fake upstreams in `test/proxy/harness.ts` (`fakeUpstream`, `jsonRes`, `s
 - Budget used up: three 503s with `maxAttempts: 3` relay the last 503 unchanged, with `exhausted` counted.
 - Client aborts during the wait: no further upstream hit, and the record shows the abort.
 - Streamed 200 that fails mid-stream: not retried once bytes have been sent.
-- Near-budget 503: transient retries come first, and the attempt ceiling from §2 is never exceeded.
+- Near-budget 503: transient retries come first, and the attempt ceiling defined under Proposed config above is never exceeded.
 - Non-chat POST: not retried unless its path is in `retry.paths`.
 
 ## 6. Follow-up changes (each under 300 lines)
