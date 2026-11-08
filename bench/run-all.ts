@@ -49,15 +49,33 @@ export interface RunAllOptions {
   prune: boolean;
 }
 
+/** A bad command line: the entry prints it without a stack and exits 2. */
+export class ArgError extends Error {}
+
+const VALUE_FLAGS = ['--tier', '--only', '--workers', '--phases', '--results-dir', '--raw-dir'];
+const BOOL_FLAGS = ['--quick', '--resume', '--keep-bodies', '--no-crosscheck', '--snapshot', '--prune'];
+const KNOWN_FLAGS = ['--quick', '--tier', '--only', '--resume', '--workers', '--keep-bodies', '--phases', '--no-crosscheck', '--snapshot', '--prune', '--results-dir', '--raw-dir'];
+
 export function parseArgs(argv: readonly string[]): RunAllOptions & { snapshot: boolean } {
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (VALUE_FLAGS.includes(a)) {
+      const v = argv[i + 1];
+      if (v === undefined || v.startsWith('--')) throw new ArgError(`${a} needs a value`);
+      i++;
+    } else if (!BOOL_FLAGS.includes(a)) throw new ArgError(`unknown flag ${a} (have ${KNOWN_FLAGS.join(' ')})`);
+  }
   const flag = (n: string): string | undefined => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : undefined);
   let phases = (flag('--phases')?.split(',') as Phase[] | undefined) ?? [...PHASES];
-  for (const p of phases) if (!PHASES.includes(p)) throw new Error(`unknown phase ${p} (have ${PHASES.join(', ')})`);
+  for (const p of phases) if (!PHASES.includes(p)) throw new ArgError(`unknown phase ${p} (have ${PHASES.join(', ')})`);
   if (argv.includes('--no-crosscheck')) phases = phases.filter((p) => p !== 'crosscheck');
   const tiers = (flag('--tier')?.split(',') as Tier[] | undefined) ?? ['T1', 'T2', 'T3'];
+  for (const t of tiers) if (!['T1', 'T2', 'T3'].includes(t)) throw new ArgError(`unknown tier ${t} (have T1, T2, T3)`);
+  const w = flag('--workers') ?? '3';
+  if (!/^[1-9]\d*$/.test(w)) throw new ArgError(`--workers must be a positive integer, got ${w}`);
   return {
     quick: argv.includes('--quick'), tiers, only: flag('--only') ?? null, resume: argv.includes('--resume'),
-    workers: Number(flag('--workers') ?? 3), keepBodies: argv.includes('--keep-bodies'), phases,
+    workers: Number(w), keepBodies: argv.includes('--keep-bodies'), phases,
     resultsDir: flag('--results-dir') ?? RESULTS_DIR, rawDir: flag('--raw-dir') ?? RAW_RESULTS_DIR, snapshot: argv.includes('--snapshot'),
     prune: argv.includes('--prune'),
   };
@@ -203,7 +221,13 @@ function snapshotAndReexec(argv: string[]): number {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const argv = process.argv.slice(2);
-  const o = parseArgs(argv);
-  if (o.snapshot) process.exitCode = snapshotAndReexec(argv);
-  else process.exitCode = await runAll(o);
+  try {
+    const o = parseArgs(argv);
+    if (o.snapshot) process.exitCode = snapshotAndReexec(argv);
+    else process.exitCode = await runAll(o);
+  } catch (e) {
+    if (!(e instanceof Error)) throw e;
+    process.stderr.write(`kitzur bench: ${e.message}\n`);
+    process.exitCode = e instanceof ArgError ? 2 : 1;
+  }
 }
