@@ -20,8 +20,9 @@ export const USAGE = `usage: kitzur <command> [options]
   config show [--model ID] [--changed] [--full] [--json]  effective config with the source of every value
   config validate [--model ID] [--json]  errors and startup warnings
   config import-eval <dir|file>... [--out FILE] [--merge FILE] [--provenance FILE] [--dry-run]
-  config export-opencode --model ID [--small-model ID] [--provider NAME] [--key-env NAME]
                      [--force-keys a.b,c] [--allow-pack-version N] [--json-report] [--port N] [--force]
+                     [--tokenizer FILE [--template NAME]]
+  config export-opencode --model ID [--small-model ID] [--provider NAME] [--key-env NAME]
   state show [--key K] [--json]         learned entries in the state dir
   state reset [--key K] [--plans]       remove learned entries (and the plan store)
   bench [args...]                       run the benchmark suite (dist/bench/run-all.js)
