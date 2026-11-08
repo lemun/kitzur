@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { mkdtempSync, readFileSync, writeFileSync, lstatSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, lstatSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -343,6 +343,7 @@ async function one(task: EvidenceTask, repeat: number, arm: Run['arm'], opts: Ev
         await settle();
         await app?.close(0);
         await close(observer);
+        rmSync(root, { recursive: true, force: true });
     }
 }
 export async function evaluate(opts: EvalOptions, tasks: EvidenceTask[] = TASKS) {

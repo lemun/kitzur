@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { evidenceReread, retentionHistory } from '../../bench/scenarios/evidence-reread.js';
@@ -26,8 +26,9 @@ test('pinned evidence histories are deterministic, paired and pressure follows o
     assert.equal(digest(history), window === 32000 ? 'bd9edd18c62bf75649b504db0608e86d0fad0316cf616a59913b7d4523fe3231' : '4604150cfd89454d5ddebf58d1b823893e04c77bcff79b746f174b9fff6b9e8a');
   }
 });
-test('acceptance needs the old file value and the corrected operation', () => {
+test('acceptance needs the old file value and the corrected operation', t => {
   const root = mkdtempSync(join(tmpdir(), 'retention-grade-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   for (const source of [evidenceReread.initial, 'export function solve(x) { return x + 731; }']) {
     writeFileSync(join(root, 'solution.mjs'), source);
     assert.equal(grade(root, evidenceReread).passed, 0);

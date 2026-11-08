@@ -20,6 +20,11 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+// The file store appends through an async queue, so its mkdir can recreate a folder removed synchronously;
+// sweep every folder again once the process exits and the queue has drained.
+const tempDirs = new Set<string>();
+process.once('exit', () => { for (const d of tempDirs) rmSync(d, { recursive: true, force: true }); });
 import type { Budget, ChatMessage, ChatRequest, EngineResult, LearnedEntry, Plan, PlanStore, TokenCounter } from '../../src/types.js';
 import type { Config } from '../../src/config/schema.js';
 import { createEngine, type LeanEngine } from '../../src/engine/engine.js';
@@ -257,6 +262,7 @@ export function checkChain(c: FuzzChain, tok: Tokenizer | null, o: CheckOptions 
   if (o.restart && c.requests.length > 1) {
     const mid = rng.int(1, c.requests.length - 1);
     const dir = mkdtempSync(join(tmpdir(), 'kitzur-fuzz-'));
+    tempDirs.add(dir);
     try {
       const fileStore = (): MemoryPlanStore => new MemoryPlanStore({ maxPlans: 4096, maxBytes: 1e9, persistence: createFilePersistence({ dir }) });
       const A = engineFor(c.cfg, counter, { store: fileStore() });
