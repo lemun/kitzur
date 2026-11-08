@@ -286,6 +286,7 @@ kitzur serve                         run the proxy
 kitzur status [--url URL] [--json]   inspect budgets, counters and recent activity
 kitzur doctor [--json]               diagnose setup (--check-upstream for a small probe)
 kitzur report stats.jsonl [--json]   summarize request reduction, retries and timing
+kitzur completions bash|zsh|fish     print a shell completion script
 kitzur config init|show|validate      create or inspect configuration
 kitzur config import-eval DIR        import gateway probe results as configuration
 kitzur config export-opencode --model ID  print an OpenCode config for the model profiles
