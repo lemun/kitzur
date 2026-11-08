@@ -11,3 +11,4 @@
 - Understand retention: [design](../DESIGN.md#mechanical-summary).
 - Vet Kitzur before it enters an internal network: [security review checklist](SECURITY-REVIEW.md).
 - Review data handling: [security](../SECURITY.md); evaluate: [benchmarks](../bench/README.md).
+- Cut a release: [releasing checklist](RELEASING.md).
