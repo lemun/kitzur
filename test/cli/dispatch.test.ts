@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { main, UsageError, type CliIO } from '../../src/cli.js';
-import { HELP_COMMANDS } from '../../src/cli/usage.js';
+import { HELP_COMMANDS, USAGE } from '../../src/cli/usage.js';
 import { cmdConfig } from '../../src/cli/commands/config.js';
 import { ROOT } from '../helpers.js';
 
@@ -62,6 +62,9 @@ test('dispatch: help and version are answered by cli.ts itself', async () => {
 
 test("dispatch: help <command> prints that command's usage; an unknown topic exits 2", async () => {
   const all = await run(['help']);
+  assert.equal(all.code, 0);
+  assert.equal(all.out, USAGE);
+  assert.equal(all.err, '');
   for (const cmd of HELP_COMMANDS) {
     const r = await run(['help', cmd]);
     assert.equal(r.code, 0, `help ${cmd}: ${r.err}`);
