@@ -35,7 +35,7 @@ test('run-all rejects a misspelled flag, a bad --workers or --tier and a flag wi
   assert.deepEqual(o.phases, ['matrix', 'report']);
   assert.throws(() => parseArgs(['--quik']), /unknown flag --quik .*--quick --tier --only --resume --workers --keep-bodies --phases --no-crosscheck --snapshot --prune --results-dir --raw-dir/);
   assert.throws(() => parseArgs(['extra']), /unknown flag extra/);
-  for (const w of ['abc', '0', '-1', '1.5', '2x']) assert.throws(() => parseArgs(['--workers', w]), /--workers must be a positive integer/, w);
+  for (const w of ['abc', '0', '-1', '1.5', '2x', '9007199254740993', '1' + '0'.repeat(400)]) assert.throws(() => parseArgs(['--workers', w]), /--workers must be a positive integer/, w);
   assert.throws(() => parseArgs(['--tier', 'T9']), /unknown tier T9/);
   assert.throws(() => parseArgs(['--tier', 'T1,']), /unknown tier/);
   for (const f of ['--tier', '--only', '--workers', '--phases', '--results-dir', '--raw-dir']) {

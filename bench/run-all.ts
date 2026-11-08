@@ -72,10 +72,11 @@ export function parseArgs(argv: readonly string[]): RunAllOptions & { snapshot: 
   const tiers = (flag('--tier')?.split(',') as Tier[] | undefined) ?? ['T1', 'T2', 'T3'];
   for (const t of tiers) if (!['T1', 'T2', 'T3'].includes(t)) throw new ArgError(`unknown tier ${t} (have T1, T2, T3)`);
   const w = flag('--workers') ?? '3';
-  if (!/^[1-9]\d*$/.test(w)) throw new ArgError(`--workers must be a positive integer, got ${w}`);
+  const workers = Number(w);
+  if (!/^[1-9]\d*$/.test(w) || !Number.isSafeInteger(workers)) throw new ArgError(`--workers must be a positive integer, got ${w}`);
   return {
     quick: argv.includes('--quick'), tiers, only: flag('--only') ?? null, resume: argv.includes('--resume'),
-    workers: Number(w), keepBodies: argv.includes('--keep-bodies'), phases,
+    workers, keepBodies: argv.includes('--keep-bodies'), phases,
     resultsDir: flag('--results-dir') ?? RESULTS_DIR, rawDir: flag('--raw-dir') ?? RAW_RESULTS_DIR, snapshot: argv.includes('--snapshot'),
     prune: argv.includes('--prune'),
   };
