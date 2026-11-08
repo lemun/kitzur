@@ -7,7 +7,7 @@ import { listenTokenWarning, validateConfig } from '../config/validate.js';
 import { computeBudget } from '../config/derived.js';
 import type { Config, ModelProfiles } from '../config/schema.js';
 import { stateDirOf } from '../config/paths.js';
-import { loadTokenizerCached } from '../tokenize/load.js';
+import { describeTokenizerLoadError, loadTokenizerCached } from '../tokenize/load.js';
 import { loadTokenizer } from '../tokenize/tokenizer.js';
 import { templateTokenizerWarning } from '../tokenize/template.js';
 import { parseJsonc } from '../config/jsonc.js';
@@ -176,8 +176,8 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
       if (warning) add('tokenizer.template', 'warn', warning);
       const n = tok.count('kitzur diagnostic');
       add(n > 0 ? 'tokenizer.load' : 'tokenizer.count', n > 0 ? 'ok' : 'error', n > 0 ? 'Tokenizer loaded and counted a sample locally.' : 'Tokenizer returned an empty count for a non-empty sample.', n > 0 ? undefined : 'Check tokenizer.json and use a supported tokenizer.');
-    } catch {
-      add('tokenizer.load', 'error', 'Tokenizer file could not be loaded or counted.', 'Check tokenizer.path and use a supported tokenizer.json file.');
+    } catch (error) {
+      add('tokenizer.load', 'error', `Tokenizer file could not be loaded: ${describeTokenizerLoadError(config.tokenizer.path, error)}.`, 'Check tokenizer.path and use a supported tokenizer.json file.');
     }
   }
 

@@ -52,6 +52,15 @@ test('doctor reports missing and invalid tokenizer with sanitized messages', asy
     const invalid = await doctor(cfg);
     assert.ok(invalid.checks.some((c) => c.code === 'tokenizer.load' && c.status === 'error'));
     assert.doesNotMatch(renderDoctor(invalid), /not a tokenizer|TOKEN_SECRET_PATH/);
+    // each cause gets its own message, and none quotes the file
+    const messages = new Set<string>();
+    for (const body of ['', 'SECRET_BODY', '{"SECRET_BODY":1}', null]) {
+      if (body === null) { rmSync(cfg.tokenizer.path); fs.mkdirSync(cfg.tokenizer.path); } else writeFileSync(cfg.tokenizer.path, body);
+      const result = await doctor(cfg);
+      assert.doesNotMatch(renderDoctor(result), /SECRET_BODY|TOKEN_SECRET_PATH/);
+      messages.add(result.checks.find((c) => c.code === 'tokenizer.load')?.message ?? '');
+    }
+    assert.equal(messages.size, 4, [...messages].join('\n'));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
