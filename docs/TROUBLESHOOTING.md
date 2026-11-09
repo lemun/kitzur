@@ -9,6 +9,11 @@ Use `kitzur doctor --snapshot support.json` to write a shareable support snapsho
 - Cause: invalid settings, another service on `listen.port`, or a state/log/stats path that is blocked or not writable.
 - Fix: run `kitzur config validate`; if `instance.responsive` warns, inspect what answers on the port and change `listen.host`/`listen.port`; point `stateDir`, `log.file` and `stats.path` below an accessible directory.
 
+## The learned state file is damaged
+- Code: `state.file`.
+- Cause: `learned.json` in the state directory is not valid learned state (cut off by a crash or disk error, edited by hand, or a folder in its place). The proxy ignores it and learns limits from scratch.
+- Fix: run `kitzur state reset` to move it aside to `learned.json.corrupt`, or delete the file; then restart a running proxy.
+
 ## Stats records are missing
 - Code: `stats.writer`.
 - Cause: the stats writer dropped records while its output was blocked or encountered a write failure. `/status` and `kitzur doctor` report the dropped-record and write-failure counters.
