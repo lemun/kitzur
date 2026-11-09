@@ -14,6 +14,7 @@ import { parseJsonc } from '../config/jsonc.js';
 import { clientConfigChecks } from './client-config.js';
 import { Upstream } from '../proxy/upstream.js';
 import { formatPaths } from '../proxy/status.js';
+import { showState } from '../proxy/state.js';
 import { inspectTlsChain, renderTlsChain } from './tls-chain.js';
 import { windowsChecks, type WindowsDeps } from './windows.js';
 
@@ -202,6 +203,15 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
   const logFile = config.log.file ?? join(statePath, 'logs', `kitzur-${new Date().toISOString().slice(0, 10)}.log`);
   add('paths', 'ok', formatPaths({ config: opts.configPath ?? null, state_dir: statePath, log_file: logFile }));
   pathCheck('state.directory', statePath, 'State');
+  try {
+    if (existsSync(statePath) && statSync(statePath).isDirectory()) {
+      // the reader state show uses; its error text quotes the parser, so only its presence is reported
+      const learned = showState(statePath);
+      if (!existsSync(learned.path)) add('state.file', 'ok', 'No learned state file yet.');
+      else if (!learned.error) add('state.file', 'ok', 'Learned state file is readable.');
+      else add('state.file', 'warn', 'Learned state file (learned.json in the state directory) cannot be read; Kitzur ignores it and learns limits from scratch.', "Run 'kitzur state reset' to move it aside, or delete the file.");
+    }
+  } catch { add('state.file', 'warn', 'Learned state file could not be checked.', "Run 'kitzur state reset' to move it aside, or delete the file."); }
   pathCheck('log.directory', dirname(logFile), 'Log');
   checks.push(...await windowsChecks({ port: config.listen.port, stateDir: statePath, logFile, configPath: opts.configPath }, { env: opts.env, ...opts.windows }));
   if (config.stats.path) {
