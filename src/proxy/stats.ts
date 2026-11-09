@@ -36,6 +36,10 @@ export interface ProxyStatsRecord extends StatsRecord {
   original_resent?: boolean;
   /** kitzur injected include_usage and stripped the usage chunk */
   usage_injected?: boolean;
+  /** transient upstream retries of this request (only when there were any) */
+  transient_retries?: number;
+  /** total backoff waited for those retries, ms */
+  transient_retry_delay_ms?: number;
   /** body fully received → upstream request fully written (bench/README.mdreqPath) */
   req_path_ms?: number;
   /** first upstream body byte → first client body byte (respPath) */
@@ -157,6 +161,8 @@ export interface StatsInput {
   incomplete?: boolean;
   originalResent?: boolean;
   usageInjected?: boolean;
+  transientRetries?: number;
+  transientDelayMs?: number;
   reqPathMs?: number;
   respPathMs?: number;
   cpuUs?: number;
@@ -219,6 +225,10 @@ export function buildStatsRecord(s: StatsInput): ProxyStatsRecord {
   if (s.incomplete) rec.upstream_incomplete = true;
   if (s.originalResent) rec.original_resent = true;
   if (s.usageInjected) rec.usage_injected = true;
+  if (s.transientRetries && s.transientRetries > 0) {
+    rec.transient_retries = s.transientRetries;
+    rec.transient_retry_delay_ms = Math.round(s.transientDelayMs ?? 0);
+  }
   if (s.reqPathMs !== undefined) rec.req_path_ms = round1(s.reqPathMs);
   if (s.respPathMs !== undefined) rec.resp_path_ms = round1(s.respPathMs);
   if (s.upstreamMs !== undefined) rec.upstream_ms = round1(s.upstreamMs);

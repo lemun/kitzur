@@ -970,6 +970,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       ...(r.guard ? { guard: r.guard } : {}), ...(r.reason ? { reason: r.reason } : {}),
       ...(c.clientSession ? { clientSession: c.clientSession } : {}),
       incomplete, originalResent: r.originalResent, usageInjected: r.sent?.injectedUsage ?? false,
+      transientRetries: r.transientRetries, transientDelayMs: r.transientDelayMs,
       ...(c.reqPathMs !== undefined ? { reqPathMs: c.reqPathMs } : {}),
       ...(c.respPathMs !== undefined ? { respPathMs: c.respPathMs } : {}),
       cpuUs: cpu.user + cpu.system,

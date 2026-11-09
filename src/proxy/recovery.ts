@@ -292,6 +292,10 @@ export interface ChatResult {
   /** the resend of the original happened */
   originalResent: boolean;
   engineMs: number;
+  /** transient retries of this request (0 when none) */
+  transientRetries: number;
+  /** total backoff waited for them, ms */
+  transientDelayMs: number;
 }
 
 export interface LadderIO {
@@ -349,7 +353,7 @@ export async function runChat(inp: LadderInput, io: LadderIO): Promise<ChatResul
   const tReq = requestMaxTokens(orig, cfg.budget.defaultMaxTokens);
   const out: ChatResult = {
     final: { type: 'relayed' }, action: 'passthrough', first: null, last: null, attempts: [], sent: null, tap: null,
-    complete: false, compacted: false, originalResent: false, engineMs: 0,
+    complete: false, compacted: false, originalResent: false, engineMs: 0, transientRetries: 0, transientDelayMs: 0,
   };
 
   // -------------------------------------------------------- sizes
@@ -631,6 +635,8 @@ export async function runChat(inp: LadderInput, io: LadderIO): Promise<ChatResul
         }
         transientRetries++;
         transientDelayMs += plan.delayMs;
+        out.transientRetries = transientRetries;
+        out.transientDelayMs = transientDelayMs;
         io.onTransientRetry?.({ status: res.status, attempt: transientRetries + 1, delayMs: plan.delayMs });
         continue; // the identical request again: nothing learned, no tightening
       }

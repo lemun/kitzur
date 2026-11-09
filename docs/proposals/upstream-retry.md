@@ -47,7 +47,7 @@ How it fits with `errors.maxRetries`: the two mechanisms do different things. Ov
 
 ## 4. Observability
 
-- Stats record (`src/proxy/stats.ts`): `transientRetries` (count) and `transientRetryDelayMs` (total wait) per request, plus `transientRetryStatuses` (e.g. `{"429": 2}`).
+- Stats record (`src/proxy/stats.ts`): `transient_retries` (count) and `transient_retry_delay_ms` (total wait) per request, written only when the request was retried. A per-status breakdown per request was not implemented.
 - `/status` (`src/proxy/status.ts`): running totals `transient_retries.retries`, `transient_retries.by_status` and `transient_retries.delay_ms`, plus `transient_retries.exhausted` (how many requests the retry gave up on). The camelCase names first proposed here were never implemented.
 - Follow-up: add these field names to the contract in `docs/JSON-OUTPUT.md` in the same change that emits them.
 
