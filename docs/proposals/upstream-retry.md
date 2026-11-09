@@ -1,6 +1,6 @@
 # Proposal: opt-in upstream retry with backoff for 429 and gateway 5xx
 
-Status: proposal, not implemented. Nothing here changes current behavior.
+Status: follow-ups 1 and 2 are implemented (the `upstream.retry.*` config keys and the chat retry loop); passthrough paths and observability are not. Decisions taken: 500 is not retryable, a `Retry-After` above `maxDelayMs` is relayed at once, the defaults of section 2 stay, and there is no per-request opt-out header.
 
 ## 1. Problem
 

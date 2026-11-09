@@ -39,6 +39,7 @@ import { ceil1pct, type CounterKind } from './calibration.js';
 import {
   OVERFLOW_KINDS, STREAM_OPTIONS_EXCLUSION, TRANSLATED_KINDS, overshootOf, validateNumbers, type Classification, type ErrorClassifier,
 } from './errors.js';
+import { planRetry } from './retry.js';
 
 // ---------------------------------------------------------------- attempt sizes
 
@@ -199,6 +200,12 @@ export function mandatoryImageBytes(req: ChatRequest): number {
   return n;
 }
 
+/** The first value of a header in flat rawHeaders form (name compared case-insensitively). */
+function headerValue(raw: string[], name: string): string | undefined {
+  for (let i = 0; i + 1 < raw.length; i += 2) if (raw[i]!.toLowerCase() === name) return raw[i + 1];
+  return undefined;
+}
+
 // ---------------------------------------------------------------- the ladder
 
 /** One upstream attempt. */
@@ -302,6 +309,11 @@ export interface LadderIO {
   process(req: ChatRequest, opts: ProcessOptions): EngineResult;
   now(): Date;
   onRewriteRejected?(ruleId: string, status: number): void;
+  /** waits ms; false when the client went away during the wait (no transient retry without it) */
+  sleep?(ms: number): Promise<boolean>;
+  /** a value in [0, 1) for the retry jitter (default Math.random) */
+  random?(): number;
+  onTransientRetry?(info: { status: number; attempt: number; delayMs: number }): void;
 }
 
 export interface LadderInput {
@@ -517,6 +529,9 @@ export async function runChat(inp: LadderInput, io: LadderIO): Promise<ChatResul
   let usageRetried = false;
   let ambiguousTries = 0;
   let pending: { chainKey: string; rejectedRaw: number; rule: string } | null = null;
+  // transient retries resend the same attempt; shared across the whole request
+  let transientRetries = 0;
+  let transientDelayMs = 0;
 
   const candidateOK = (a: OutgoingAttempt | null, rejected: AttemptSize, kind: ErrorKind): a is OutgoingAttempt => {
     if (!a || a.original) return false; // never the original on a retry
@@ -600,6 +615,22 @@ export async function runChat(inp: LadderInput, io: LadderIO): Promise<ChatResul
     if (inp.shadow) {
       out.final = { type: 'relay', error: res };
       return out;
+    }
+    if (cfg.upstream.retry.enabled && io.sleep && !res.inStream && !res.committed) {
+      const plan = planRetry({
+        status: res.status, retryAfter: headerValue(res.headers, 'retry-after'), nextAttempt: transientRetries + 2,
+        delayedMs: transientDelayMs, nowMs: io.now().getTime(), random: io.random ?? Math.random, cfg: cfg.upstream.retry,
+      });
+      if (plan.retry) {
+        if (!(await io.sleep(plan.delayMs))) {
+          out.final = { type: 'aborted' };
+          return out;
+        }
+        transientRetries++;
+        transientDelayMs += plan.delayMs;
+        io.onTransientRetry?.({ status: res.status, attempt: transientRetries + 1, delayMs: plan.delayMs });
+        continue; // the identical request again: nothing learned, no tightening
+      }
     }
     // : an injected include_usage the server rejects. Besides the built-in exclusion, any 4xx (not 429)
     // naming stream_options / include_usage counts: the field is ours, and servers word the rejection
