@@ -66,7 +66,7 @@ async function rawUpstream(reply: string): Promise<{ origin: string; close(): Pr
 
 test('an upstream 101 Switching Protocols fails the attempt at once (it used to hang past timeoutMs, forever)', { timeout: 30_000 }, async (t) => {
   const up = await rawUpstream('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\nxx');
-  const u = new Upstream({ origin: up.origin, timeoutMs: 60_000, idleTimeoutMs: 60_000, keepAliveIdleMs: 4000, headers: {}, caFile: null, insecureTls: false, maxBodyBytes: null });
+  const u = new Upstream({ origin: up.origin, timeoutMs: 60_000, idleTimeoutMs: 60_000, keepAliveIdleMs: 4000, headers: {}, caFile: null, insecureTls: false, maxBodyBytes: null, retry: DEFAULT_CONFIG.upstream.retry });
   try {
     const t0 = performance.now();
     await assert.rejects(u.request({ method: 'POST', path: '/v1/chat/completions', headers: {}, body: Buffer.from('{}') }), /101/);
@@ -339,7 +339,7 @@ test('keep-alive: a reused socket reset after the server already sent response b
     });
   });
   await new Promise<void>((r) => srv.listen(0, '127.0.0.1', () => r()));
-  const u = new Upstream({ origin: `http://127.0.0.1:${(srv.address() as net.AddressInfo).port}`, timeoutMs: 5000, idleTimeoutMs: 5000, keepAliveIdleMs: 4000, headers: {}, caFile: null, insecureTls: false, maxBodyBytes: null });
+  const u = new Upstream({ origin: `http://127.0.0.1:${(srv.address() as net.AddressInfo).port}`, timeoutMs: 5000, idleTimeoutMs: 5000, keepAliveIdleMs: 4000, headers: {}, caFile: null, insecureTls: false, maxBodyBytes: null, retry: DEFAULT_CONFIG.upstream.retry });
   try {
     const r1 = await u.request({ method: 'POST', path: '/x', headers: {}, body: Buffer.from('{}') });
     r1.body.resume();

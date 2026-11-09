@@ -55,6 +55,13 @@ export const LEAF_SPECS: Readonly<Record<string, LeafSpec>> = Object.assign(Obje
   'upstream.headers': { t: 'headers' },
   'upstream.maxBodyBytes': intN(1024),
   'upstream.keepAliveIdleMs': int(0, MAX_MS),
+  'upstream.retry.enabled': bool,
+  'upstream.retry.maxAttempts': int(1, 10),
+  'upstream.retry.baseDelayMs': int(0, MAX_MS),
+  'upstream.retry.maxDelayMs': int(0, MAX_MS),
+  'upstream.retry.maxTotalDelayMs': int(0, MAX_MS),
+  'upstream.retry.honorRetryAfter': bool,
+  'upstream.retry.jitter': bool,
 
   'server.type': en('vllm', 'sglang', 'llamacpp', 'tgi', 'ollama', 'lmstudio', 'litellm', 'unknown'),
   'server.budgetMode': enN('strict_total', 'prompt_only', 'tgi', 'silent_truncate'),

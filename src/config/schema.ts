@@ -38,6 +38,18 @@ export interface Config {
     maxBodyBytes: number | null;
     /** close idle upstream keep-alive sockets after this (uvicorn keep-alive is 5 s) */
     keepAliveIdleMs: number;
+    /** opt-in retry of a 429/502/503/504 answer; accepted and validated, not acted on yet */
+    retry: {
+      enabled: boolean;
+      /** total upstream attempts for one chain, the first included */
+      maxAttempts: number;
+      baseDelayMs: number;
+      maxDelayMs: number;
+      /** cap on the summed waits of one chain */
+      maxTotalDelayMs: number;
+      honorRetryAfter: boolean;
+      jitter: boolean;
+    };
   };
   server: {
     type: ServerType;
@@ -222,6 +234,7 @@ export const DEFAULT_CONFIG: Config = {
   upstream: {
     origin: null, timeoutMs: 900_000, idleTimeoutMs: 300_000, caFile: null, insecureTls: false,
     headers: {}, maxBodyBytes: null, keepAliveIdleMs: 4000,
+    retry: { enabled: false, maxAttempts: 3, baseDelayMs: 500, maxDelayMs: 8000, maxTotalDelayMs: 20_000, honorRetryAfter: true, jitter: true },
   },
   server: { type: 'unknown', budgetMode: null },
   budget: {
