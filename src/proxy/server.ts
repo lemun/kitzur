@@ -720,6 +720,21 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
       },
       now,
       onRewriteRejected: (ruleId: string, st: number) => status.rewriteRejected(ruleId, st),
+      // a transient-retry wait: ends early (false) when the client closes, and leaves no timer behind
+      sleep: (ms: number) => new Promise<boolean>((resolve) => {
+        if (clientGone) return resolve(false);
+        const gone = (): void => {
+          clearTimeout(timer);
+          resolve(false);
+        };
+        const timer = setTimeout(() => {
+          ac.signal.removeEventListener('abort', gone);
+          resolve(true);
+        }, ms);
+        ac.signal.addEventListener('abort', gone, { once: true });
+      }),
+      onTransientRetry: (i: { status: number; attempt: number; delayMs: number }) =>
+        log('info', `upstream ${i.status}, transient retry attempt=${i.attempt} delay_ms=${i.delayMs}`),
     };
     let result: ChatResult;
     try {
