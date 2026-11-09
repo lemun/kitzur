@@ -26,8 +26,15 @@ export function maskSnapshotString(input: string, facts: Pick<SnapshotFacts, 'ho
     return _all.replace(authority, replacement + suffix);
   });
   for (const [host, replacement] of hosts) value = value.replace(new RegExp(host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), replacement);
-  if (facts.home) value = value.split(facts.home).join('<home>');
-  value = value.replace(/(?:[A-Za-z]:)?\\Users\\[^\\/]+/gi, '<home>');
+  if (facts.home) {
+    value = value.split(facts.home).join('<home>');
+    // A Windows home may also appear with forward slashes, doubled backslashes or another letter case.
+    if (/^(?:[A-Za-z]:|\\\\)/.test(facts.home)) {
+      const pattern = facts.home.split(/[\\/]+/).map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\\\/]+');
+      value = value.replace(new RegExp(pattern, 'gi'), '<home>');
+    }
+  }
+  value = value.replace(/(?:[A-Za-z]:)?[\\/]+(?:Users|Documents and Settings)[\\/]+[^\\/]+/gi, '<home>');
   value = value.replace(/\/(?:Users|home)\/[^/\\\s]+/g, '<home>');
   return value;
 }
