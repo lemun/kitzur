@@ -1,4 +1,4 @@
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { stateDirOf } from '../../config/paths.js';
 import { UsageError, type CliIO } from '../io.js';
@@ -20,7 +20,10 @@ export async function cmdState(argv: string[], io: CliIO): Promise<number> {
   const key = p.values['key'] as string | undefined;
   if (sub === 'show') {
     const r = st.showState(dir, key);
-    if (r.error) io.stderr(`kitzur: ${r.path}: ${r.error}\n`);
+    if (r.error) {
+      io.stderr(`kitzur: ${r.path}: ${r.error}\n`);
+      io.stderr("kitzur: the proxy ignores this file and learns from scratch; run 'kitzur state reset' to move it aside\n");
+    }
     if (p.values['json']) {
       io.stdout(JSON.stringify({ path: r.path, ...r.state }, null, 1) + '\n');
       return r.error ? 1 : 0;
@@ -36,8 +39,18 @@ export async function cmdState(argv: string[], io: CliIO): Promise<number> {
     }
     return r.error ? 1 : 0;
   }
-  const gone = st.resetState(dir, key);
-  io.stdout(gone.length ? `removed ${gone.length} entr${gone.length === 1 ? 'y' : 'ies'}: ${gone.join(', ')}\n` : 'no matching entries\n');
+  const damaged = st.showState(dir);
+  if (damaged.error && existsSync(damaged.path)) {
+    if (key) {
+      io.stderr(`kitzur: cannot select entries in an unreadable ${damaged.path}; run 'kitzur state reset' without --key to move it aside\n`);
+      return 1;
+    }
+    renameSync(damaged.path, `${damaged.path}.corrupt`);
+    io.stdout(`moved the unreadable ${damaged.path} to ${damaged.path}.corrupt; the proxy learns from scratch\n`);
+  } else {
+    const gone = st.resetState(dir, key);
+    io.stdout(gone.length ? `removed ${gone.length} entr${gone.length === 1 ? 'y' : 'ies'}: ${gone.join(', ')}\n` : 'no matching entries\n');
+  }
   if (p.values['plans']) {
     const plans = join(dir, 'plans');
     if (existsSync(plans)) {
