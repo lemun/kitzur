@@ -77,6 +77,9 @@ All notable changes to Kitzur are recorded here. The format follows
 - `kitzur report --by hour|day` adds a `timeline` of UTC buckets (requests, compactions, retries, failures and reduction), printed as a table after the totals.
 - `16k` and `256k` presets for 16k and 256k windows, usable with `--preset`, `KITZUR_PRESET`, `config init --preset` and the config file's `preset` key.
 - [docs/CLIENTS.md](docs/CLIENTS.md) has sections for Continue, Aider and Open WebUI.
+- Opt-in `upstream.retry.*` (off by default): a 429, 502, 503 or 504 before any response byte is repeated after a capped backoff that honours `Retry-After`; see [CONFIG.md](CONFIG.md).
+- `kitzur report --by hour|day --csv` prints the timeline as CSV for spreadsheets.
+- `kitzur doctor` reports a damaged `learned.json` in the state directory (`state.file`).
 
 ### Changed
 
@@ -97,6 +100,9 @@ All notable changes to Kitzur are recorded here. The format follows
 - `kitzur doctor --client-config` says whether the file is missing, unreadable or not valid JSON.
 - `kitzur report` and `tls-probe` errors say what went wrong: an unreadable stats file names the path and cause, and an `http://` origin gets an accurate message.
 - `deploy/verify-bundle.mjs` fails a bundle that contains a symlink and explains a missing SHA256SUMS or archive.
+- `kitzur state reset` moves a damaged `learned.json` aside as `learned.json.corrupt` instead of failing, and `state show` says how to start over.
+- A misspelled config section such as `budgte` gets a did-you-mean hint, as a misspelled leaf key already does.
+- Legacy `/v1/completions` requests are documented as not compacted, and the first one logs a warning.
 
 ### Fixed
 
@@ -121,6 +127,8 @@ All notable changes to Kitzur are recorded here. The format follows
 - `kitzur state` and `kitzur autostart` name an unknown subcommand, and `autostart` lists unexpected extra arguments.
 - `kitzur serve` on a port already in use, a port that needs privileges or a host that is not local says what to change instead of printing a raw listen error.
 - `kitzur bench` rejects a misspelled flag, a bad `--workers` or `--tier` and a flag without its value, and a missing tokenizer prints one line instead of a stack trace.
+- The doctor snapshot masks a Windows home folder written with forward slashes, doubled backslashes, another letter case or the Documents and Settings name.
+- Single-dash tokens such as `-p=64k` or `-abc` are rejected instead of becoming positional arguments.
 
 ## [0.2.1] — 2026-10-19
 

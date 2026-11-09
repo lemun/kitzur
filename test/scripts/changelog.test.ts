@@ -28,7 +28,7 @@ test('the Unreleased section mentions the CLI, proxy and docs changes merged aft
     encoding: 'utf8',
   });
   assert.equal(res.status, 0, res.stderr);
-  for (const needle of ['kitzur help', 'docs/CLIENTS.md', 'Proxy-Authorization', 'log.directory', '--drain-ms', 'verify-bundle', 'kitzur completions', '--by', '16k', '256k', 'Aider']) {
+  for (const needle of ['kitzur help', 'docs/CLIENTS.md', 'Proxy-Authorization', 'log.directory', '--drain-ms', 'verify-bundle', 'kitzur completions', '--by', '16k', '256k', 'Aider', 'upstream.retry', '--csv', 'state.file']) {
     assert.ok(res.stdout.includes(needle), `Unreleased does not mention ${needle}`);
   }
 });
