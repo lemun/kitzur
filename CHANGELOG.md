@@ -73,6 +73,10 @@ All notable changes to Kitzur are recorded here. The format follows
 - [docs/CLIENTS.md](docs/CLIENTS.md) shows how to point any OpenAI-compatible client (curl, the OpenAI Python and Node SDKs, an env-var tool) at Kitzur and confirm it works (#186).
 - `kitzur doctor` checks that the log file can be written (`log.directory`), with the same wording as the state and stats path checks.
 - CONFIG.md documents `kitzur serve --drain-ms` and the SIGINT/SIGTERM drain (a second signal exits with 130).
+- `kitzur completions bash|zsh|fish` prints a shell completion script whose commands, subcommands and flags come from the CLI's own usage text.
+- `kitzur report --by hour|day` adds a `timeline` of UTC buckets (requests, compactions, retries, failures and reduction), printed as a table after the totals.
+- `16k` and `256k` presets for 16k and 256k windows, usable with `--preset`, `KITZUR_PRESET`, `config init --preset` and the config file's `preset` key.
+- [docs/CLIENTS.md](docs/CLIENTS.md) has sections for Continue, Aider and Open WebUI.
 
 ### Changed
 
@@ -112,6 +116,11 @@ All notable changes to Kitzur are recorded here. The format follows
 - `kitzur status` rejects a bad `--timeout-ms` or `--url` with a usage error instead of a Node.js internals message.
 - An invalid-JSON config error never prints a fragment of the file.
 - `kitzur --help` listed the `config import-eval` flags under `export-opencode`.
+- `config show`, `config validate`, `config init`, `config export-opencode` and `status` reject a stray argument instead of ignoring it.
+- `kitzur state reset my-model` wiped every learned entry; `state show` and `state reset` now reject a stray argument and point to `--key`.
+- `kitzur state` and `kitzur autostart` name an unknown subcommand, and `autostart` lists unexpected extra arguments.
+- `kitzur serve` on a port already in use, a port that needs privileges or a host that is not local says what to change instead of printing a raw listen error.
+- `kitzur bench` rejects a misspelled flag, a bad `--workers` or `--tier` and a flag without its value, and a missing tokenizer prints one line instead of a stack trace.
 
 ## [0.2.1] — 2026-10-19
 
