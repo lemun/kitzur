@@ -56,6 +56,9 @@ it is off: `retries` (waits taken), `by_status` (waits per status code, e.g. `{"
 (total wait) and `exhausted` (requests where the retry gave up on a transient status and the error was
 handled as without it).
 
+`counters.legacy_completions` and `counters.legacy_over_budget` are informational: legacy
+`/v1/completions` prompts that were counted (`legacyCompletions.count`), and those above the budget.
+
 ## `kitzur doctor --json`
 
 Exit code equals `exitCode`: 0 when no check is `error`, 1 otherwise, 2 when the config cannot be
