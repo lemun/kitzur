@@ -441,6 +441,8 @@ set `upstream.origin` to the rotator; see [the LiteLLM example](docs/UPSTREAM-RO
 | `stateDir` | `null` | Learned state, plan store and tokenizer cache; `null` = `$XDG_STATE_HOME/kitzur` or `~/.local/state/kitzur`. | Shared between unrelated instances: learned windows leak between them. | – |
 | `stats.path` | `null` | JSONL of one record per client request (sizes only, never content). | – | – |
 | `shadow` | `false` | Run the engine and record what it would do, but forward the original bytes (calibration can run before enabling). | – | – |
+| `legacyCompletions.count` | `true` | Count the `prompt` of a legacy `/v1/completions` request (a string or an array of strings) with the model's counter. The answer then carries `x-kitzur-action: passthrough` and `x-kitzur-tokens`, plus `x-kitzur-over-budget: <budget>` when a prompt exceeds the budget; `/status` counts `legacy_completions` and `legacy_over_budget`. The request is forwarded unchanged either way; a body that cannot be read is not counted. | Off: no headers or counts for these requests. | – |
+| `legacyCompletions.warn` | `true` | Log one line per process the first time a legacy `/v1/completions` request is forwarded, saying it is not compacted. | Off: nothing in the log says these prompts are never compacted. | – |
 | `digestHook.enabled` | `false` | Documented hook for an optional model-written digest; not implemented in v1 (must stay `false`). | – | – |
 | `logLevel` | `info` | `error`, `warn`, `info` or `debug` (server log file; never content). | – | – |
 
@@ -541,8 +543,8 @@ flushes pending entries.
 
 ### Request visibility
 
-Only chat requests are counted and compacted; legacy `/v1/completions` and every other
-passthrough endpoint are forwarded unchanged, while `GET /status` and `/kitzur/status`
+Only chat requests are compacted; legacy `/v1/completions` prompts are counted
+(`legacyCompletions.count`) and, like every other passthrough endpoint, forwarded unchanged, while `GET /status` and `/kitzur/status`
 are served locally (see "Which requests are compacted" in `README.md`).
 `logLevel: "info"` (the default) logs one content-free line per completed chat
 request: action, input/output token counts, budget, trigger, target, model and
