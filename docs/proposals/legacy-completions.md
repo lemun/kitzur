@@ -1,22 +1,26 @@
 # Proposal: legacy `/v1/completions` prompts
 
-Status: option A is implemented, B is not. Kitzur only compacts chat requests. Tools that send plain
-prompts to `/v1/completions` (editor autocomplete with fill-in-the-middle, plain-prompt
-endpoints, some agent frameworks) get no help when a prompt overflows the served window,
-and no document says so.
+Status: option A and option B (count only) are implemented; C, D and stats records for legacy
+requests are not. Kitzur only compacts chat requests. Tools that send plain prompts to
+`/v1/completions` (editor autocomplete with fill-in-the-middle, plain-prompt endpoints, some agent
+frameworks) get no help when a prompt overflows the served window, but the prompt is counted and the
+answer says when it is over the budget.
 
 ## 1. Today
 
 - `isChatCompletionsPath` (`src/dialect/openai-chat.ts:22`) matches only `POST .../chat/completions`;
   `test/proxy/dialect.test.ts:19` asserts that `POST /v1/completions` does not match.
-- Every other request goes through `passthrough()` (`src/proxy/server.ts:397`) unchanged. It only
-  bumps `passthrough_requests` in `/status`: no token count, no stats record, no `x-kitzur-*` header.
+- Every other request goes through `passthrough()` (`src/proxy/server.ts`) unchanged and bumps
+  `passthrough_requests` in `/status`. A `/v1/completions` request is counted first (not compacted)
+  when `legacyCompletions.count` is on: the answer carries `x-kitzur-action: passthrough` and
+  `x-kitzur-tokens`, plus `x-kitzur-over-budget` when a prompt exceeds the budget, and `/status`
+  counts `legacy_completions` and `legacy_over_budget`. No stats record is written.
 - `test/proxy/server.test.ts:584-585` pins the `/v1/embeddings` passthrough.
 
 | Endpoint | Compacted | Counted | Passthrough |
 | --- | --- | --- | --- |
 | `POST .../chat/completions` | yes | yes | only when it fits or cannot be parsed |
-| `POST /v1/completions` | no | no | yes |
+| `POST /v1/completions` | no | yes | yes, unchanged |
 | `POST /v1/embeddings` | no | no | yes |
 | `GET /v1/models` | no | no | yes (Kitzur also probes it at startup) |
 | `GET /props` | no | no | yes (Kitzur also reads it to learn the window) |
@@ -44,7 +48,7 @@ corrupted FIM prompt is worse than an overflow error: the server's error is visi
 client can retry with less context, a bad completion is not.
 
 New config keys (B): `legacyCompletions.count` (default `true`) and `legacyCompletions.warn`
-(default `true`, controls the log line from A). C would add `legacyCompletions.truncate`
+(default `true`, controls the log line from A). C (not implemented) would add a `truncate` key under `legacyCompletions`
 (default `false`) and must refuse prompts that contain known FIM sentinels. D is not recommended.
 
 Failure modes:
@@ -75,11 +79,11 @@ Use `test/proxy/harness.ts` (`fakeUpstream`, `startProxy`, `request`, `waitRecor
 ## 6. Follow-up units
 
 1. Docs and warning (A): `README.md`, `CONFIG.md`, `src/proxy/server.ts`, `src/cli/commands/diagnostics.ts`,
-   `test/proxy/server.test.ts`. About 80 lines.
-2. Count-only (B): `src/dialect/openai-completions.ts` (new), `src/proxy/server.ts`,
+   `test/proxy/server.test.ts`. About 80 lines. Done.
+2. Count-only (B), done without stats records: `src/dialect/openai-completions.ts` (new), `src/proxy/server.ts`,
    `src/proxy/stats.ts`, `src/proxy/status.ts`, `src/config/schema.ts`, `src/config/spec.ts`,
    `test/proxy/legacy-completions.test.ts` (new). Under 300 lines.
-3. JSON output docs: `docs/JSON-OUTPUT.md`, `docs/proposals/legacy-completions.md` (mark done).
+3. JSON output docs: `docs/JSON-OUTPUT.md`, `docs/proposals/legacy-completions.md` (mark done). Done.
 
 ## 7. Open questions
 
