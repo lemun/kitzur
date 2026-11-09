@@ -15,7 +15,7 @@ export const USAGE = `usage: kitzur <command> [options]
   status [--url URL] [--json] [--timeout-ms N]  show a running instance's status
   doctor [--model ID] [--client-config PATH] [--json] [--snapshot FILE|-] [--force] [--check-upstream] [--timeout-ms N]  read-only setup diagnostics
   tls-probe [origin] [--ca-file FILE] [--json] [--timeout-ms N]  inspect the TLS chain
-  report <stats.jsonl> [--json] [--by hour|day]  aggregate request stats; sizes only
+  report <stats.jsonl> [--json] [--by hour|day] [--csv]  aggregate request stats; sizes only
   config init [--preset 100k] [--upstream URL] [--tokenizer FILE] [--model ID[=WINDOW]]... [--out FILE|-] [--force] [--dry-run]
   config show [--model ID] [--changed] [--full] [--json]  effective config with the source of every value
   config validate [--model ID] [--json]  errors and startup warnings

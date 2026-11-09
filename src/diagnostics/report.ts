@@ -213,3 +213,9 @@ export function renderReport(r: ReportResult): string {
     ...timeline,
   ].join('\n');
 }
+
+/** The timeline as CSV for spreadsheets; every field is an ISO timestamp or a number, so none needs quoting. */
+export function renderTimelineCsv(r: ReportResult): string {
+  const rows = (r.timeline ?? []).map((b) => [b.start, b.requests, b.compactions, b.retries, b.failures, b.input, b.forwarded, b.reductionPercent === null ? '' : b.reductionPercent.toFixed(2)].join(',') + '\n');
+  return 'start,requests,compactions,retries,failures,input,forwarded,reduction_percent\n' + rows.join('');
+}
