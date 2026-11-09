@@ -12,7 +12,14 @@ export interface ReportResult {
   fieldCoverage: { tokensIn: number; tokensOut: number; attempts: number; attemptedRaw: number; shadowEstimatedForwarded: number; actualPromptUsage: number; actualCompletionUsage: number; totalMs: number; engineMs: number; upstreamMs: number; requestPathMs: number; responsePathMs: number };
   upstreamStatusCounts: Record<string, number>;
   timingMs: { total: number; engine: number; upstream: number; requestPath: number; responsePath: number; recordsWithTotal: number };
+  /** Present only with `by`: UTC buckets sorted by start, at most MAX_TIMELINE_BUCKETS (the newest). */
+  timeline?: TimelineBucket[];
+  untimedRequests?: number;
+  timelineDroppedRequests?: number;
 }
+
+export interface TimelineBucket { start: string; requests: number; compactions: number; retries: number; failures: number; input: number; forwarded: number; reductionPercent: number | null }
+export interface ReportOptions { by?: 'hour' | 'day' }
 
 const num = (v: unknown): number | null => typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
 const obj = (v: unknown): v is JsonRecord => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -25,8 +32,9 @@ function validRecord(v: JsonRecord): boolean {
 
 export const MAX_RECORD_BYTES = 1024 * 1024;
 export const MAX_TRACKED_SESSIONS = 10_000;
+export const MAX_TIMELINE_BUCKETS = 2_000;
 
-function accumulator() {
+function accumulator(options: ReportOptions = {}) {
   const coverage: ReportResult['coverage'] = { records: 0, malformed: 0, oversized: 0, partialFinalLine: false, from: null, to: null, historyComplete: null, droppedRecords: null };
   const result: ReportResult = {
     coverage, requests: 0, uniqueSessions: 0, sessionCoverage: { approximate: true, limit: MAX_TRACKED_SESSIONS, lowerBound: false, missing: 0 }, localRejects: 0, shadowRequests: 0, incompleteStreams: 0, compactions: 0, retries: 0, failures: 0,
@@ -36,6 +44,27 @@ function accumulator() {
     upstreamStatusCounts: {},
   };
   const sessions = new Set<string>();
+  const buckets = new Map<number, TimelineBucket>();
+  const bucketMs = options.by === 'hour' ? 3_600_000 : 86_400_000;
+  // Buckets at or below the newest evicted start are already discarded; newer ones are all kept.
+  // Dropped requests are counted per record, so memory stays O(MAX_TIMELINE_BUCKETS) in any record order.
+  let evictedFloor = -Infinity; let untimed = 0; let dropped = 0;
+  function bucketFor(ts: string | null): TimelineBucket | null {
+    if (!ts) { untimed++; return null; }
+    const start = Math.floor(Date.parse(ts) / bucketMs) * bucketMs;
+    if (start <= evictedFloor) { dropped++; return null; }
+    let b = buckets.get(start);
+    if (!b) {
+      b = { start: new Date(start).toISOString(), requests: 0, compactions: 0, retries: 0, failures: 0, input: 0, forwarded: 0, reductionPercent: null };
+      buckets.set(start, b);
+      if (buckets.size > MAX_TIMELINE_BUCKETS) {
+        const oldest = Math.min(...buckets.keys());
+        dropped += buckets.get(oldest)!.requests; buckets.delete(oldest); evictedFloor = oldest;
+        if (oldest === start) { dropped++; return null; }
+      }
+    }
+    return b;
+  }
   function record(line: string) {
     if (!line.trim()) return;
     let r: unknown;
@@ -53,12 +82,15 @@ function accumulator() {
     const ts = typeof r.ts === 'string' && Number.isFinite(Date.parse(r.ts)) ? new Date(r.ts).toISOString() : null;
     if (ts && (!coverage.from || ts < coverage.from)) coverage.from = ts;
     if (ts && (!coverage.to || ts > coverage.to)) coverage.to = ts;
+    const bucket = options.by ? bucketFor(ts) : null;
     if (r.compacted === true) result.compactions++;
     const validAttempts = Array.isArray(r.attempts) && r.attempts.every(obj);
     const attempts = validAttempts ? r.attempts as JsonRecord[] : [];
     if (validAttempts) result.fieldCoverage.attempts++;
-    if (validAttempts) result.retries += Math.max(0, attempts.length - 1);
-    result.failures += (num(r.client_status) ?? 0) >= 400 || r.upstream_incomplete === true || (attempts.length > 0 && typeof attempts.at(-1)!.kind === 'string' && attempts.at(-1)!.kind !== 'ok') ? 1 : 0;
+    const retries = validAttempts ? Math.max(0, attempts.length - 1) : 0;
+    result.retries += retries;
+    const failed = (num(r.client_status) ?? 0) >= 400 || r.upstream_incomplete === true || (attempts.length > 0 && typeof attempts.at(-1)!.kind === 'string' && attempts.at(-1)!.kind !== 'ok') ? 1 : 0;
+    result.failures += failed;
     if (validAttempts && attempts.length === 0 && (num(r.client_status) ?? 0) >= 400) result.localRejects++;
     if (r.shadow === true || r.action === 'shadow') result.shadowRequests++;
     if (r.upstream_incomplete === true) result.incompleteStreams++;
@@ -68,6 +100,10 @@ function accumulator() {
     const shadowOut = num(r.shadow_tokens_out); if (shadowOut !== null) { result.tokenTotals.shadowEstimatedForwarded += shadowOut; result.fieldCoverage.shadowEstimatedForwarded++; }
     const eligible = attempts.length > 0 && r.shadow !== true && r.action !== 'shadow' && r.action !== 'impossible' && r.action !== 'guard_reject' && input !== null && forwarded !== null;
     if (eligible) { result.tokenTotals.reductionEligibleInput += input!; result.tokenTotals.reductionEligibleForwarded += forwarded!; }
+    if (bucket) {
+      bucket.requests++; bucket.compactions += r.compacted === true ? 1 : 0; bucket.retries += retries; bucket.failures += failed;
+      if (eligible) { bucket.input += input!; bucket.forwarded += forwarded!; }
+    }
     for (const a of attempts) {
       const raw = num(a.raw); if (raw !== null) { result.tokenTotals.attemptedRaw += raw; result.fieldCoverage.attemptedRaw++; }
       const status = num(a.status);
@@ -94,13 +130,18 @@ function accumulator() {
     result.uniqueSessions = sessions.size;
     const denominator = result.tokenTotals.reductionEligibleInput;
     if (denominator > 0) result.tokenTotals.reductionPercent = 100 * (denominator - result.tokenTotals.reductionEligibleForwarded) / denominator;
+    if (options.by) {
+      result.timeline = [...buckets.entries()].sort(([a], [b]) => a - b).map(([, b]) => ({ ...b, reductionPercent: b.input > 0 ? 100 * (b.input - b.forwarded) / b.input : null }));
+      result.untimedRequests = untimed;
+      if (dropped > 0) result.timelineDroppedRequests = dropped;
+    }
     return result;
   }
   return { record, finish, coverage };
 }
 
-function byteParser() {
-  const stats = accumulator();
+function byteParser(options: ReportOptions = {}) {
+  const stats = accumulator(options);
   const line = Buffer.allocUnsafe(MAX_RECORD_BYTES);
   let size = 0; let oversized = false; let partial = false;
   function endLine() {
@@ -132,15 +173,15 @@ function byteParser() {
 }
 
 /** Aggregate byte chunks without retaining the file or unbounded records. */
-export async function reportStream(chunks: AsyncIterable<Uint8Array>): Promise<ReportResult> {
-  const parser = byteParser();
+export async function reportStream(chunks: AsyncIterable<Uint8Array>, options: ReportOptions = {}): Promise<ReportResult> {
+  const parser = byteParser(options);
   for await (const chunk of chunks) parser.write(chunk);
   return parser.finish();
 }
 
 /** Convenience API for callers that already hold a string. Uses the same caps. */
-export function report(text: string): ReportResult {
-  const parser = byteParser();
+export function report(text: string, options: ReportOptions = {}): ReportResult {
+  const parser = byteParser(options);
   // Keep conversion buffers bounded; avoid splitting a UTF-16 surrogate pair.
   for (let start = 0; start < text.length;) {
     let end = Math.min(start + 16384, text.length);
@@ -153,7 +194,13 @@ export function report(text: string): ReportResult {
 
 export function renderReport(r: ReportResult): string {
   const t = r.tokenTotals; const tm = r.timingMs;
-  const reduction = t.reductionPercent === null ? 'n/a' : `${t.reductionPercent.toFixed(1)}%`;
+  const pct = (v: number | null) => v === null ? 'n/a' : `${v.toFixed(1)}%`;
+  const reduction = pct(t.reductionPercent);
+  const timeline = !r.timeline ? [] : [
+    `Timeline (UTC; ${r.untimedRequests ?? 0} requests without a valid ts${r.timelineDroppedRequests ? `; ${r.timelineDroppedRequests} requests in older buckets dropped` : ''}):`,
+    'start | requests | compactions | input | forwarded | reduction',
+    ...r.timeline.map((b) => `${b.start} | ${b.requests} | ${b.compactions} | ${b.input} | ${b.forwarded} | ${pct(b.reductionPercent)}`),
+  ];
   return [
     `Coverage: ${r.coverage.records} records (${r.coverage.malformed} malformed, ${r.coverage.oversized} oversized${r.coverage.partialFinalLine ? ', final line has no newline' : ''})${r.coverage.from ? `, ${r.coverage.from} to ${r.coverage.to}` : ''}`,
     `History completeness ${r.coverage.historyComplete === null ? 'unknown' : r.coverage.historyComplete ? 'verified' : 'incomplete'}; dropped-record total ${r.coverage.droppedRecords === null ? 'unavailable' : r.coverage.droppedRecords}.`,
@@ -163,5 +210,6 @@ export function renderReport(r: ReportResult): string {
     `Upstream HTTP status counts: ${Object.entries(r.upstreamStatusCounts).map(([s, n]) => `${s}=${n}`).join(', ') || 'none'}.`,
     `Timing totals (ms): total ${tm.total} (${r.fieldCoverage.totalMs} records), engine ${tm.engine} (${r.fieldCoverage.engineMs}), upstream ${tm.upstream} (${r.fieldCoverage.upstreamMs}), request path ${tm.requestPath} (${r.fieldCoverage.requestPathMs}), response path ${tm.responsePath} (${r.fieldCoverage.responsePathMs}).`,
     'Request token reduction is not a billing estimate.',
+    ...timeline,
   ].join('\n');
 }

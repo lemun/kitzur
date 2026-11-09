@@ -77,10 +77,12 @@ export async function cmdDoctor(argv: string[], io: CliIO): Promise<number> {
 const READ_ERRORS: Record<string, string> = { ENOENT: 'no such file', EISDIR: 'it is a directory', EACCES: 'permission denied', EPERM: 'permission denied' };
 
 export async function cmdReport(argv: string[], io: CliIO): Promise<number> {
-  const p = parseArgs(argv, { json: { type: 'boolean' } });
+  const p = parseArgs(argv, { json: { type: 'boolean' }, by: { type: 'string' } });
   if (p.positionals.length !== 1) throw new UsageError('report needs one stats JSONL file');
+  const by = p.values['by'];
+  if (by !== undefined && by !== 'hour' && by !== 'day') throw new UsageError('--by must be hour or day');
   let result;
-  try { result = await reportStream(createReadStream(resolve(io.cwd, p.positionals[0]!))); }
+  try { result = await reportStream(createReadStream(resolve(io.cwd, p.positionals[0]!)), by ? { by } : {}); }
   catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     const cause = code ? READ_ERRORS[code] ?? `error ${code}` : 'unknown error';
