@@ -80,6 +80,6 @@ test('report over a record with the new keys succeeds and its totals are unchang
   const plain = JSON.stringify(built({})) + '\n';
   const retried = JSON.stringify(built({ transientRetries: 2, transientDelayMs: 30 })) + '\n';
   assert.match(retried, /"transient_retries":2,"transient_retry_delay_ms":30/);
-  assert.deepEqual(report(retried), report(plain));
+  assert.deepEqual(report(retried), { ...report(plain), transientRetries: { requests: 1, retries: 2, delayMs: 30 } });
   assert.equal(report(retried).requests, 1);
 });
