@@ -32,6 +32,21 @@ test('release checklist runs tag, publish and release commands only as maintaine
   }
 });
 
+test('release checklist covers the CHANGELOG compare links it tells the maintainer to edit', () => {
+  assert.match(markdown, /compare/);
+  assert.ok(markdown.includes('[Unreleased]') && markdown.includes('[0.3.0]'));
+  assert.match(readFileSync(join(ROOT, 'CHANGELOG.md'), 'utf8'), /^\[Unreleased\]: \S+\/compare\/v[\d.]+\.\.\.HEAD$/m);
+});
+
+test('release checklist smokes the downloaded package and reopens the CHANGELOG after publishing', () => {
+  assert.match(markdown, /kitzur version/);
+  assert.match(markdown, /kitzur doctor/);
+  assert.match(markdown, /^## After publishing$/m);
+  for (const [, before, block] of markdown.matchAll(/([^\n]*)\n```[^\n]*\n([\s\S]*?)```/g)) {
+    if (/\bnpm install\b/.test(block!)) assert.match(before!, /^Maintainer step:/, block);
+  }
+});
+
 test('docs index links the release checklist', () => {
   assert.match(readFileSync(join(ROOT, 'docs/README.md'), 'utf8'), /Cut a release: \[[^\]]+\]\(RELEASING\.md\)/);
 });
