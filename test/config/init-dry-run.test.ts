@@ -33,11 +33,11 @@ function validates(dir: string, text: string): string[] {
 
 test('config init without --model or --dry-run: the text is unchanged (golden)', () => {
   const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
-  assert.equal(sha(renderInitConfig('32k')), '72dcf5e37fc4620609d4de8f3254eae3d7ac9b155fe95d0d865212064d7ab42c');
-  assert.equal(sha(renderInitConfig('64k')), 'a424d3e5f2daf7a8332da809fc7d95d7f9f1bd6b456010ea9d7678fe91ac7375');
-  assert.equal(sha(renderInitConfig('100k')), 'fe2b7e317451725fd8f2e8fd91b8e0f76ea683911dea7db0f83613a4c171713a');
-  assert.equal(sha(renderInitConfig('128k')), 'dc64c6b3994697f546362195a3c20e3149a0ce5c2eef30151150944d1df188d5');
-  assert.equal(sha(renderInitConfig('100k', { upstream: 'http://gw.example.com:8000', tokenizer: '/opt/tok.json', models: [] })), '2ffe0a4f60b2aea1f63f5c40fc30e3782f5936ac72eed3eaa964ef7bc66ffe6a');
+  assert.equal(sha(renderInitConfig('32k')), '5a2d5657824420e84657a88202a26edf29b7b865c22fb54513c9d30ebf1fc139');
+  assert.equal(sha(renderInitConfig('64k')), '1e0c8193df48591a31f0447f76a5a34e082dfcccbc8a63d6a72ecc1a31608f3f');
+  assert.equal(sha(renderInitConfig('100k')), '7b9d4361b3bb9d9e8c5a9c71d132df579d0404abd8c52f9fe795207f8ad6deae');
+  assert.equal(sha(renderInitConfig('128k')), '4c2920739ea889b1e5ee76730bc399f6efaf6a9f4a8a46809bd3b36b9094c5b1');
+  assert.equal(sha(renderInitConfig('100k', { upstream: 'http://gw.example.com:8000', tokenizer: '/opt/tok.json', models: [] })), 'c937b4f2452c688c931a34cda9ef641b798250d97610c3317b0be74050ad3331');
 });
 
 test('config init --dry-run on a new path: writes nothing, not even the directory', () =>

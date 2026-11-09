@@ -272,8 +272,8 @@ environment, command-line flags. A minimal `kitzur.jsonc` (JSON with comments):
 }
 ```
 
-Presets pair context and output limits: `32k`/8k, `64k`/16k, `100k`/32k and
-`128k`/32k. Check a file with `kitzur config validate -c kitzur.jsonc` and see where
+Presets pair context and output limits: `16k`/4k, `32k`/8k, `64k`/16k, `100k`/32k,
+`128k`/32k and `256k`/32k. Check a file with `kitzur config validate -c kitzur.jsonc` and see where
 every effective value comes from with `kitzur config show -c kitzur.jsonc`. Every
 knob, its default and what breaks when it is wrong is in [CONFIG.md](CONFIG.md).
 
@@ -310,7 +310,7 @@ Status is available at `/status` and `/kitzur/status`. State defaults to
 that lets you configure an OpenAI-compatible base URL, such as OpenCode or Kilo
 Code. This release does not support OpenAI Responses or Anthropic Messages.
 
-**Which context sizes?** Presets cover 32k, 64k, 100k and 128k windows. Set the
+**Which context sizes?** Presets cover 16k, 32k, 64k, 100k, 128k and 256k windows. Set the
 proxy and agent to the limits your server actually serves. Counting uses a supported
 tokenizer and matching chat-template profile; unsupported tokenizers can use
 conservative estimates. See [tokenizer and budget configuration](CONFIG.md).

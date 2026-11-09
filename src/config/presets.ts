@@ -9,10 +9,12 @@ import { isPlainObject } from './spec.js';
 
 /** The preset names shipped in presets/, with their window / defaultMaxTokens. */
 export const PRESET_TABLE: Readonly<Record<string, { window: number; defaultMaxTokens: number }>> = {
+  '16k': { window: 16_000, defaultMaxTokens: 4_000 },
   '32k': { window: 32_000, defaultMaxTokens: 8_000 },
   '64k': { window: 64_000, defaultMaxTokens: 16_000 },
   '100k': { window: 100_000, defaultMaxTokens: 32_000 },
   '128k': { window: 128_000, defaultMaxTokens: 32_000 },
+  '256k': { window: 256_000, defaultMaxTokens: 32_000 },
 };
 
 let cachedDir: string | null | undefined;

@@ -113,7 +113,7 @@ test('loadConfig: unknown keys, bad values and missing files are ConfigErrors wi
     assert.throws(() => loadConfig({ env: {}, sets: ['shadow=maybe'] }), /shadow: expected true or false/);
     assert.throws(() => loadConfig({ env: { KITZUR_WINDOW: 'x' } }), /env:KITZUR_WINDOW: budget\.window/);
     assert.throws(() => loadConfig({ configPath: join(t.dir, 'nope.json'), env: {} }), /config file not found/);
-    assert.throws(() => loadConfig({ preset: '48k', env: {} }), /unknown preset '48k' \(available: 32k, 64k, 100k, 128k\)/);
+    assert.throws(() => loadConfig({ preset: '48k', env: {} }), /unknown preset '48k' \(available: 16k, 32k, 64k, 100k, 128k, 256k\)/);
     writeFileSync(file, '{ "budget": { "window": 1000 } oops }');
     assert.throws(() => loadConfig({ configPath: file, env: {} }), /c\.json:1:\d+: invalid JSON/);
   } finally {
@@ -168,7 +168,7 @@ test('jsonc: comments and trailing commas outside strings only', () => {
 });
 
 test('presets: the shipped names', () => {
-  assert.deepEqual(listPresets(), ['32k', '64k', '100k', '128k']);
+  assert.deepEqual(listPresets(), ['16k', '32k', '64k', '100k', '128k', '256k']);
 });
 
 test('expandPath: ~ and ~/ are home on both platforms; ~\\ only on Windows', () => {

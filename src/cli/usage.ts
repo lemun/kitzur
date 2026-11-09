@@ -32,7 +32,7 @@ export const USAGE = `usage: kitzur <command> [options]
 config options (serve, replay, count, status, doctor, config show|validate, state):
   -c, --config FILE      JSON config file (comments allowed)       also KITZUR_CONFIG;
                          default ~/.config/kitzur/kitzur.jsonc if it exists
-  -p, --preset NAME      32k | 64k | 100k | 128k, or a preset file   also KITZUR_PRESET
+  -p, --preset NAME      16k | 32k | 64k | 100k | 128k | 256k, or a preset file  also KITZUR_PRESET
   -s, --set a.b=v        set any key (repeatable)                    also KITZUR_SET="a.b=v;c.d=w"
   --upstream URL  --host H  --port N  --tokenizer FILE  --template NAME
   --state-dir DIR  --stats FILE  --log-level L  --shadow
