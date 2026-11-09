@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { passthroughEngine } from './fake-engine.js';
 import { chatBody, fakeUpstream, jsonRes, okCompletion, request, startProxy } from './harness.js';
 
@@ -51,3 +52,9 @@ for (const path of ['/v1/completions/', '/openai/v1/completions']) {
     assert.equal(legacy(logs).length, 1);
   });
 }
+
+test('CONFIG.md names the locally served status endpoints next to the passthrough note', () => {
+  const config = readFileSync(new URL('../../../CONFIG.md', import.meta.url), 'utf8');
+  const note = config.slice(config.indexOf('Only chat requests are counted and compacted')).slice(0, 400);
+  assert.match(note, /passthrough endpoint[\s\S]*`GET \/status` and `\/kitzur\/status`\s+are served locally/);
+});

@@ -534,7 +534,8 @@ flushes pending entries.
 ### Request visibility
 
 Only chat requests are counted and compacted; legacy `/v1/completions` and every other
-endpoint are forwarded unchanged (see "Which requests are compacted" in `README.md`).
+passthrough endpoint are forwarded unchanged, while `GET /status` and `/kitzur/status`
+are served locally (see "Which requests are compacted" in `README.md`).
 `logLevel: "info"` (the default) logs one content-free line per completed chat
 request: action, input/output token counts, budget, trigger, target, model and
 elapsed milliseconds. These lines go to the rotating log file
