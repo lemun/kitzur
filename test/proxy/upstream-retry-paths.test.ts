@@ -1,13 +1,22 @@
 // upstream.retry.paths: a listed non-chat path is retried on a 429/502/503/504 with the chat path's
 // rules (attempts, Retry-After, the abortable wait); every path not listed is relayed after one hit.
 import http from 'node:http';
+import type { IncomingMessage } from 'node:http';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { PassThrough } from 'node:stream';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_CONFIG } from '../../src/config/schema.js';
 import { validateConfig } from '../../src/config/validate.js';
+import { createProxyServer } from '../../src/proxy/server.js';
+import { StateStore } from '../../src/proxy/state.js';
+import { StatsWriter } from '../../src/proxy/stats.js';
+import { Upstream, type UpstreamRequest, type UpstreamResponse } from '../../src/proxy/upstream.js';
 import { passthroughEngine } from './fake-engine.js';
-import { fakeUpstream, jsonRes, request, startProxy, type FixtureOptions } from './harness.js';
+import { charCounter, fakeUpstream, jsonRes, request, startProxy, testConfig, type FixtureOptions } from './harness.js';
 
 const busy = { error: { message: 'Service temporarily unavailable', type: 'server_error' } };
 const embedding = { object: 'list', data: [{ object: 'embedding', index: 0, embedding: [0.1, 0.2] }] };
@@ -90,29 +99,45 @@ test('the client leaves while the discarded 503 body is still open: no uncaught 
   const onUncaught = (e: unknown): void => { uncaught.push(e); };
   process.on('uncaughtException', onUncaught);
   t.after(() => { process.off('uncaughtException', onUncaught); });
-  const up = await fakeUpstream((h, res) => {
-    if (h.n > 1) return jsonRes(res, 200, embedding);
-    // headers and a first chunk, never the end: the proxy discards a body that is still streaming
-    res.writeHead(503, { 'content-type': 'application/json' });
-    res.write('{"error":');
+  const up = await fakeUpstream((_h, res) => jsonRes(res, 200, embedding));
+  const cfg = testConfig({ upstream: { origin: up.origin, retry: { enabled: true, baseDelayMs: 200, maxDelayMs: 200, maxTotalDelayMs: 200, jitter: false, paths: ['/v1/embeddings'] } } });
+  // A Node IncomingMessage drops a destroy error that has no listener, which would hide a missing
+  // handler; the first answer is a plain stream that, like the real body, is destroyed with an
+  // error when the client leaves, so an unhandled 'error' event surfaces here.
+  const first: { body?: PassThrough } = {};
+  class FirstBusy extends Upstream {
+    override request(r: UpstreamRequest): Promise<UpstreamResponse> {
+      if (first.body) return super.request(r);
+      const body = new PassThrough();
+      first.body = body;
+      body.write('{"error":');
+      r.signal?.addEventListener('abort', () => body.destroy(new Error('aborted by the client')), { once: true });
+      return Promise.resolve({ status: 503, statusMessage: 'Service Unavailable', rawHeaders: ['content-type', 'application/json'], headers: { 'content-type': 'application/json' }, body: body as unknown as IncomingMessage, headerMs: 0, reused: false, retried: false });
+    }
+  }
+  const stateDir = mkdtempSync(join(tmpdir(), 'kitzur-retry-paths-'));
+  t.after(() => rmSync(stateDir, { recursive: true, force: true }));
+  const proxy = createProxyServer(cfg, {
+    engine: passthroughEngine(), counter: charCounter(), upstream: new FirstBusy(cfg.upstream),
+    state: new StateStore({ dir: stateDir, configuredWindow: cfg.budget.window, counterId: 'chars4;estimate', debounceMs: 20 }),
+    stats: new StatsWriter(join(stateDir, 'stats.jsonl')), remote: null,
   });
-  // the idle timeout fires on the discarded body during the wait, destroying it with an error
-  const config = { upstream: { idleTimeoutMs: 50, retry: { enabled: true, baseDelayMs: 200, maxDelayMs: 200, maxTotalDelayMs: 200, jitter: false, paths: ['/v1/embeddings'] } } };
-  const f = await startProxy(t, up, passthroughEngine(), { config });
+  const { port } = await proxy.listen();
   try {
     const payload = JSON.stringify(input);
-    const req = http.request({ host: '127.0.0.1', port: f.port, method: 'POST', path: '/v1/embeddings', agent: false, headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(payload)) } });
+    const req = http.request({ host: '127.0.0.1', port, method: 'POST', path: '/v1/embeddings', agent: false, headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(payload)) } });
     req.on('error', () => undefined);
     req.end(payload);
-    while (up.hits.length === 0) await sleep(5);
-    await sleep(100);
+    while (!first.body) await sleep(5);
+    await sleep(50);
     req.destroy();
     await sleep(50);
+    assert.equal(first.body.destroyed, true);
     assert.deepEqual(uncaught, []);
-    assert.equal(up.hits.length, 1);
-    assert.equal((await request(f.port, { path: '/v1/embeddings', body: input })).status, 200);
+    assert.equal(up.hits.length, 0);
+    assert.equal((await request(port, { path: '/v1/embeddings', body: input })).status, 200);
     assert.deepEqual(uncaught, []);
-  } finally { await f.close(); await up.close(); }
+  } finally { await proxy.close(2000); await up.close(); }
 });
 
 test('retry.enabled false: a listed path is not retried', async (t) => {
