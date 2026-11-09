@@ -786,16 +786,34 @@ test("llama.cpp's old `error:` frame is caught as a first-event error and recove
 
 test('hold disabled: headers are committed at once; errors.inStream=false relays a first-event error unchanged', async (t) => {
   const errEv = SSE_OVERFLOW(9000, 8000);
+  // Proven by order, not a time limit: the upstream holds the event until the client has the
+  // response headers (the 5 s fallback only keeps a regression from hanging the test).
+  let release!: () => void;
+  const released = new Promise<void>((r) => (release = r));
+  let releasedByFallback = false;
   const up = await fakeUpstream(async (_h, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     res.flushHeaders();
-    await sleep(200);
+    const fallback = setTimeout(() => { releasedByFallback = true; release(); }, 5000);
+    await released;
+    clearTimeout(fallback);
     res.end(errEv + DONE);
   });
   await withProxy(t, up, passthroughEngine(), async (f) => {
-    const r = await request(f.port, { body: chatBody('x', { stream: true }) });
-    assert.ok(r.headerMs < 150, `committed at the upstream headers (${r.headerMs.toFixed(0)} ms)`);
-    assert.equal(r.text(), errEv + DONE);
+    const body = JSON.stringify(chatBody('x', { stream: true }));
+    const text = await new Promise<string>((resolve, reject) => {
+      const req = http.request({ host: '127.0.0.1', port: f.port, method: 'POST', path: '/v1/chat/completions', agent: false, headers: { 'content-type': 'application/json' } });
+      req.on('error', reject);
+      req.on('response', (res) => {
+        if (releasedByFallback) return reject(new Error('headers were not committed before the first event'));
+        release();
+        let out = '';
+        res.on('data', (d: Buffer) => (out += d.toString('utf8')));
+        res.on('end', () => resolve(out));
+      });
+      req.end(body);
+    });
+    assert.equal(text, errEv + DONE);
     assert.equal(up.hits.length, 1);
   }, { config: { stream: { holdFirstEvent: false }, errors: { inStream: false } } });
 });
