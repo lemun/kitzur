@@ -49,6 +49,12 @@ and the exit code is 1.
 | `last_client_compaction` | object\|null | informational |
 | `recent_rejections` | array | informational |
 | `loop_lag_ms`, `stalls_total` | number | informational, present only with the runtime log |
+| `transient_retries` | object | informational |
+
+`transient_retries` holds running totals of the opt-in upstream retry (`upstream.retry`), all zero when
+it is off: `retries` (waits taken), `by_status` (waits per status code, e.g. `{"429": 2}`), `delay_ms`
+(total wait) and `exhausted` (requests where the retry gave up on a transient status and the error was
+handled as without it).
 
 ## `kitzur doctor --json`
 

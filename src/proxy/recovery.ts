@@ -314,6 +314,8 @@ export interface LadderIO {
   /** a value in [0, 1) for the retry jitter (default Math.random) */
   random?(): number;
   onTransientRetry?(info: { status: number; attempt: number; delayMs: number }): void;
+  /** a transient status the retry gave up on (at most once per request) */
+  onTransientGiveUp?(info: { status: number; reason: 'attempts' | 'retry-after-beyond-cap' | 'total-delay' }): void;
 }
 
 export interface LadderInput {
@@ -532,6 +534,7 @@ export async function runChat(inp: LadderInput, io: LadderIO): Promise<ChatResul
   // transient retries resend the same attempt; shared across the whole request
   let transientRetries = 0;
   let transientDelayMs = 0;
+  let transientGaveUp = false;
 
   const candidateOK = (a: OutgoingAttempt | null, rejected: AttemptSize, kind: ErrorKind): a is OutgoingAttempt => {
     if (!a || a.original) return false; // never the original on a retry
@@ -630,6 +633,10 @@ export async function runChat(inp: LadderInput, io: LadderIO): Promise<ChatResul
         transientDelayMs += plan.delayMs;
         io.onTransientRetry?.({ status: res.status, attempt: transientRetries + 1, delayMs: plan.delayMs });
         continue; // the identical request again: nothing learned, no tightening
+      }
+      if (plan.reason !== 'status' && !transientGaveUp) {
+        transientGaveUp = true;
+        io.onTransientGiveUp?.({ status: res.status, reason: plan.reason });
       }
     }
     // : an injected include_usage the server rejects. Besides the built-in exclusion, any 4xx (not 429)

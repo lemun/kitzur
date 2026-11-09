@@ -9,6 +9,7 @@ import { isAutoWindow } from '../config/window.js';
 import { firstText } from '../engine/message.js';
 import type { ChatRequest, LearnedEntry } from '../types.js';
 import { budgetQuantities } from './budget.js';
+import { TRANSIENT_STATUSES } from './retry.js';
 
 export interface ResolvedPaths { config: string | null; state_dir: string; log_file: string | null }
 export function formatPaths(paths: ResolvedPaths): string {
@@ -205,6 +206,18 @@ export class StatusTracker {
   setProbe(p: Record<string, unknown>): void {
     this.probe = p;
   }
+  private readonly transientByStatus = new Map<string, number>();
+  private transientDelayMs = 0;
+  private transientGiveUps = 0;
+  /** one transient-retry wait; only the transient statuses are keyed, so the map stays bounded */
+  transientRetry(status: number, delayMs: number): void {
+    if (!(TRANSIENT_STATUSES as readonly number[]).includes(status)) return;
+    inc(this.transientByStatus, String(status));
+    this.transientDelayMs += delayMs;
+  }
+  transientExhausted(): void {
+    this.transientGiveUps++;
+  }
   rejection(r: { key: string; kind: string; rule: string | null; status: number | null; inStream: boolean; raw: number; overshoot: number | null }): void {
     this.rejections.push({ at: new Date(this.now()).toISOString(), ...r });
     if (this.rejections.length > 32) this.rejections.shift();
@@ -268,6 +281,12 @@ export class StatusTracker {
         original_resent: this.originalResent,
         aborted: this.aborted,
         fail_open: this.failOpen,
+      },
+      transient_retries: {
+        retries: [...this.transientByStatus.values()].reduce((a, b) => a + b, 0),
+        by_status: obj(this.transientByStatus),
+        delay_ms: this.transientDelayMs,
+        exhausted: this.transientGiveUps,
       },
       actions: obj(this.actions),
       model_counters: Object.fromEntries([...this.modelCounts, ['other', this.modelOther]]),
