@@ -16,8 +16,8 @@ import { join } from 'node:path';
 const legacyStatusKeys = [
   'paths', 'client_compactions', 'last_client_compaction', 'completion_tokens_p99', 'discovered_window',
   'discovered_limits', 'last_compaction', 'recent_requests', 'name', 'version', 'uptime_s', 'config',
-  'budget', 'budget_by_key', 'counter', 'model_tokenizers', 'learned', 'counters', 'actions', 'model_counters',
-  'error_kinds', 'guard', 'replan', 'upstream_rejected_rewrite', 'recent_rejections', 'fail_open_reasons',
+  'budget', 'budget_by_key', 'counter', 'model_tokenizers', 'learned', 'counters', 'transient_retries', 'actions',
+  'model_counters', 'error_kinds', 'guard', 'replan', 'upstream_rejected_rewrite', 'recent_rejections', 'fail_open_reasons',
   'warnings', 'sessions', 'latency_ms', 'memory', 'upstream', 'state', 'stats',
 ];
 
