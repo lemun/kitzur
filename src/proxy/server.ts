@@ -733,8 +733,11 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         }, ms);
         ac.signal.addEventListener('abort', gone, { once: true });
       }),
-      onTransientRetry: (i: { status: number; attempt: number; delayMs: number }) =>
-        log('info', `upstream ${i.status}, transient retry attempt=${i.attempt} delay_ms=${i.delayMs}`),
+      onTransientRetry: (i: { status: number; attempt: number; delayMs: number }) => {
+        status.transientRetry(i.status, i.delayMs);
+        log('info', `upstream ${i.status}, transient retry attempt=${i.attempt} delay_ms=${i.delayMs}`);
+      },
+      onTransientGiveUp: () => status.transientExhausted(),
     };
     let result: ChatResult;
     try {
