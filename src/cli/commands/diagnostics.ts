@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { ConfigError, type LoadedConfig } from '../../config/load.js';
 import { doctor, renderDoctor } from '../../diagnostics/doctor.js';
 import { inspectTlsChain, renderTlsChain } from '../../diagnostics/tls-chain.js';
-import { reportStream, renderReport } from '../../diagnostics/report.js';
+import { reportStream, renderReport, renderTimelineCsv } from '../../diagnostics/report.js';
 import { createSnapshot } from '../../diagnostics/snapshot.js';
 import { packageInfo } from '../../config/paths.js';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -77,10 +77,12 @@ export async function cmdDoctor(argv: string[], io: CliIO): Promise<number> {
 const READ_ERRORS: Record<string, string> = { ENOENT: 'no such file', EISDIR: 'it is a directory', EACCES: 'permission denied', EPERM: 'permission denied' };
 
 export async function cmdReport(argv: string[], io: CliIO): Promise<number> {
-  const p = parseArgs(argv, { json: { type: 'boolean' }, by: { type: 'string' } });
+  const p = parseArgs(argv, { json: { type: 'boolean' }, by: { type: 'string' }, csv: { type: 'boolean' } });
   if (p.positionals.length !== 1) throw new UsageError('report needs one stats JSONL file');
   const by = p.values['by'];
   if (by !== undefined && by !== 'hour' && by !== 'day') throw new UsageError('--by must be hour or day');
+  if (p.values['csv'] && !by) throw new UsageError('--csv needs --by hour|day');
+  if (p.values['csv'] && p.values['json']) throw new UsageError('--csv and --json cannot be used together');
   let result;
   try { result = await reportStream(createReadStream(resolve(io.cwd, p.positionals[0]!)), by ? { by } : {}); }
   catch (error) {
@@ -89,6 +91,6 @@ export async function cmdReport(argv: string[], io: CliIO): Promise<number> {
     io.stderr(`kitzur: report could not read ${p.positionals[0]}: ${cause}; pass the file written by stats.path (see kitzur doctor)\n`);
     return 1;
   }
-  io.stdout(p.values['json'] ? JSON.stringify(result, null, 2) + '\n' : renderReport(result) + '\n');
+  io.stdout(p.values['csv'] ? renderTimelineCsv(result) : p.values['json'] ? JSON.stringify(result, null, 2) + '\n' : renderReport(result) + '\n');
   return result.coverage.malformed ? 1 : 0;
 }

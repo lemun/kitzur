@@ -32,6 +32,15 @@ kitzur doctor --check-upstream --timeout-ms 1500
 
 `--by hour` or `--by day` adds a `timeline` of UTC buckets sorted by start, each with requests, compactions, retries, failures, and the eligible input, forwarded and `reductionPercent` computed with the same rule as the totals; readable output prints it as a table after the totals. Records without a valid `ts` are counted in `untimedRequests` instead of a bucket. At most 2,000 buckets are kept: when more appear, the newest 2,000 remain and `timelineDroppedRequests` counts the requests whose older bucket was discarded, while every record still counts in the totals.
 
+`--csv` with `--by hour` or `--by day` prints only the timeline as CSV, for a spreadsheet or charting tool: a header line, then one line per bucket in timeline order. Counts are plain integers; `reduction_percent` has 2 decimals and is empty when the bucket has no eligible input. `--csv` cannot be combined with `--json`, and the exit code follows the same rule as the other output forms.
+
+```csv
+start,requests,compactions,retries,failures,input,forwarded,reduction_percent
+2026-01-02T00:00:00.000Z,2,1,1,1,200,160,20.00
+2026-01-03T00:00:00.000Z,1,0,0,0,0,0,
+2026-01-04T00:00:00.000Z,1,1,0,0,30,10,66.67
+```
+
 Request token reduction uses records with at least one valid recorded attempt and valid `tokens_in`/`tokens_out`, excluding shadow requests and requests rejected locally (client errors with an explicit empty attempts array). It reports `(eligible input − eligible last-attempt forwarded) / eligible input`; a zero denominator is `null` in JSON and `n/a` in text. This is request size reduction, not a billing estimate. Shadow estimates are reported separately. `attemptedRaw` sums `attempts[].raw` for recorded attempts, including recorded recovery retries. Retry count is recorded attempts beyond the first. Missing attempts or an array containing non-object entries have unknown retry/local-reject classification and do not contribute to these measures; field coverage exposes that absence. The upstream transport's internal transparent socket retry is not persisted in each stats record and is not included here. Failures count client status 400 or above, incomplete upstream streams, or a final recorded attempt with a present non-`ok` kind. HTTP status counts include only numeric attempt statuses from 100 through 599.
 
 `usage.prompt_tokens` and `usage.completion_tokens` are from the final response usage fields when present; they do not cover every retry and may be absent. Prompt and completion usage each have separate coverage counts. Timing values are summed for records that contain each timing field, and each total has a corresponding coverage count.
