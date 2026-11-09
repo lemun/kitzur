@@ -285,7 +285,7 @@ In a checkout, use `node dist/src/cli.js` in place of `kitzur`.
 kitzur serve                         run the proxy
 kitzur status [--url URL] [--json]   inspect budgets, counters and recent activity
 kitzur doctor [--json]               diagnose setup (--check-upstream for a small probe)
-kitzur report stats.jsonl [--json]   summarize request reduction, retries and timing
+kitzur report stats.jsonl [--json] [--by hour|day]   summarize request reduction, retries and timing
 kitzur completions bash|zsh|fish     print a shell completion script
 kitzur config init|show|validate      create or inspect configuration
 kitzur config import-eval DIR        import gateway probe results as configuration
@@ -299,6 +299,26 @@ kitzur state show|reset              inspect or clear learned limits
 kitzur bench [--quick]               run benchmarks from a development checkout
 kitzur version                       print the installed version
 kitzur help <command>                print one command's usage
+```
+
+### Shell completion
+
+Completion words are generated from the CLI's own help, so they follow new commands and flags.
+In a checkout, run `node dist/src/cli.js completions <shell>` in place of `kitzur completions <shell>`.
+
+```sh
+# bash: add to ~/.bashrc
+source <(kitzur completions bash)
+```
+
+```sh
+# zsh: save as _kitzur in a folder on $fpath, then run compinit (or source <(kitzur completions zsh))
+kitzur completions zsh > ~/.zsh/completions/_kitzur
+```
+
+```sh
+# fish
+kitzur completions fish > ~/.config/fish/completions/kitzur.fish
 ```
 
 Status is available at `/status` and `/kitzur/status`. State defaults to
