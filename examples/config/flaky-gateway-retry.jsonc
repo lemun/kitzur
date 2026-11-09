@@ -1,0 +1,21 @@
+// A shared or rate-limited gateway that sometimes answers 429, 502, 503 or 504 under load. kitzur
+// retries such a chat request after a capped backoff instead of passing the error straight to the
+// client. Leave retry off when the client has its own retry logic, so the two do not multiply.
+// Replace the gateway host.
+{
+  "preset": "32k", // the model's context window; sets the budget
+  "upstream": {
+    "origin": "https://llm.example.com", // your OpenAI-compatible gateway, no path
+    "retry": {
+      "enabled": true, // opt-in: off by default
+      "maxAttempts": 4, // the first try plus up to three retries
+      "baseDelayMs": 1000, // first backoff, doubled on each retry
+      "maxDelayMs": 10000, // cap on a single wait
+      // cap on all waits of one request: keep it below the client's own request timeout
+      "maxTotalDelayMs": 30000,
+      "honorRetryAfter": true, // use the gateway's Retry-After up to maxDelayMs; a longer one goes to the client at once
+      "jitter": true // spread the retries of concurrent requests
+    }
+  },
+  "server": { "type": "vllm" } // the server behind the gateway
+}
