@@ -10,3 +10,4 @@ Ready-to-copy kitzur config files. Copy one to `~/.config/kitzur/kitzur.jsonc` (
 | [multi-model-gateway.jsonc](multi-model-gateway.jsonc) | a large and a small model behind one gateway, each with its own window |
 | [windows-intranet.jsonc](windows-intranet.jsonc) | a Windows intranet gateway with a company CA, loopback only |
 | [ci-automation.jsonc](ci-automation.jsonc) | a CI job: short plan, stats in the build folder, nothing persisted, fail closed |
+| [flaky-gateway-retry.jsonc](flaky-gateway-retry.jsonc) | a gateway that answers 429 or 503 under load: retries a chat request after a capped backoff |
