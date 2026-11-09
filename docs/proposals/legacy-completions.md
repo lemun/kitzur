@@ -1,6 +1,6 @@
 # Proposal: legacy `/v1/completions` prompts
 
-Status: proposal, no code yet. Kitzur only compacts chat requests. Tools that send plain
+Status: option A is implemented, B is not. Kitzur only compacts chat requests. Tools that send plain
 prompts to `/v1/completions` (editor autocomplete with fill-in-the-middle, plain-prompt
 endpoints, some agent frameworks) get no help when a prompt overflows the served window,
 and no document says so.
