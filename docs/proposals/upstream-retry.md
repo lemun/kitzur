@@ -1,6 +1,6 @@
 # Proposal: opt-in upstream retry with backoff for 429 and gateway 5xx
 
-Status: follow-ups 1 and 2 are implemented (the `upstream.retry.*` config keys and the chat retry loop); passthrough paths and observability are not. Decisions taken: 500 is not retryable, a `Retry-After` above `maxDelayMs` is relayed at once, the defaults of section 2 stay, and there is no per-request opt-out header.
+Status: follow-ups 1 to 4 are implemented (the `upstream.retry.*` config keys, the chat retry loop, the retry of listed passthrough paths and the `/status` and stats fields). Decisions taken: 500 is not retryable, a `Retry-After` above `maxDelayMs` is relayed at once, the defaults of section 2 stay, and there is no per-request opt-out header.
 
 ## 1. Problem
 
@@ -25,7 +25,7 @@ Who it affects: people behind a shared gateway or a rate-limited key, and people
     "maxTotalDelayMs": 20000,             // cap on all added waiting per client request
     "honorRetryAfter": true,
     "jitter": true,                       // full jitter: uniform in [0, delay]
-    "paths": []                           // extra non-chat paths the user declares safe to repeat
+    "paths": []                           // non-chat paths the user declares safe to repeat: exact match on the path without its query, at most 20
   }
 }
 ```

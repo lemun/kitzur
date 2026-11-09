@@ -251,6 +251,7 @@ set `upstream.origin` to the rotator; see [the LiteLLM example](docs/UPSTREAM-RO
 | `upstream.retry.maxTotalDelayMs` | `20000` | Cap on the summed waits for one request; no retry starts once it would be exceeded. | Too high: a client may time out before the final answer. | below the client's own request timeout |
 | `upstream.retry.honorRetryAfter` | `true` | Use the gateway's `Retry-After` header for the wait when present (still capped by `maxDelayMs` and `maxTotalDelayMs`). | `false`: retries may come sooner than the gateway asked and fail again. | – |
 | `upstream.retry.jitter` | `true` | Randomize each wait so that many clients do not retry in lockstep. | `false` with several clients: synchronized bursts against the gateway. | – |
+| `upstream.retry.paths` | `[]` | Non-chat request paths that are retried too, with the same rules, when `enabled` is on, whatever the method; the buffered body is sent again unchanged. Each entry is an exact path starting with `/` without `?` or `#`, compared with the request path without its query string (at most 20). Do not list a POST that is not idempotent. | A listed path that is not safe to repeat can run twice upstream. | – |
 
 ### server
 

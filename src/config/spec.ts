@@ -11,7 +11,7 @@ export type LeafSpec =
   | { t: 'bool'; nullable?: boolean }
   | { t: 'str'; nullable?: boolean; nonEmpty?: boolean; format?: 'origin' | 'urlpath' | 'regex'; /** format 'regex': the flags its consumer compiles it with */ flags?: string }
   | { t: 'enum'; values: readonly string[]; nullable?: boolean }
-  | { t: 'strs'; format?: 'glob' | 'nonEmpty' | 'any' }
+  | { t: 'strs'; format?: 'glob' | 'nonEmpty' | 'any' | 'urlpath'; max?: number }
   | { t: 'headers' }
   | { t: 'errorRules' }
   | { t: 'exclusions' }
@@ -31,6 +31,8 @@ const en = (...values: string[]): LeafSpec => ({ t: 'enum', values });
 const enN = (...values: string[]): LeafSpec => ({ t: 'enum', values, nullable: true });
 const strs: LeafSpec = { t: 'strs', format: 'nonEmpty' };
 const globs: LeafSpec = { t: 'strs', format: 'glob' };
+/** Request paths: each starts with '/' and has no query or fragment. */
+const urlpaths = (max: number): LeafSpec => ({ t: 'strs', format: 'urlpath', max });
 const MAX_TOKENS = 10_000_000;
 const MAX_MS = 24 * 3600 * 1000;
 
@@ -62,6 +64,7 @@ export const LEAF_SPECS: Readonly<Record<string, LeafSpec>> = Object.assign(Obje
   'upstream.retry.maxTotalDelayMs': int(0, MAX_MS),
   'upstream.retry.honorRetryAfter': bool,
   'upstream.retry.jitter': bool,
+  'upstream.retry.paths': urlpaths(20),
 
   'server.type': en('vllm', 'sglang', 'llamacpp', 'tgi', 'ollama', 'lmstudio', 'litellm', 'unknown'),
   'server.budgetMode': enN('strict_total', 'prompt_only', 'tgi', 'silent_truncate'),
@@ -332,7 +335,7 @@ export function describeSpec(s: LeafSpec): string {
     case 'enum':
       return `one of ${s.values.map((v) => JSON.stringify(v)).join(', ')}${n}`;
     case 'strs':
-      return s.format === 'glob' ? 'an array of tool-name globs' : 'an array of strings';
+      return s.format === 'glob' ? 'an array of tool-name globs' : s.format === 'urlpath' ? `an array of at most ${s.max} paths starting with / (no ? or #)` : 'an array of strings';
     case 'headers':
       return 'an object of header name -> string value';
     case 'errorRules':

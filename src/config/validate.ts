@@ -99,6 +99,11 @@ export function checkLeaf(path: string, spec: LeafSpec, v: unknown): string | nu
     case 'strs': {
       if (!Array.isArray(v) || !v.every((x) => typeof x === 'string')) return bad();
       if (spec.format !== 'any' && v.some((x: string) => x.trim() === '')) return `${path}: empty string in the list`;
+      if (spec.max !== undefined && v.length > spec.max) return `${path}: at most ${spec.max} entries, got ${v.length}`;
+      if (spec.format === 'urlpath') {
+        const e = v.find((x: string) => !x.startsWith('/') || /[?#]/.test(x));
+        if (e !== undefined) return `${path}: ${JSON.stringify(e)} must start with / and have no ? or #`;
+      }
       return null;
     }
     case 'headers': {
