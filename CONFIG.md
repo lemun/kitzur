@@ -20,7 +20,7 @@ built-in defaults  <  preset  <  config file  <  KITZUR_* environment  <  comman
 ```
 
 - **Defaults** are `DEFAULT_CONFIG` in `src/config/schema.ts`: the 100k/32k reference setup.
-- **Preset**: `--preset 32k|64k|100k|128k` (or a path to a preset file), `KITZUR_PRESET`, or a top-level
+- **Preset**: `--preset 16k|32k|64k|100k|128k|256k` (or a path to a preset file), `KITZUR_PRESET`, or a top-level
   `"preset": "32k"` in the config file (the command line and the environment win over the file's key).
   The preset layer is applied right after the defaults, so the config file overrides it.
 - **Config file**: `--config FILE` or `KITZUR_CONFIG`; with neither, `$XDG_CONFIG_HOME/kitzur/kitzur.jsonc`
@@ -111,10 +111,12 @@ Every `floor(x · fraction)` is `Math.floor(x * fraction + 1e-9)` (41,000 · 0.3
 
 | Preset | `budget.window` | `budget.defaultMaxTokens` (T_plan) | margin | budget | clientPoint | allowance | hard = trigger | target |
 |---|---|---|---|---|---|---|---|---|
+| `16k` | 16,000 | 4,000 | 512 | 11,488 | 12,000 | 2,000 | 10,000 | 3,500 |
 | `32k` | 32,000 | 8,000 | 512 | 23,488 | 24,000 | 4,000 | 20,000 | 7,000 |
 | `64k` | 64,000 | 16,000 | 640 | 47,360 | 48,000 | 7,000 | 41,000 | 14,350 |
 | `100k` (= defaults) | 100,000 | 32,000 | 1,000 | 67,000 | 68,000 | 7,000 | 61,000 | 21,350 |
 | `128k` | 128,000 | 32,000 | 1,280 | 94,720 | 96,000 | 7,000 | 89,000 | 31,150 |
+| `256k` | 256,000 | 32,000 | 2,560 | 221,440 | 224,000 | 7,000 | 217,000 | 75,950 |
 
 A preset sets only the window and `defaultMaxTokens`; everything else is the defaults. These values are
 configurable; use the benchmark sweep to evaluate alternatives. With the reference fixed prompt of 9,376 tokens,
@@ -187,7 +189,7 @@ OpenCode (`opencode.json[c]`, in the project, `~/.config/opencode/` or `.opencod
 }
 ```
 
-- `limit.context`/`limit.output` equal the kitzur preset (`100k` ↔ 100000/32000, `32k` ↔ 32000/8000, …).
+- `limit.context`/`limit.output` equal the kitzur preset (`100k` ↔ 100000/32000, `32k` ↔ 32000/8000, `16k` ↔ 16000/4000, `256k` ↔ 256000/32000, …).
   OpenCode then compacts at `context − min(output, 32000)`, which is `clientPoint` when no input limit is set. With `limit.input`, set `client.inputLimit` and mirror any explicit reservation in `client.reservedTokens`.
 - OpenCode sends `max_tokens = min(limit.output, 32000)` on every request and always asks for streamed usage
   (`stream_options.include_usage`), so `stream.injectIncludeUsage` stays off.
