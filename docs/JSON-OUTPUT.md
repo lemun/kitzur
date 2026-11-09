@@ -145,3 +145,25 @@ stdout carries a one-line `{"error": "..."}` and the exit code is 1.
 | `hint` | string | informational |
 | `authorized` | boolean | informational |
 | `authorizationError` | string\|null | informational |
+
+## `kitzur report --json`
+
+Reads the stats JSONL file written by `stats.path`. The exit code is 1 when `coverage.malformed` is not
+zero, and the JSON is still printed. When the file cannot be read stdout stays empty, stderr names the
+cause and the exit code is 1; a usage error such as `--by week` exits 2. The stats file holds sizes,
+counts and timings, never message content.
+
+| Key | Type | Contract |
+| --- | --- | --- |
+| `coverage` | object | stable |
+| `requests` | number | stable |
+| `compactions` | number | stable |
+| `retries` | number | stable |
+| `failures` | number | stable |
+| `tokenTotals` | object | stable |
+| `uniqueSessions`, `localRejects`, `shadowRequests`, `incompleteStreams` | number | informational |
+| `sessionCoverage`, `fieldCoverage`, `upstreamStatusCounts`, `timingMs` | object | informational |
+| `timeline` | array | informational, present only with `--by hour\|day` |
+| `untimedRequests`, `timelineDroppedRequests` | number | informational, present only with `--by hour\|day` |
+
+`tokenTotals.reductionPercent` is a number, or null when no input was eligible for reduction.

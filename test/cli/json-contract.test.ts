@@ -124,3 +124,19 @@ test('tls-probe --json reports a failure as {"error"} on stdout', () =>
     contract(r.out, { error: 'string' }, 'tls-probe');
     assert.ok(doc.includes('`{"error": "..."}`'));
   }));
+
+test('report --json keeps its documented keys; --by day adds a timeline', () =>
+  withTmp(async (dir) => {
+    writeFileSync(join(dir, 'stats.jsonl'), [
+      { seq: 1, ts: '2026-01-02T03:04:05Z', action: 'compact', compacted: true, tokens_in: 100, tokens_out: 60, client_status: 200, attempts: [{ kind: 'ok', status: 200 }] },
+      { seq: 2, ts: '2026-01-03T00:30:00Z', action: 'passthrough', tokens_in: 40, tokens_out: 40, client_status: 200 },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+    const r = await run(['report', 'stats.jsonl', '--json'], dir);
+    assert.equal(r.code, 0, r.err);
+    const o = contract(r.out, documented('kitzur report --json'), 'report');
+    assert.ok(!Object.hasOwn(o, 'timeline'));
+    const by = await run(['report', 'stats.jsonl', '--json', '--by', 'day'], dir);
+    assert.equal(by.code, 0, by.err);
+    const timeline = contract(by.out, { timeline: 'array' }, 'report --by day')['timeline'] as Array<Record<string, unknown>>;
+    assert.deepEqual(Object.keys(timeline[0]!).sort(), ['compactions', 'failures', 'forwarded', 'input', 'reductionPercent', 'requests', 'retries', 'start']);
+  }));
