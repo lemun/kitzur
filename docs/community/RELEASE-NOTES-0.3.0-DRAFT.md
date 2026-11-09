@@ -12,8 +12,8 @@ Kitzur 0.3.0 lets one proxy serve several models with their own settings, and ma
 - **Request outcomes.** Each chat request's log line ends with an `outcome` (`ok`, `aborted`, `incomplete`, `upstream_error` or `refused`), and a client closing early, a stream ending without `[DONE]` or an error after the first chunk is detected; `kitzur status` shows the outcome counts.
 - **TLS chain reports.** `kitzur tls-probe [origin] --ca-file FILE` names the failing link of the upstream's certificate chain with a repair hint, and `serve` and `doctor` report the same when verification fails.
 - **Windows autostart without administrator rights.** `kitzur autostart install` adds a Startup-folder shortcut, and `kitzur autostart status` and `kitzur autostart remove` check and undo it.
-- **Retention explanations.** `kitzur replay --explain` prints a readable table of what each compaction kept, excerpted, summarized or dropped; `--explain-limit N` sets how much detail it shows.
-- **Support bundles.** `kitzur doctor --snapshot FILE` writes a shareable snapshot with credentials omitted and hosts and home paths masked, and `kitzur redact <file|dir>` copies captured requests with every text replaced by same-length filler.
+- **Retention explanations and support bundles.** `kitzur replay --explain` prints a readable table of what each compaction kept, excerpted, summarized or dropped (`--explain-limit N` sets the detail), `kitzur doctor --snapshot FILE` writes a shareable snapshot with credentials omitted and hosts and home paths masked, and `kitzur redact <file|dir>` replaces every captured text with same-length filler.
+- **Opt-in upstream retry.** With `upstream.retry.enabled` set, a 429, 502, 503 or 504 that arrives before any response byte is repeated after a capped backoff that honours `Retry-After`; it is off by default.
 
 ## Upgrade notes
 
@@ -28,8 +28,10 @@ Behaviour changes:
 - A damaged or newer-version plan store file no longer breaks startup: damaged records are skipped with a warning and the file is left in place. `kitzur state reset --plans` removes it.
 - Kitzur's own `x-kitzur-*` response headers can no longer be overridden by the upstream.
 - Common first-run errors now name the next step to take.
+- `kitzur state reset` moves a damaged `learned.json` aside as `learned.json.corrupt` instead of failing.
+- Stray single-dash tokens such as `-p=64k` are rejected instead of becoming positional arguments.
 
-New config keys, all optional: `models`, `ledger.ranking` and `debug.capture.path` (with `debug.capture.requests` and `debug.capture.maxBytes`). See [CONFIG.md](../../CONFIG.md).
+New config keys, all optional: `models`, `ledger.ranking`, `upstream.retry.*` and `debug.capture.path` (with `debug.capture.requests` and `debug.capture.maxBytes`). See [CONFIG.md](../../CONFIG.md).
 
 ## Install and verify
 

@@ -365,6 +365,15 @@ use a synthetic scripted session and check marker retention, not comprehension o
 real-model task quality. Real-model validation is still pending
 ([coding task evaluation](bench/coding/README.md)).
 
+**What if my gateway answers 429 or 503?** By default Kitzur relays the error. Set
+`upstream.retry.enabled` to `true` to repeat a 429, 502, 503 or 504 after a capped
+backoff, tuned by `upstream.retry.maxAttempts`, `upstream.retry.baseDelayMs`,
+`upstream.retry.maxDelayMs`, `upstream.retry.maxTotalDelayMs`, `upstream.retry.honorRetryAfter`
+and `upstream.retry.jitter`. It never retries after the first response byte or in shadow mode,
+and learns nothing from it. A `Retry-After` above `upstream.retry.maxDelayMs` is passed to the
+client at once. See the [upstream.retry rows](CONFIG.md#upstream) and the
+[retry proposal](docs/proposals/upstream-retry.md).
+
 ## Running in the background
 
 <details>
