@@ -244,6 +244,13 @@ set `upstream.origin` to the rotator; see [the LiteLLM example](docs/UPSTREAM-RO
 | `upstream.headers` | `{}` | Headers added to every upstream request (values never logged or shown). | A missing gateway key: 401s. Usually the client sends `Authorization` itself. | – |
 | `upstream.maxBodyBytes` | `null` | The gateway's request-body limit (nginx `client_max_body_size` defaults to 1 MiB); the byte check keeps `bytes(messages) + tools + 512` under it. | Unset behind a 1 MiB proxy: the first large request gets a 413 (then learned as `maxBodyBytes`). Too low: needless compactions. | – |
 | `upstream.keepAliveIdleMs` | `4000` | Close idle upstream keep-alive sockets after this; must be below the server's keep-alive (uvicorn: 5 s). | Above the server's: occasional `ECONNRESET` on reused sockets (retried once, harmless). | – |
+| `upstream.retry.enabled` | `false` | Opt-in retry of an upstream 429, 502, 503 or 504 before the answer reaches the client. Accepted and validated, but it has no effect yet: the retry loop ships in a later change. | – (no effect yet). | – |
+| `upstream.retry.maxAttempts` | `3` | Total upstream attempts for one request, the first included (1 to 10). | Too high: a failing gateway holds the client for longer. 1 means no retry. | – |
+| `upstream.retry.baseDelayMs` | `500` | Wait before the first retry; each later wait doubles, up to `maxDelayMs`. Above `maxDelayMs`, every wait is `maxDelayMs`. | Too low: retries hit a still-overloaded gateway. Too high: slow recovery from a short hiccup. | – |
+| `upstream.retry.maxDelayMs` | `8000` | Cap on a single wait between attempts. | Too low: retries come too fast for a busy gateway. Too high: long stalls. | – |
+| `upstream.retry.maxTotalDelayMs` | `20000` | Cap on the summed waits for one request; no retry starts once it would be exceeded. | Too high: a client may time out before the final answer. | below the client's own request timeout |
+| `upstream.retry.honorRetryAfter` | `true` | Use the gateway's `Retry-After` header for the wait when present (still capped by `maxDelayMs` and `maxTotalDelayMs`). | `false`: retries may come sooner than the gateway asked and fail again. | – |
+| `upstream.retry.jitter` | `true` | Randomize each wait so that many clients do not retry in lockstep. | `false` with several clients: synchronized bursts against the gateway. | – |
 
 ### server
 
