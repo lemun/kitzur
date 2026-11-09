@@ -64,7 +64,7 @@ test('free port starts detached and appends output on repeated runs', async () =
   await new Promise<void>(resolve => listener.close(() => resolve()));
   const cfg = loadConfig({ env: {}, object: { listen: { host: '127.0.0.1', port: addr.port } } }).config;
   const script = join(dir, "fake cli's.cjs");
-  writeFileSync(script, "console.log(JSON.stringify(process.argv.slice(2))); console.error('appended');");
+  writeFileSync(script, "console.log(JSON.stringify(process.argv.slice(2))); console.log('pid ' + process.pid); console.error('appended');");
   try {
     for (let i = 0; i < 2; i++) {
       await runAutostart(cfg, join(dir, 'config.json'), dir, { cli: script, log: () => {} });
@@ -79,5 +79,10 @@ test('free port starts detached and appends output on repeated runs', async () =
     const output = readFileSync(join(dir, 'logs', 'serve-stdio.log'), 'utf8');
     assert.equal(output.split('appended').length - 1, 2);
     assert.ok(output.includes(JSON.stringify(join(dir, 'config.json'))));
+    // the children run with their cwd in dir, which Windows keeps locked (EBUSY on rmdir) until they exit
+    const pids = [...output.matchAll(/pid (\d+)/g)].map(m => Number(m[1]));
+    assert.equal(pids.length, 2);
+    const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+    for (const deadline = Date.now() + 10_000; pids.some(alive) && Date.now() < deadline;) await new Promise(r => setTimeout(r, 50));
   } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }); }
 });
