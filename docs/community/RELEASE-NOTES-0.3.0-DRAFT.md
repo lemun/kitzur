@@ -13,7 +13,7 @@ Kitzur 0.3.0 lets one proxy serve several models with their own settings, and ma
 - **TLS chain reports.** `kitzur tls-probe [origin] --ca-file FILE` names the failing link of the upstream's certificate chain with a repair hint, and `serve` and `doctor` report the same when verification fails.
 - **Windows autostart without administrator rights.** `kitzur autostart install` adds a Startup-folder shortcut, and `kitzur autostart status` and `kitzur autostart remove` check and undo it.
 - **Retention explanations and support bundles.** `kitzur replay --explain` prints a readable table of what each compaction kept, excerpted, summarized or dropped (`--explain-limit N` sets the detail), `kitzur doctor --snapshot FILE` writes a shareable snapshot with credentials omitted and hosts and home paths masked, and `kitzur redact <file|dir>` replaces every captured text with same-length filler.
-- **Opt-in upstream retry.** With `upstream.retry.enabled` set, a 429, 502, 503 or 504 that arrives before any response byte is repeated after a capped backoff that honours `Retry-After`; it is off by default.
+- **Opt-in upstream retry.** With `upstream.retry.enabled` set, a 429, 502, 503 or 504 that arrives before any response byte is repeated after a capped backoff that honours `Retry-After`; it is off by default. Non-chat paths listed in `upstream.retry.paths` are retried too, `/status` reports the totals in `transient_retries`, a retried request's stats record carries `transient_retries` and `transient_retry_delay_ms`, and `kitzur status` shows an `Upstream retries` line. [examples/config/flaky-gateway-retry.jsonc](../../examples/config/flaky-gateway-retry.jsonc) is a ready-to-copy starting point.
 
 ## Upgrade notes
 
@@ -29,9 +29,10 @@ Behaviour changes:
 - Kitzur's own `x-kitzur-*` response headers can no longer be overridden by the upstream.
 - Common first-run errors now name the next step to take.
 - `kitzur state reset` moves a damaged `learned.json` aside as `learned.json.corrupt` instead of failing.
+- Legacy `/v1/completions` prompts are now counted (`legacyCompletions.count`): the answer carries `x-kitzur-action` and `x-kitzur-tokens` headers, and `/status` counts `legacy_completions` and `legacy_over_budget`, also shown as a `Legacy completions` line in `kitzur status`. The prompt is forwarded unchanged and is never compacted.
 - Stray single-dash tokens such as `-p=64k` are rejected instead of becoming positional arguments.
 
-New config keys, all optional: `models`, `ledger.ranking`, `upstream.retry.*` and `debug.capture.path` (with `debug.capture.requests` and `debug.capture.maxBytes`). See [CONFIG.md](../../CONFIG.md).
+New config keys, all optional: `models`, `ledger.ranking`, `upstream.retry.*` (including `upstream.retry.paths`), `legacyCompletions.*` and `debug.capture.path` (with `debug.capture.requests` and `debug.capture.maxBytes`). See [CONFIG.md](../../CONFIG.md).
 
 ## Install and verify
 

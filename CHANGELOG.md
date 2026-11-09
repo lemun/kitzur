@@ -78,6 +78,11 @@ All notable changes to Kitzur are recorded here. The format follows
 - `16k` and `256k` presets for 16k and 256k windows, usable with `--preset`, `KITZUR_PRESET`, `config init --preset` and the config file's `preset` key.
 - [docs/CLIENTS.md](docs/CLIENTS.md) has sections for Continue, Aider and Open WebUI.
 - Opt-in `upstream.retry.*` (off by default): a 429, 502, 503 or 504 before any response byte is repeated after a capped backoff that honours `Retry-After`; see [CONFIG.md](CONFIG.md).
+- `upstream.retry.paths` lists non-chat paths, such as `/v1/embeddings`, that are retried with the same rules when the retry is on.
+- `/status` holds the retry totals in `transient_retries` (`retries`, `by_status`, `delay_ms`, `exhausted`), and a retried request's stats record carries `transient_retries` and `transient_retry_delay_ms`.
+- Legacy `/v1/completions` prompts are counted (`legacyCompletions.count`): the answer carries `x-kitzur-action: passthrough` and `x-kitzur-tokens`, and `/status` counts `legacy_completions` and `legacy_over_budget`. The prompt is forwarded unchanged and is not compacted; `legacyCompletions.warn` logs that once.
+- [examples/config/flaky-gateway-retry.jsonc](examples/config/flaky-gateway-retry.jsonc) is a ready-to-copy config for a flaky or rate-limited gateway that turns the retry on.
+- `kitzur status` shows `Upstream retries` and `Legacy completions` lines when those counters are not zero.
 - `kitzur report --by hour|day --csv` prints the timeline as CSV for spreadsheets.
 - `kitzur doctor` reports a damaged `learned.json` in the state directory (`state.file`).
 
