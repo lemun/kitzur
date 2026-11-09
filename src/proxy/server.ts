@@ -45,6 +45,7 @@ import { budgetModeOf, serverLimits, budgetQuantities } from './budget.js';
 import { RawCapture } from './capture.js';
 import type { UpstreamRequest } from './upstream.js';
 import { packageInfo } from '../config/paths.js';
+import { countLegacyPrompt, isLegacyCompletionsPath, parseLegacyPrompt } from '../dialect/openai-completions.js';
 import type { ModelRuntimeMap } from './model-runtime.js';
 
 /**
@@ -203,6 +204,15 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     ...deps.watchdog?.snapshot(),
   });
 
+  /** The learned entry a request for `model` is planned with, narrowed by the discovered window and limits. */
+  function learnedFor(requestCfg: Config, model: string | undefined): LearnedEntry {
+    const entry = deps.state.entry(learnedKey(origin, model));
+    const id = model ?? '';
+    const window = Object.hasOwn(discoveredWindows, id) ? discoveredWindows[id] : undefined;
+    if (isAutoWindow(requestCfg) && window !== undefined) entry.window = entry.window === null ? window : Math.min(entry.window, window);
+    return deps.modelRuntimes?.learnedFor(model, entry) ?? entry;
+  }
+
   // ------------------------------------------------------------------ routing
   async function handle(req: IncomingMessage, res: ServerResponse, requestId: string): Promise<void> {
     status.requests++;
@@ -266,9 +276,12 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     const tBody = performance.now();
     if (isChatCompletionsPath(req.method ?? '', pathname)) await handleChat(req, res, body, pathname, tBody, requestId);
     else {
-      if (!legacyCompletionsWarned && req.method === 'POST' && pathname.replace(/\/+$/, '').endsWith('/completions')) {
-        legacyCompletionsWarned = true;
-        log('warn', `legacy completions request on ${pathname}: Kitzur compacts chat requests only, so this prompt is forwarded unchanged and is not counted`);
+      if (isLegacyCompletionsPath(req.method ?? '', pathname)) {
+        if (cfg.legacyCompletions.warn && !legacyCompletionsWarned) {
+          legacyCompletionsWarned = true;
+          log('warn', `legacy completions request on ${pathname}: Kitzur compacts chat requests only, so this prompt is forwarded unchanged and is not compacted`);
+        }
+        if (cfg.legacyCompletions.count) countLegacy(req, res, body);
       }
       await passthrough(req, res, body);
     }
@@ -403,8 +416,35 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     return clean;
   }
 
+  /**
+   * Counts a legacy completions prompt (read only: the body is forwarded as is) and sets the diagnostic
+   * headers; an unreadable body is not counted. Each prompt of an array is its own completion, so the
+   * largest one is compared with the budget.
+   */
+  function countLegacy(req: IncomingMessage, res: ServerResponse, body: Buffer): void {
+    const enc = req.headers['content-encoding'];
+    if (enc && enc !== 'identity') return;
+    const parsed = parseLegacyPrompt(body);
+    if (!parsed.ok) return;
+    // decoded as the parser does it (a leading BOM is dropped), so an accepted body always parses here
+    const model = (JSON.parse(new TextDecoder('utf-8').decode(body)) as { model?: unknown }).model;
+    const id = typeof model === 'string' ? model : undefined;
+    const runtime = deps.modelRuntimes?.forModel(id);
+    const requestCfg = runtime?.cfg ?? cfg;
+    const { total, max } = countLegacyPrompt(runtime?.counter ?? deps.counter, parsed.prompts);
+    const quantities = budgetQuantities(requestCfg, learnedFor(requestCfg, id));
+    status.legacyCompletions++;
+    res.setHeader('x-kitzur-action', 'passthrough');
+    res.setHeader('x-kitzur-tokens', `${total}/${total}/${quantities.trigger}`);
+    if (max > quantities.budget) {
+      status.legacyOverBudget++;
+      res.setHeader('x-kitzur-over-budget', String(quantities.budget));
+    }
+  }
+
   async function passthrough(req: IncomingMessage, res: ServerResponse, body: Buffer, observation = observeResponse(res), local = false): Promise<void> {
-    const own = (hdrs: string[]): string[] => local ? dropLocalHeaders(hdrs) : hdrs;
+    // a counted legacy prompt carries Kitzur's own headers, which the upstream's must not replace
+    const own = (hdrs: string[]): string[] => local || res.hasHeader('x-kitzur-action') ? dropLocalHeaders(hdrs) : hdrs;
     status.passthroughRequests++;
     const ac = new AbortController();
     res.on('close', () => {
@@ -592,13 +632,7 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     }
     const key = learnedKey(origin, creq.model);
     visible.model = creq.model ?? null;
-    const learnedForModel = (): LearnedEntry => {
-      const entry = deps.state.entry(key);
-      const model = creq.model ?? '';
-      const window = Object.hasOwn(discoveredWindows, model) ? discoveredWindows[model] : undefined;
-      if (isAutoWindow(requestCfg) && window !== undefined) entry.window = entry.window === null ? window : Math.min(entry.window, window);
-      return deps.modelRuntimes?.learnedFor(creq.model, entry) ?? entry;
-    };
+    const learnedForModel = (): LearnedEntry => learnedFor(requestCfg, creq.model);
     // Keep the set bounded (like shouldWarnUnknown) even if clients send arbitrary model IDs.
     if (isAutoWindow(requestCfg) && !Object.hasOwn(discoveredWindows, creq.model ?? '') && !fallbackWarned.has(creq.model ?? '') && fallbackWarned.size < 100) {
       fallbackWarned.add(creq.model ?? '');

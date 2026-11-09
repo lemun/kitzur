@@ -131,6 +131,9 @@ export class StatusTracker {
   requests = 0;
   chatRequests = 0;
   passthroughRequests = 0;
+  /** informational: legacy completions prompts that were counted, and those above the budget */
+  legacyCompletions = 0;
+  legacyOverBudget = 0;
   hostRejected = 0;
   retries = 0;
   usageRetries = 0;
@@ -271,6 +274,8 @@ export class StatusTracker {
         requests: this.requests,
         chat_requests: this.chatRequests,
         passthrough_requests: this.passthroughRequests,
+        legacy_completions: this.legacyCompletions,
+        legacy_over_budget: this.legacyOverBudget,
         host_rejected: this.hostRejected,
         retries: this.retries,
         include_usage_retries: this.usageRetries,

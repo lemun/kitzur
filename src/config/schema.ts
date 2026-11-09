@@ -224,6 +224,8 @@ export interface Config {
   stats: { path: string | null };
   debug: { capture: { path: string | null; requests: number; maxBytes: number } };
   shadow: boolean;
+  /** legacy /v1/completions: never rewritten; `count` sets the diagnostic headers, `warn` logs one line per process */
+  legacyCompletions: { count: boolean; warn: boolean };
   /** documented hook for an optional model-written digest; not implemented in v1 */
   digestHook: { enabled: false };
   log: { file: string | null; console: boolean };
@@ -332,6 +334,7 @@ export const DEFAULT_CONFIG: Config = {
   stats: { path: null },
   debug: { capture: { path: null, requests: 5, maxBytes: 10 * 1024 * 1024 } },
   shadow: false,
+  legacyCompletions: { count: true, warn: true },
   digestHook: { enabled: false },
   log: { file: null, console: false },
   logLevel: 'info',

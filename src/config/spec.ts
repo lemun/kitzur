@@ -207,6 +207,8 @@ export const LEAF_SPECS: Readonly<Record<string, LeafSpec>> = Object.assign(Obje
   'debug.capture.requests': int(1, 50),
   'debug.capture.maxBytes': int(1024, Number.MAX_SAFE_INTEGER),
   shadow: bool,
+  'legacyCompletions.count': bool,
+  'legacyCompletions.warn': bool,
   'digestHook.enabled': { t: 'false' },
   'log.file': strN,
   'log.console': bool,
