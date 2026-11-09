@@ -440,6 +440,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         if (plan.reason !== 'status') status.transientExhausted();
         break;
       }
+      // the discarded answer drains in the background; the abort may destroy it mid-drain, which is not an error here
+      up.body.on('error', () => {});
       up.body.resume();
       // the same abortable wait as the chat path: ends early (false) when the client closes
       const waited = await new Promise<boolean>((resolve) => {

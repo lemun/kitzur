@@ -85,6 +85,36 @@ test('the client leaves during the wait: no further upstream request', async (t)
   } finally { await f.close(); await up.close(); }
 });
 
+test('the client leaves while the discarded 503 body is still open: no uncaught error and the next request is served', async (t) => {
+  const uncaught: unknown[] = [];
+  const onUncaught = (e: unknown): void => { uncaught.push(e); };
+  process.on('uncaughtException', onUncaught);
+  t.after(() => { process.off('uncaughtException', onUncaught); });
+  const up = await fakeUpstream((h, res) => {
+    if (h.n > 1) return jsonRes(res, 200, embedding);
+    // headers and a first chunk, never the end: the proxy discards a body that is still streaming
+    res.writeHead(503, { 'content-type': 'application/json' });
+    res.write('{"error":');
+  });
+  // the idle timeout fires on the discarded body during the wait, destroying it with an error
+  const config = { upstream: { idleTimeoutMs: 50, retry: { enabled: true, baseDelayMs: 200, maxDelayMs: 200, maxTotalDelayMs: 200, jitter: false, paths: ['/v1/embeddings'] } } };
+  const f = await startProxy(t, up, passthroughEngine(), { config });
+  try {
+    const payload = JSON.stringify(input);
+    const req = http.request({ host: '127.0.0.1', port: f.port, method: 'POST', path: '/v1/embeddings', agent: false, headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(payload)) } });
+    req.on('error', () => undefined);
+    req.end(payload);
+    while (up.hits.length === 0) await sleep(5);
+    await sleep(100);
+    req.destroy();
+    await sleep(50);
+    assert.deepEqual(uncaught, []);
+    assert.equal(up.hits.length, 1);
+    assert.equal((await request(f.port, { path: '/v1/embeddings', body: input })).status, 200);
+    assert.deepEqual(uncaught, []);
+  } finally { await f.close(); await up.close(); }
+});
+
 test('retry.enabled false: a listed path is not retried', async (t) => {
   const up = await fakeUpstream((h, res) => (h.n === 1 ? jsonRes(res, 503, busy) : jsonRes(res, 200, embedding)));
   const f = await startProxy(t, up, passthroughEngine(), { config: retryOn(['/v1/embeddings'], { enabled: false }) });
