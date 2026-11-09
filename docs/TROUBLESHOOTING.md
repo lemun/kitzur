@@ -70,3 +70,14 @@ These checks run only on Windows and need no administrator rights; a missing `ne
 - `windows.port`: `listen.port` falls inside a range from `netsh int ipv4 show excludedportrange protocol=tcp` (Hyper-V, WSL or Docker reserve these), so binding fails. Fix: set `listen.port` to the free port doctor suggests.
 - `windows.synced_folder`: the state directory, log file or config file is under OneDrive or a similar synced folder, where file locks and renames can fail. Fix: move `stateDir`, `log.file` and the config to a local folder such as `%LOCALAPPDATA%\kitzur`.
 - `windows.autostart`: reports whether the per-user Startup shortcut (`Kitzur.lnk`) from `kitzur autostart install` exists. Fix: run `kitzur autostart status` for details, or `kitzur autostart install --config PATH` to start Kitzur at sign-in.
+
+## My gateway answers 429 or 503
+- Default: Kitzur relays the gateway's 429, 502, 503 or 504 to the client as is. With `upstream.retry.enabled` set to `true`, a chat request is sent again after a capped backoff and the client sees only the final answer. Background: the [upstream.retry rows](../CONFIG.md#upstream) and the [FAQ](../README.md#faq-and-limits).
+- Is it working: `kitzur status --json` (the `/status` body) holds `transient_retries`: `retries` (waits taken), `by_status` (waits per status code), `delay_ms` (total wait) and `exhausted` (requests where the retry gave up and the error was relayed). All are zero while retry is off. Field meanings: [JSON output](JSON-OUTPUT.md).
+- Per request: a stats record carries `transient_retries` (count) and `transient_retry_delay_ms` (total wait), written only when the request was retried. `kitzur report` does not show them; read the stats file.
+- Which setting to change:
+  - `exhausted` grows: raise `upstream.retry.maxAttempts` or `upstream.retry.maxTotalDelayMs`, keeping the total below the client's own request timeout.
+  - Clients time out while Kitzur waits: lower `upstream.retry.maxTotalDelayMs`.
+  - The gateway sends a `Retry-After` above `upstream.retry.maxDelayMs`: that answer is relayed at once; raise `upstream.retry.maxDelayMs` to wait it out.
+  - The client already retries on its own: leave `upstream.retry.enabled` off, or the waits add up on both sides.
+- Limits: chat requests only; never after the first response byte; never in shadow mode; nothing is learned from a retried answer.
