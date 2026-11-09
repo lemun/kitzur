@@ -32,6 +32,7 @@ import {
 import { hostAllowed } from './hostcheck.js';
 import { ErrorClassifier } from './errors.js';
 import { runChat, attemptRecords, type AttemptOutcome, type ChatResult, type ErrorOutcome, type Final, type OutgoingAttempt } from './recovery.js';
+import { planRetry } from './retry.js';
 import { SseRelay } from './sse.js';
 import { relaySse } from './relay.js';
 import type { Rest } from './relay.js';
@@ -412,16 +413,54 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
         ac.abort();
       }
     });
+    const retry = cfg.upstream.retry;
+    const path = (req.url ?? '/').split('?')[0]!;
+    // a listed non-chat path: the user declared it safe to resend, so the buffered body goes out again unchanged
+    const retryable = retry.enabled && !local && retry.paths.includes(path);
+    let retries = 0;
+    let delayedMs = 0;
     let up: UpstreamResponse;
-    try {
-      up = await requestUpstream({ method: req.method ?? 'GET', path: req.url ?? '/', headers: forwardRequestHeaders(req.rawHeaders, cfg.upstream.headers), body, signal: ac.signal });
-    } catch {
-      if (!res.headersSent && !ac.signal.aborted) {
-        status.upstreamUnavailable++;
-        observation.o.outcome = 'upstream_error';
-        sendJson(res, 502, upstreamUnavailableBody());
+    for (;;) {
+      try {
+        up = await requestUpstream({ method: req.method ?? 'GET', path: req.url ?? '/', headers: forwardRequestHeaders(req.rawHeaders, cfg.upstream.headers), body, signal: ac.signal });
+      } catch {
+        if (!res.headersSent && !ac.signal.aborted) {
+          status.upstreamUnavailable++;
+          observation.o.outcome = 'upstream_error';
+          sendJson(res, 502, upstreamUnavailableBody());
+        }
+        return;
       }
-      return;
+      if (!retryable || res.headersSent) break;
+      const plan = planRetry({
+        status: up.status, retryAfter: up.headers['retry-after'] as string | undefined, nextAttempt: retries + 2,
+        delayedMs, nowMs: Date.now(), random: Math.random, cfg: retry,
+      });
+      if (!plan.retry) {
+        if (plan.reason !== 'status') status.transientExhausted();
+        break;
+      }
+      // the discarded answer drains in the background; the abort may destroy it mid-drain, which is not an error here
+      up.body.on('error', () => {});
+      up.body.resume();
+      // the same abortable wait as the chat path: ends early (false) when the client closes
+      const waited = await new Promise<boolean>((resolve) => {
+        if (ac.signal.aborted) return resolve(false);
+        const gone = (): void => {
+          clearTimeout(timer);
+          resolve(false);
+        };
+        const timer = setTimeout(() => {
+          ac.signal.removeEventListener('abort', gone);
+          resolve(true);
+        }, plan.delayMs);
+        ac.signal.addEventListener('abort', gone, { once: true });
+      });
+      if (!waited) return;
+      retries++;
+      delayedMs += plan.delayMs;
+      status.transientRetry(up.status, plan.delayMs);
+      log('info', `upstream ${up.status} on ${path}, transient retry attempt=${retries + 1} delay_ms=${plan.delayMs}`);
     }
     if (up.status < 200 || up.status >= 300) {
       const { relay, contentType } = await readUpstreamError(up);

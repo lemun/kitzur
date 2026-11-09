@@ -20,13 +20,13 @@ function withFile<T>(layer: unknown, fn: (file: string) => T): T {
 
 test('upstream.retry defaults: off, 3 attempts, 500 ms base, 8 s cap, 20 s total, Retry-After and jitter on', () => {
   assert.deepEqual(DEFAULT_CONFIG.upstream.retry, {
-    enabled: false, maxAttempts: 3, baseDelayMs: 500, maxDelayMs: 8000, maxTotalDelayMs: 20_000, honorRetryAfter: true, jitter: true,
+    enabled: false, maxAttempts: 3, baseDelayMs: 500, maxDelayMs: 8000, maxTotalDelayMs: 20_000, honorRetryAfter: true, jitter: true, paths: [],
   });
   assert.deepEqual(loadConfig({ env: {} }).config.upstream.retry, DEFAULT_CONFIG.upstream.retry);
 });
 
 test('upstream.retry: every leaf loads from a file, and --set parses like other leaves', () => {
-  const retry = { enabled: true, maxAttempts: 10, baseDelayMs: 0, maxDelayMs: 1000, maxTotalDelayMs: 5000, honorRetryAfter: false, jitter: false };
+  const retry = { enabled: true, maxAttempts: 10, baseDelayMs: 0, maxDelayMs: 1000, maxTotalDelayMs: 5000, honorRetryAfter: false, jitter: false, paths: ['/v1/embeddings'] };
   withFile({ upstream: { retry } }, (file) => {
     const r = loadConfig({ configPath: file, env: {} });
     assert.deepEqual(r.config.upstream.retry, retry);
@@ -68,7 +68,7 @@ test('upstream.retry: a misspelled leaf gets a did-you-mean hint', () => {
 test('upstream.retry: the effective config JSON lists the section with a source per leaf', () => {
   const r = loadConfig({ env: {} });
   const json = JSON.parse(JSON.stringify(r.config)) as { upstream: { retry: Record<string, unknown> } };
-  const leaves = ['enabled', 'maxAttempts', 'baseDelayMs', 'maxDelayMs', 'maxTotalDelayMs', 'honorRetryAfter', 'jitter'];
+  const leaves = ['enabled', 'maxAttempts', 'baseDelayMs', 'maxDelayMs', 'maxTotalDelayMs', 'honorRetryAfter', 'jitter', 'paths'];
   assert.deepEqual(Object.keys(json.upstream.retry), leaves);
   for (const leaf of leaves) assert.equal(r.provenance[`upstream.retry.${leaf}`], 'default');
 });

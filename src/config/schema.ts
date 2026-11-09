@@ -49,6 +49,8 @@ export interface Config {
       maxTotalDelayMs: number;
       honorRetryAfter: boolean;
       jitter: boolean;
+      /** non-chat request paths (exact, without the query) that are retried too */
+      paths: string[];
     };
   };
   server: {
@@ -234,7 +236,7 @@ export const DEFAULT_CONFIG: Config = {
   upstream: {
     origin: null, timeoutMs: 900_000, idleTimeoutMs: 300_000, caFile: null, insecureTls: false,
     headers: {}, maxBodyBytes: null, keepAliveIdleMs: 4000,
-    retry: { enabled: false, maxAttempts: 3, baseDelayMs: 500, maxDelayMs: 8000, maxTotalDelayMs: 20_000, honorRetryAfter: true, jitter: true },
+    retry: { enabled: false, maxAttempts: 3, baseDelayMs: 500, maxDelayMs: 8000, maxTotalDelayMs: 20_000, honorRetryAfter: true, jitter: true, paths: [] },
   },
   server: { type: 'unknown', budgetMode: null },
   budget: {
