@@ -145,6 +145,8 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
   let startupProbeStatus: number | undefined;
   // models already warned about with window_auto_fallback: warn once per model, not per request
   const fallbackWarned = new Set<string>();
+  // legacy /v1/completions requests are forwarded unchanged; say so once per process
+  let legacyCompletionsWarned = false;
   let inflight = 0;
   let concurrencyRejected = 0;
   let closing = false;
@@ -262,7 +264,13 @@ export function createProxyServer(config: Config, deps: ProxyDeps): ProxyServer 
     if (body === null) return;
     const tBody = performance.now();
     if (isChatCompletionsPath(req.method ?? '', pathname)) await handleChat(req, res, body, pathname, tBody, requestId);
-    else await passthrough(req, res, body);
+    else {
+      if (!legacyCompletionsWarned && req.method === 'POST' && pathname.replace(/\/+$/, '').endsWith('/completions')) {
+        legacyCompletionsWarned = true;
+        log('warn', `legacy completions request on ${pathname}: Kitzur compacts chat requests only, so this prompt is forwarded unchanged and is not counted`);
+      }
+      await passthrough(req, res, body);
+    }
   }
 
   function rejectUpload(req: IncomingMessage, res: ServerResponse, code: number, message: string, kind: string, headers: Record<string, string> = {}): void {

@@ -172,6 +172,22 @@ the proposed compaction.
 completion order, each with `{action, tokens: {in, out, trigger}, model, ms}`. This
 history is available even without a stats file and resets on restart.
 
+### Which requests are compacted
+
+| Endpoint | Compacted | Counted | Forwarded |
+| --- | --- | --- | --- |
+| `POST .../chat/completions` | yes | yes | unchanged only when it fits or cannot be parsed |
+| `POST /v1/completions` | no | no | unchanged |
+| `POST /v1/embeddings` | no | no | unchanged |
+| `GET /v1/models`, `GET /props` | no | no | unchanged (Kitzur also reads them to learn the window) |
+| `GET /status`, `/kitzur/status` | served locally | n/a | no |
+| anything else | no | no | unchanged |
+
+Legacy `/v1/completions` prompts (editor autocomplete, plain-prompt clients) are
+forwarded as sent, so a prompt that overflows the served window fails upstream; the
+first such request logs one `warn` line saying so. Fill-in-the-middle prompts are
+deliberately not rewritten: cutting a sentinel would silently corrupt them.
+
 ## Compatibility and fit
 
 | HTTP format | Clients | Intended environment |
