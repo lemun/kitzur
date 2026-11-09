@@ -268,12 +268,25 @@ export function isInnerNode(path: string): boolean {
   return !LEAF_SPECS[path] && DEFAULT_LEAVES.some((l) => l.startsWith(pre));
 }
 
-/** Closest known leaf by edit distance (for "did you mean" hints), or null if none is close. */
+/** Every inner node of the schema (each proper dotted prefix of a leaf path), e.g. 'budget', 'tokenizer.endpoint'. */
+const INNER_NODES: readonly string[] = [
+  ...new Set(
+    DEFAULT_LEAVES.flatMap((l) => {
+      const keys = l.split('.');
+      return keys.slice(1).map((_, i) => keys.slice(0, i + 1).join('.'));
+    }),
+  ),
+];
+
+/**
+ * Closest known leaf or inner node by edit distance (for "did you mean" hints), or null if none is close.
+ * Leaves are tried first, so a leaf wins a tie with an inner node.
+ */
 export function suggestLeaf(path: string): string | null {
   let best: string | null = null;
   let bestD = Infinity;
   const last = (p: string): string => p.slice(p.lastIndexOf('.') + 1).toLowerCase();
-  for (const leaf of DEFAULT_LEAVES) {
+  for (const leaf of [...DEFAULT_LEAVES, ...INNER_NODES]) {
     const d = Math.min(editDistance(path.toLowerCase(), leaf.toLowerCase()), editDistance(last(path), last(leaf)) + 1);
     if (d < bestD) {
       bestD = d;
