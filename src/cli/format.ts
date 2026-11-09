@@ -87,6 +87,23 @@ const pairs = (o: Record<string, unknown>, keys: Array<[string, string]>, sep = 
 
 /** `<in> -> <out> tokens`, or '' unless both counts are numbers. */
 const tokens = (o: Record<string, unknown>): string => (isNum(o['in']) && isNum(o['out']) ? `${o['in']} -> ${o['out']} tokens` : '');
+/** A non-negative whole count, or null for a missing, non-numeric, negative or oversized value. */
+const count = (v: unknown): number | null => (isNum(v) && Number.isSafeInteger(v) && v >= 0 ? v : null);
+/** The upstream retry and legacy completions lines of the Chat requests group; none when their counts are zero or absent. */
+const extraLines = (s: Record<string, unknown>, c: Record<string, unknown>): string[] => {
+  const out: string[] = [];
+  const t = isRec(s['transient_retries']) ? s['transient_retries'] : {};
+  const retries = count(t['retries']) ?? 0, gaveUp = count(t['exhausted']) ?? 0;
+  if (retries > 0 || gaveUp > 0) {
+    const by = isRec(t['by_status']) ? Object.entries(t['by_status']).filter(([k, n]) => /^\d{3}$/.test(k) && (count(n) ?? 0) > 0) : [];
+    const list = by.sort((a, b) => Number(a[0]) - Number(b[0])).map(([k, n]) => `${k}=${n}`).join(', ');
+    const gave = gaveUp > 0 ? `; gave up on ${gaveUp} request${gaveUp === 1 ? '' : 's'}` : '';
+    out.push(`Upstream retries: ${retries}${list ? ` (${one(list)})` : ''}; waited ${count(t['delay_ms']) ?? 0}ms${gave}`);
+  }
+  const legacy = count(c['legacy_completions']) ?? 0, over = count(c['legacy_over_budget']) ?? 0;
+  if (legacy > 0) out.push(`Legacy completions: ${legacy} counted${over > 0 ? `, ${over} over budget` : ''}`);
+  return out;
+};
 /** The Paths line of a /status `paths` record: a null config or log_file reads as before, an absent field is skipped. */
 const pathsLine = (p: Record<string, unknown>): string => {
   const shown = (k: string, ifNull?: string): string[] =>
@@ -119,6 +136,7 @@ export function formatStatus(s: Record<string, unknown>, now: number = Date.now(
     const o = pairs(s['outcomes'], ['ok', 'aborted', 'incomplete', 'upstream_error', 'refused'].map((k) => [k, k]), '=');
     if (o.length) requests.push(`Outcomes: ${o.join(', ')}`);
   }
+  requests.push(...extraLines(s, c));
   const lc = isRec(s['last_compaction']) ? s['last_compaction'] : null;
   const at = lc && typeof lc['at'] === 'string' ? Date.parse(lc['at']) : NaN;
   const ago = Number.isFinite(at) && now >= at ? ` (${fmtUptime((now - at) / 1000)} ago)` : '';
