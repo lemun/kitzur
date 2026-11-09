@@ -11,6 +11,7 @@ const load = (f: string) => loadConfig({ configPath: join(dir, f), env: {} });
 test('flaky-gateway-retry: retry is on with the values written in the example', () => {
   const r = load('flaky-gateway-retry.jsonc').config.upstream.retry;
   assert.deepEqual(r, {
+    ...DEFAULT_CONFIG.upstream.retry,
     enabled: true,
     maxAttempts: 4,
     baseDelayMs: 1000,
@@ -19,6 +20,7 @@ test('flaky-gateway-retry: retry is on with the values written in the example', 
     honorRetryAfter: true,
     jitter: true,
   });
+  assert.deepEqual(r.paths, []);
   assert.ok(r.maxTotalDelayMs >= r.maxDelayMs);
   assert.equal(DEFAULT_CONFIG.upstream.retry.enabled, false);
 });

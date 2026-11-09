@@ -3,7 +3,7 @@
 // client. Leave retry off when the client has its own retry logic, so the two do not multiply.
 // Replace the gateway host.
 {
-  "preset": "32k",
+  "preset": "32k", // the model's context window; sets the budget
   "upstream": {
     "origin": "https://llm.example.com", // your OpenAI-compatible gateway, no path
     "retry": {
@@ -17,5 +17,5 @@
       "jitter": true // spread the retries of concurrent requests
     }
   },
-  "server": { "type": "vllm" }
+  "server": { "type": "vllm" } // the server behind the gateway
 }
