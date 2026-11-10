@@ -99,6 +99,13 @@ export async function doctor(config: Config, opts: { env?: Record<string, string
   if (Number(nodeVersion.split('.')[0]) >= 22) add('runtime.node', 'ok', `Node.js ${nodeVersion} is supported.`);
   else add('runtime.node', 'warn', `Node.js ${nodeVersion} is too old: Kitzur supports Node.js 22 or later.`, 'Install Node.js 22 or later; with the offline bundle, install the version its README names.');
   if (listenTokenWarning(config)) add('listen.token', 'warn', 'upstream.headers is set without listen.token: every local process can use those credentials through the proxy.', 'Set listen.token and give it to the agent as its API key.');
+  const retry = config.upstream.retry;
+  if (retry.enabled) {
+    const firstWait = Math.min(retry.maxDelayMs, retry.baseDelayMs);
+    if (retry.maxAttempts < 2) add('upstream.retry', 'warn', 'Upstream retry is on but maxAttempts is 1, so no request is ever retried.', 'Set upstream.retry.maxAttempts to 2 or more, or turn upstream.retry.enabled off.');
+    else if (!retry.jitter && firstWait > retry.maxTotalDelayMs) add('upstream.retry', 'warn', `Upstream retry is on, but the first wait (${firstWait} ms) is longer than maxTotalDelayMs (${retry.maxTotalDelayMs} ms) and jitter is off, so no request is ever retried.`, 'Raise upstream.retry.maxTotalDelayMs or lower upstream.retry.baseDelayMs.');
+    else add('upstream.retry', 'ok', `Upstream retry is on: up to ${retry.maxAttempts} attempts, each wait at most ${retry.maxDelayMs} ms, at most ${retry.maxTotalDelayMs} ms of waiting in total.`);
+  }
 
   let b: ReturnType<typeof computeBudget> | null = null;
   try { b = computeBudget(config); } catch { /* malformed config is reported with fixed diagnostics */ }

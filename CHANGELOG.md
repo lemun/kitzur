@@ -8,6 +8,7 @@ All notable changes to Kitzur are recorded here. The format follows
 
 ### Added
 
+- `kitzur doctor` checks the opt-in upstream retry settings (`upstream.retry`): it warns when retry is on but can never retry, and sums up the attempt and wait limits when it can.
 - [docs/SECURITY-REVIEW.md](docs/SECURITY-REVIEW.md) is a checklist for teams that vet Kitzur before allowing it on an internal network, with a claim, a verify command and an owning file per item (#151).
 - [examples/config/](examples/config/README.md) has ready-to-copy config files for a single 32k model, a multi-model gateway, a Windows intranet and a CI job, each loaded and validated by the test suite (#150, #152, #154, #157).
 - A planner performance baseline: `npm run bench:perf` checks the compaction planner's output and its machine-relative cost against `bench/baselines/engine-perf.json`, and `node dist/bench/perf-baseline.js --update` refreshes it; it is not part of `npm test` or CI (see [bench/baselines/README.md](bench/baselines/README.md)) (#155, #159).

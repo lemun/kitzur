@@ -81,3 +81,4 @@ These checks run only on Windows and need no administrator rights; a missing `ne
   - The gateway sends a `Retry-After` above `upstream.retry.maxDelayMs`: that answer is relayed at once; raise `upstream.retry.maxDelayMs` to wait it out.
   - The client already retries on its own: leave `upstream.retry.enabled` off, or the waits add up on both sides.
 - Limits: chat requests only; never after the first response byte; never in shadow mode; nothing is learned from a retried answer.
+- `upstream.retry` (from `kitzur doctor` when `upstream.retry.enabled` is `true`): warns when the settings can never retry, because `upstream.retry.maxAttempts` is 1 or, with `upstream.retry.jitter` off, the first wait is longer than `upstream.retry.maxTotalDelayMs`; otherwise it sums up the attempt and wait limits. Fix: set `upstream.retry.maxAttempts` to 2 or more, or raise `upstream.retry.maxTotalDelayMs` or lower `upstream.retry.baseDelayMs`.
