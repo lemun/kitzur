@@ -172,7 +172,12 @@ counts and timings, never message content.
 | `tokenTotals` | object | stable |
 | `uniqueSessions`, `localRejects`, `shadowRequests`, `incompleteStreams` | number | informational |
 | `sessionCoverage`, `fieldCoverage`, `upstreamStatusCounts`, `timingMs` | object | informational |
+| `transientRetries` | object | informational |
 | `timeline` | array | informational, present only with `--by hour\|day` |
 | `untimedRequests`, `timelineDroppedRequests` | number | informational, present only with `--by hour\|day` |
 
 `tokenTotals.reductionPercent` is a number, or null when no input was eligible for reduction.
+
+`transientRetries` counts the opt-in upstream retry (`upstream.retry`): `requests` is how many records it
+repeated, `retries` the repeats in total and `delayMs` the backoff waited in total. It is separate from
+`retries`, which counts the compaction retries after an upstream context error.
