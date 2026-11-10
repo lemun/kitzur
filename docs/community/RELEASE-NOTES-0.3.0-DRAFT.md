@@ -15,6 +15,14 @@ Kitzur 0.3.0 lets one proxy serve several models with their own settings, and ma
 - **Retention explanations and support bundles.** `kitzur replay --explain` prints a readable table of what each compaction kept, excerpted, summarized or dropped (`--explain-limit N` sets the detail), `kitzur doctor --snapshot FILE` writes a shareable snapshot with credentials omitted and hosts and home paths masked, and `kitzur redact <file|dir>` replaces every captured text with same-length filler.
 - **Opt-in upstream retry.** With `upstream.retry.enabled` set, a 429, 502, 503 or 504 that arrives before any response byte is repeated after a capped backoff that honours `Retry-After`; it is off by default. Non-chat paths listed in `upstream.retry.paths` are retried too, `/status` reports the totals in `transient_retries`, a retried request's stats record carries `transient_retries` and `transient_retry_delay_ms`, and `kitzur status` shows an `Upstream retries` line. [examples/config/flaky-gateway-retry.jsonc](../../examples/config/flaky-gateway-retry.jsonc) is a ready-to-copy starting point.
 
+* `kitzur doctor` checks the opt-in retry settings (`upstream.retry`): it warns when the retry is on but can never retry, and sums up its limits when it can.
+* `kitzur doctor` warns when the running Node.js is older than 22 (`runtime.node`).
+* `kitzur doctor` on Windows checks, without administrator rights, for a `listen.port` in an excluded TCP port range (`windows.port`), state, log or config paths in a synced folder such as OneDrive (`windows.synced_folder`) and the autostart shortcut (`windows.autostart`).
+* New guides: a [security review checklist](../SECURITY-REVIEW.md) for teams that vet Kitzur before allowing it on an internal network, [ready-to-copy example configs](../../examples/config/README.md) and the [JSON output guide](../JSON-OUTPUT.md) listing the stable `--json` keys.
+* `kitzur config init --dry-run` prints the target path, the config text and the next steps without creating anything.
+* `--set` and `KITZUR_SET` can set one model profile's leaf, for example `models["<id>"].budget.window=64000`.
+* `kitzur replay` and `kitzur count` use the model profile selected by each request's `model` field, as `serve` does, and accept `--model ID` to choose one.
+
 ## Upgrade notes
 
 No manual step is needed: configs without `models` behave as before, and Node.js 22 or newer is still required.
