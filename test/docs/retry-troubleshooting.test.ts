@@ -37,3 +37,12 @@ test('the section links CONFIG.md and README.md anchors that exist', () => {
   assert.deepEqual(links.map((m) => m[1]).sort(), ['CONFIG', 'README']);
   for (const [, file, anchor] of links) assert.ok(anchors(`${file}.md`).includes(anchor!), `${file}.md#${anchor}`);
 });
+
+test('the section says kitzur report shows the transientRetries totals', () => {
+  assert.ok(section.includes('`kitzur report`') && section.includes('`transientRetries`'));
+  assert.ok(!section.includes('does not show them'));
+});
+
+test('DIAGNOSTICS.md describes transientRetries', () => {
+  assert.ok(read('docs/DIAGNOSTICS.md').includes('`transientRetries`'));
+});
