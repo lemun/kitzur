@@ -8,11 +8,6 @@ const run = (lo: number, hi: number, guess: number, t: number) => {
   return { result, probes };
 };
 
-// Known defect: when the upward gallop's doubled step jumps past hi, maxFitting returns the last fitting probe
-// without searching the rest of the range (lo=0, hi=2, t=2, guess=0 returns 1). The result checks below are
-// kept as todo tests until that is fixed; probe-range and probe-count checks are enforced.
-const KNOWN_GALLOP_OVERSHOOT = 'upward gallop stops short when the doubled step passes hi';
-
 const wrong: string[] = [];
 
 test('maxFitting probes only (lo, hi] and needs at most 3 probes for an exact guess', () => {
@@ -31,7 +26,7 @@ test('maxFitting probes only (lo, hi] and needs at most 3 probes for an exact gu
   }
 });
 
-test('maxFitting returns the threshold for every small range and guess', { todo: KNOWN_GALLOP_OVERSHOOT }, () => {
+test('maxFitting returns the threshold for every small range and guess', () => {
   assert.deepEqual(wrong, []);
 });
 
@@ -45,7 +40,7 @@ test('maxFitting stays logarithmic on a wide range with a bad guess', () => {
   }
 });
 
-test('maxFitting returns the threshold on a wide range', { todo: KNOWN_GALLOP_OVERSHOOT }, () => {
+test('maxFitting returns the threshold on a wide range', () => {
   for (const [guess, t] of wide) assert.equal(run(0, 1_000_000, guess, t).result, t, `guess=${guess}`);
 });
 
