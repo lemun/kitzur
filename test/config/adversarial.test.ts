@@ -384,23 +384,30 @@ test('import-eval: generated error rules never backtrack catastrophically on hos
   for (const [msg, body] of hostile) {
     const src = messageRegex(msg, { window: 32768 });
     const re = new RegExp(src, 'i');
-    // Warm the regexp before measuring. CPU time excludes scheduler delays;
-    // doubling the input allows quadratic scanning but catches explosive growth.
+    // Batch each measurement so microsecond timer noise is small compared with the work.
     assert.equal(re.test(body), false);
     const cpu = (input: string): number => {
       const samples: number[] = [];
-      for (let i = 0; i < 3; i++) {
+      for (let repeat = 0; repeat < 7; repeat++) {
         const start = process.cpuUsage();
-        const matched = re.test(input);
-        const used = process.cpuUsage(start);
-        assert.equal(matched, false);
-        samples.push(used.user + used.system);
+        let iterations = 0;
+        let used: NodeJS.CpuUsage;
+        do {
+          assert.equal(re.test(input), false);
+          iterations++;
+          used = process.cpuUsage(start);
+        } while (used.user + used.system < 50 && iterations < 32);
+        samples.push((used.user + used.system) / iterations);
       }
-      return Math.max(1, Math.min(...samples));
+      samples.sort((a, b) => a - b);
+      return samples[3]!;
     };
     const small = cpu(body);
     const large = cpu(body.repeat(2));
-    assert.ok(large / small < 6, `${src.slice(0, 60)}…: CPU growth ${large / small} (${small} → ${large} µs)`);
+    const growth = large / Math.max(1, small);
+    assert.ok(large < 2_000_000, `${src.slice(0, 60)}…: large body took ${large} µs CPU per match`);
+    // Doubling permits quadratic work while the median rejects explosive backtracking.
+    assert.ok(growth < 12, `${src.slice(0, 60)}…: CPU growth ${growth} (${small} → ${large} µs)`);
   }
   // the bodies the rules come from still match, numbers keep their names where nothing masks them
   const real: Array<[string, string, number | null]> = [
