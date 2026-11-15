@@ -28,6 +28,17 @@ test('run-tests.mjs fails and names a failing todo test', (t) => {
   assert.match(res.stderr, /todo test failing: todo case/);
 });
 
+test('run-tests.mjs fails and names a nested failing todo test', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-run-tests-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'a.test.js'), "const { test } = require('node:test');\n"
+    + "test('parent', async (t) => { await t.test('nested todo', { todo: 'known' }, () => { throw new Error('broken'); }); });\n");
+  const { NODE_TEST_CONTEXT: _, ...env } = process.env;
+  const res = spawnSync(process.execPath, [join(ROOT, 'scripts', 'run-tests.mjs'), dir, '--test-reporter=dot'], { encoding: 'utf8', env });
+  assert.equal(res.status, 1);
+  assert.match(res.stderr, /todo test failing: nested todo/);
+});
+
 test('run-tests.mjs fails a run that leaves a tagged kitzur-proxy-test-* dir behind, and removes it', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-run-tests-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));

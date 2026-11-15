@@ -35,9 +35,17 @@ try {
   const summary = readFileSync(tap, 'utf8');
   const count = (k) => summary.match(new RegExp(`^# ${k} (\\d+)$`, 'm'))?.[1] ?? '?';
   console.log(`\ntests: ${count('pass')} passed, ${count('fail')} failed, ${count('skipped')} skipped`);
-  const todoFailures = [...summary.matchAll(/^not ok \d+ - (.+?) # TODO.*$/gm)];
-  for (const [, name] of todoFailures) console.error(`todo test failing: ${name}`);
-  if (todoFailures.length) process.exitCode = 1;
+  const failures = [...summary.matchAll(/^\s*not ok \d+ - (.*)$/gm)];
+  const todoFailures = failures.filter(([, name]) => / # TODO(?:\s|$)/.test(name));
+  for (const [, name] of todoFailures) console.error(`todo test failing: ${name.replace(/ # TODO.*$/, '')}`);
+  const reportedFailures = Number(count('fail')) || 0;
+  const unaccounted = failures.length - reportedFailures;
+  if (todoFailures.length || unaccounted > 0) {
+    for (const [, name] of failures.slice(reportedFailures)) {
+      if (!/ # TODO(?:\s|$)/.test(name)) console.error(`test failure missing from TAP fail count: ${name}`);
+    }
+    process.exitCode = 1;
+  }
 } catch {}
 rmSync(join(tap, '..'), { recursive: true, force: true });
 process.exit(leaked.length || process.exitCode ? 1 : res.status ?? 1);

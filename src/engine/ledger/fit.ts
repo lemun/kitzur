@@ -27,7 +27,7 @@ export function maxFitting(lo: number, hi: number, guess: number, fits: (k: numb
         break;
       }
     }
-    if (bad === hi + 1) bad = hi + 1;
+    // If galloping passes hi, bisect against the hi + 1 sentinel.
   } else {
     // gallop down from `bad`
     let step = 1;
