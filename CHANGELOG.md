@@ -6,6 +6,8 @@ All notable changes to Kitzur are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-11-15
+
 ### Added
 
 - `kitzur doctor` checks the opt-in upstream retry settings (`upstream.retry`): it warns when retry is on but can never retry, and sums up the attempt and wait limits when it can.
@@ -17,7 +19,7 @@ All notable changes to Kitzur are recorded here. The format follows
 - `deploy/verify-bundle.mjs`, shipped in the offline bundle and the Windows ZIP, verifies an extracted bundle on the target with Node.js alone: Node version, archive and per-file checksums, no unlisted or forbidden files, resolvable imports and a CLI smoke test.
 - `kitzur doctor` warns when the running Node.js is older than 22 (`runtime.node`), and the README has a compatibility table for Node.js, Windows, macOS and Linux.
 - `kitzur doctor` on Windows checks, without administrator rights, whether `listen.port` is in an excluded TCP port range (`windows.port`), whether state, log or config paths sit in a synced folder such as OneDrive (`windows.synced_folder`), and whether the autostart shortcut is installed (`windows.autostart`).
-- [docs/JSON-OUTPUT.md](docs/JSON-OUTPUT.md) documents which `--json` keys of `status`, `doctor`, `count`, `state show`, `config validate`, `config show` and `tls-probe` are stable.
+- [docs/JSON-OUTPUT.md](docs/JSON-OUTPUT.md) documents which `--json` keys of `status`, `doctor`, `count`, `state show`, `config validate`, `config show`, `tls-probe` and `report` are stable.
 - `kitzur replay` and `kitzur count` use the model profile selected by each request's `model` field, as `serve` does, report it as `profile`, and accept `--model ID` to choose a profile.
 - Optional `ledger.ranking` orders ledger items within each category using duplicate, error, later-reference and recency signals; `kitzur replay --explain` displays those signals.
 - `kitzur replay --explain` prints a readable retention summary with a configurable detail limit.
@@ -86,6 +88,12 @@ All notable changes to Kitzur are recorded here. The format follows
 - `kitzur status` shows `Upstream retries` and `Legacy completions` lines when those counters are not zero.
 - `kitzur report --by hour|day --csv` prints the timeline as CSV for spreadsheets.
 - `kitzur doctor` reports a damaged `learned.json` in the state directory (`state.file`).
+- `kitzur report` shows how many requests the opt-in upstream retry repeated and the backoff they waited in total (`transientRetries` in `--json`).
+- [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) has a section for a gateway that keeps answering 429 or 503: where to read the retry totals and which retry settings to change.
+- [CONFIG.md](CONFIG.md) has a worked example that turns a served window, the client limits and a tool-output cap into the compaction trigger.
+- [docs/proposals/upstream-retry.md](docs/proposals/upstream-retry.md) and [docs/proposals/legacy-completions.md](docs/proposals/legacy-completions.md) are the design notes behind the upstream retry and the legacy completions counting.
+- [docs/RELEASING.md](docs/RELEASING.md) is a maintainer checklist for cutting a release, and CONTRIBUTING.md states the real test commands and CI matrix.
+- `npm run check:pack` verifies the published file list, the entry point and the package size, and that no private or development-only file is packed.
 
 ### Changed
 
@@ -100,7 +108,7 @@ All notable changes to Kitzur are recorded here. The format follows
   compatibility, retention-limit and evidence tables.
 - `kitzur --help` lists every flag each command accepts.
 - `kitzur count` treats an empty messages array, or a message the chat template rejects (`messages[N]`), as a usage error with the fix, and flags a config `serve` would refuse instead of printing a negative budget.
-- `kitzur replay` on a file or folder that holds no requests is a usage error.
+- `kitzur replay` on a file or folder that holds no requests is a usage error, and it flags a config `serve` would refuse.
 - `kitzur config validate --model` checks the ID, `config export-opencode` names the configured IDs on an unknown `--model`, and `config init --out` expands a leading `~/` (and `~\` on Windows).
 - Tokenizer file problems (missing, a directory, empty, not JSON, not a BPE tokenizer.json) are named in `count`, `serve` and `doctor`.
 - `kitzur doctor --client-config` says whether the file is missing, unreadable or not valid JSON.
@@ -135,6 +143,11 @@ All notable changes to Kitzur are recorded here. The format follows
 - `kitzur bench` rejects a misspelled flag, a bad `--workers` or `--tier` and a flag without its value, and a missing tokenizer prints one line instead of a stack trace.
 - The doctor snapshot masks a Windows home folder written with forward slashes, doubled backslashes, another letter case or the Documents and Settings name.
 - Single-dash tokens such as `-p=64k` or `-abc` are rejected instead of becoming positional arguments.
+- A compaction summary or a slimmed snapshot could keep fewer items than its token budget allowed: the size search (`maxFitting`) returned a too-small size for wide ranges.
+- Learned state is no longer written after shutdown has finished, so a late write cannot recreate a removed state directory.
+- Config warnings and `config import-eval` rule descriptions no longer end in an empty `()`.
+- `npm test` fails when a test marked as todo fails, instead of exiting 0 while printing the failure.
+- The ReDoS regression test for generated error rules no longer fails on timing noise, other timing-sensitive tests tolerate a loaded machine, and the tests remove every temp folder they create.
 
 ## [0.2.1] — 2026-10-19
 
@@ -228,7 +241,8 @@ It makes the proxy safer to run unattended, makes compaction visible, and smooth
 - A coding-task evaluation harness with executable graders (`bench/coding`).
 - Retention of additive instructions and conservative recognition of instruction cancellations.
 
-[Unreleased]: https://github.com/lemun/kitzur/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/lemun/kitzur/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/lemun/kitzur/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/lemun/kitzur/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/lemun/kitzur/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/lemun/kitzur/releases/tag/v0.1.0
