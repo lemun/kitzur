@@ -35,6 +35,7 @@ try {
   const summary = readFileSync(tap, 'utf8');
   const count = (k) => summary.match(new RegExp(`^# ${k} (\\d+)$`, 'm'))?.[1] ?? '?';
   console.log(`\ntests: ${count('pass')} passed, ${count('fail')} failed, ${count('skipped')} skipped`);
+  // under the m flag the trailing $ ends the match at the failureType line; error, code and stack follow it in the record
   const failures = [...summary.matchAll(/^ *not ok \d+ - (.*)(?:\n +---(?:\n +\w+: .*)*?\n +failureType: '(\w+)')?$/gm)];
   const todoFailures = failures.filter(([, name]) => / # TODO(?:\s|$)/.test(name));
   for (const [, name] of todoFailures) console.error(`todo test failing: ${name.replace(/ # TODO.*$/, '')}`);
