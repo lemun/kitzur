@@ -6,6 +6,8 @@ All notable changes to Kitzur are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-11-15
+
 ### Added
 
 - `kitzur doctor` checks the opt-in upstream retry settings (`upstream.retry`): it warns when retry is on but can never retry, and sums up the attempt and wait limits when it can.
@@ -228,7 +230,8 @@ It makes the proxy safer to run unattended, makes compaction visible, and smooth
 - A coding-task evaluation harness with executable graders (`bench/coding`).
 - Retention of additive instructions and conservative recognition of instruction cancellations.
 
-[Unreleased]: https://github.com/lemun/kitzur/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/lemun/kitzur/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/lemun/kitzur/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/lemun/kitzur/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/lemun/kitzur/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/lemun/kitzur/releases/tag/v0.1.0
