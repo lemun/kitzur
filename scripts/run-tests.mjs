@@ -35,6 +35,9 @@ try {
   const summary = readFileSync(tap, 'utf8');
   const count = (k) => summary.match(new RegExp(`^# ${k} (\\d+)$`, 'm'))?.[1] ?? '?';
   console.log(`\ntests: ${count('pass')} passed, ${count('fail')} failed, ${count('skipped')} skipped`);
+  const todoFailures = [...summary.matchAll(/^not ok \d+ - (.+?) # TODO.*$/gm)];
+  for (const [, name] of todoFailures) console.error(`todo test failing: ${name}`);
+  if (todoFailures.length) process.exitCode = 1;
 } catch {}
 rmSync(join(tap, '..'), { recursive: true, force: true });
-process.exit(leaked.length ? 1 : res.status ?? 1);
+process.exit(leaked.length || process.exitCode ? 1 : res.status ?? 1);

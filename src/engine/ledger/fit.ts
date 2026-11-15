@@ -27,7 +27,7 @@ export function maxFitting(lo: number, hi: number, guess: number, fits: (k: numb
         break;
       }
     }
-    if (bad === hi + 1) return good;
+    if (bad === hi + 1) bad = hi + 1;
   } else {
     // gallop down from `bad`
     let step = 1;
