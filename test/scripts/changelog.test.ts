@@ -4,8 +4,8 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { ROOT } from '../helpers.js';
 
-test('the drafted Unreleased section prints as Added, Changed and Fixed bullet lists', () => {
-  const res = spawnSync(process.execPath, [join(ROOT, 'scripts', 'release-notes.mjs'), 'Unreleased', join(ROOT, 'CHANGELOG.md')], {
+test('the 0.3.0 section prints as Added, Changed and Fixed bullet lists', () => {
+  const res = spawnSync(process.execPath, [join(ROOT, 'scripts', 'release-notes.mjs'), '0.3.0', join(ROOT, 'CHANGELOG.md')], {
     encoding: 'utf8',
   });
   assert.equal(res.status, 0, res.stderr);
@@ -23,12 +23,12 @@ test('the drafted Unreleased section prints as Added, Changed and Fixed bullet l
   }
 });
 
-test('the Unreleased section mentions the CLI, proxy and docs changes merged after the 0.2.1 tag', () => {
-  const res = spawnSync(process.execPath, [join(ROOT, 'scripts', 'release-notes.mjs'), 'Unreleased', join(ROOT, 'CHANGELOG.md')], {
+test('the 0.3.0 section mentions the CLI, proxy and docs changes merged after the 0.2.1 tag', () => {
+  const res = spawnSync(process.execPath, [join(ROOT, 'scripts', 'release-notes.mjs'), '0.3.0', join(ROOT, 'CHANGELOG.md')], {
     encoding: 'utf8',
   });
   assert.equal(res.status, 0, res.stderr);
-  for (const needle of ['kitzur help', 'docs/CLIENTS.md', 'Proxy-Authorization', 'log.directory', '--drain-ms', 'verify-bundle', 'kitzur completions', '--by', '16k', '256k', 'Aider', 'upstream.retry', '--csv', 'state.file']) {
-    assert.ok(res.stdout.includes(needle), `Unreleased does not mention ${needle}`);
+  for (const needle of ['kitzur help', 'docs/CLIENTS.md', 'Proxy-Authorization', 'log.directory', '--drain-ms', 'verify-bundle', 'kitzur completions', '--by', '16k', '256k', 'Aider', 'upstream.retry', '--csv', 'state.file', 'maxFitting']) {
+    assert.ok(res.stdout.includes(needle), `the 0.3.0 section does not mention ${needle}`);
   }
 });
