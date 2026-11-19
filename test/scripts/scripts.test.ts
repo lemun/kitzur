@@ -39,6 +39,20 @@ test('run-tests.mjs fails and names a nested failing todo test', (t) => {
   assert.match(res.stderr, /todo test failing: nested todo/);
 });
 
+test('run-tests.mjs names a cancelled test as missing from the fail count, not the failures node did count', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'kitzur-run-tests-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'a.test.js'), "const { test, describe } = require('node:test');\n"
+    + "test('timed out', { timeout: 10 }, () => new Promise((r) => setTimeout(r, 200)));\n"
+    + "test('bad', () => { throw new Error('x'); });\n"
+    + "describe('suite', () => { test('in suite', () => { throw new Error('y'); }); });\n");
+  const { NODE_TEST_CONTEXT: _, ...env } = process.env;
+  const res = spawnSync(process.execPath, [join(ROOT, 'scripts', 'run-tests.mjs'), dir, '--test-reporter=dot'], { encoding: 'utf8', env });
+  assert.equal(res.status, 1);
+  assert.match(res.stdout, /^tests: 0 passed, 2 failed, 0 skipped$/m);
+  assert.deepEqual(res.stderr.match(/missing from TAP fail count: .*/g), ['missing from TAP fail count: timed out']);
+});
+
 test('run-tests.mjs fails a run that leaves a tagged kitzur-proxy-test-* dir behind, and removes it', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'kitzur-run-tests-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
